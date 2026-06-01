@@ -1,0 +1,6 @@
+# Configuration for zizmor (GitHub Actions static security analysis).
+rules:
+  dangerous-triggers:
+    ignore:
+      # Labeling requires pull_request_target; the workflow checks out no code.
+      - labeler.yml

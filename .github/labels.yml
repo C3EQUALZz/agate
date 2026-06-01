@@ -1,0 +1,28 @@
+# Declarative label set, synced by .github/workflows/labels.yml.
+- name: bug
+  color: d73a4a
+  description: Something isn't working
+- name: enhancement
+  color: a2eeef
+  description: New feature or request
+- name: documentation
+  color: 0075ca
+  description: Documentation changes
+- name: dependencies
+  color: 0366d6
+  description: Dependency updates
+- name: "crate: crypto"
+  color: 1d76db
+  description: agate-crypto
+- name: "crate: audit"
+  color: 1d76db
+  description: agate-audit
+- name: "area: ci"
+  color: 0e8a16
+  description: CI / workflows
+- name: "area: tooling"
+  color: 0e8a16
+  description: just / lints / deny / hooks
+- name: "area: docs"
+  color: 0075ca
+  description: Documentation

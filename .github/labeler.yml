@@ -1,0 +1,25 @@
+# Auto-label PRs by changed paths (actions/labeler v5).
+"crate: crypto":
+  - changed-files:
+      - any-glob-to-any-file: "crates/agate-crypto/**"
+
+"crate: audit":
+  - changed-files:
+      - any-glob-to-any-file: "crates/agate-audit/**"
+
+"area: ci":
+  - changed-files:
+      - any-glob-to-any-file: ".github/**"
+
+"area: tooling":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "justfile"
+          - "deny.toml"
+          - "rustfmt.toml"
+          - ".pre-commit-config.yaml"
+          - "_typos.toml"
+
+"area: docs":
+  - changed-files:
+      - any-glob-to-any-file: "**/*.md"
