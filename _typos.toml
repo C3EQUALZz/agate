@@ -1,0 +1,5 @@
+# Domain terms that look like typos but are correct.
+[default.extend-words]
+GOST = "GOST"
+Gost = "Gost"
+gost = "gost"

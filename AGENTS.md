@@ -122,8 +122,8 @@ Enable hooks once: `prek install && prek install --hook-type commit-msg`.
 
 - **Crypto agility:** algorithms are pluggable and self-describing (the algorithm tag travels
   with every `Digest`/`Signature`).
-- Hashes: SHA-2, SHA-3, **Streebog (GHOST R 34.11-2012)** — feature-gated.
-  Signatures: **Ed25519** (GHOST R 34.10-2012 planned).
+- Hashes: SHA-2, SHA-3, **Streebog (GOST R 34.11-2012)** — feature-gated.
+  Signatures: **Ed25519** (GOST R 34.10-2012 planned).
 - Hashing and signing are **pure strategies** (traits). Key loading is I/O and lives behind a
   port. A single Merkle tree uses one hash algorithm (an epoch); switching algorithms starts a
   new epoch, recorded in the signed tree head.
