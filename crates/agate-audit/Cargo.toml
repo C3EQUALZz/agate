@@ -1,0 +1,15 @@
+[package]
+name = "agate-audit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Audit bounded context: append-only transparency log (RFC 6962-style Merkle tree)."
+
+[dependencies]
+agate-crypto = { workspace = true }
+uuid = { workspace = true }
+jiff = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+agate-crypto = { workspace = true, features = ["ed25519"] }
