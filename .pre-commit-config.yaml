@@ -1,46 +1,61 @@
 # Git hooks, run via prek (drop-in pre-commit reimplementation).
-# Install once: prek install && prek install --hook-type pre-push
-minimum_pre_commit_version: "3.0.0"
+# Install once: prek install && prek install --hook-type commit-msg
+# Run all manually (or in CI parity): just hooks
+# Cargo hooks call `just` recipes so commands live in one place (the justfile).
+# Tip: `prek autoupdate` refreshes the pinned hook revisions below.
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2000]
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict
-      - id: mixed-line-ending
-        args: [--fix=lf]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.47.0
+    hooks:
+      - id: typos
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
 
   - repo: local
     hooks:
       - id: fmt
         name: cargo fmt
-        entry: cargo fmt --all -- --check
+        entry: just fmt-check
         language: system
         types: [rust]
         pass_filenames: false
 
       - id: clippy
         name: cargo clippy (strict)
-        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        entry: just lint
         language: system
         types: [rust]
         pass_filenames: false
 
       - id: deny
-        name: cargo deny
-        entry: cargo deny check
+        name: cargo-deny
+        entry: just deny
         language: system
         files: 'Cargo\.(toml|lock)$'
         pass_filenames: false
-
-      - id: test
-        name: cargo test
-        entry: cargo test --workspace
-        language: system
-        types: [rust]
-        pass_filenames: false
-        stages: [pre-push]

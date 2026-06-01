@@ -1,0 +1,33 @@
+name: SonarQube
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Dormant until enabled: set repository variable ENABLE_SONAR=true and secrets
+# SONAR_TOKEN + SONAR_HOST_URL. Rust analysis requires SonarQube 10.6+ (or SonarCloud).
+jobs:
+  sonar:
+    name: SonarQube
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_SONAR == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Generate coverage (lcov)
+        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
+      - name: SonarQube scan
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

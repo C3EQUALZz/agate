@@ -48,6 +48,9 @@ secrets/
 *.log
 /logs/
 
+# ---- Claude Code (personal overrides) ----
+.claude/settings.local.json
+
 # ---- Misc ----
 *.bak
 *.tmp

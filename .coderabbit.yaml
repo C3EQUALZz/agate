@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!target/**"
+    - "!**/*.lock"
+  path_instructions:
+    - path: "crates/**/src/domain/**"
+      instructions: >-
+        This is the pure domain layer. Flag any async, I/O, or framework
+        dependency, any aggregate constructed outside its factory, and any
+        grab-bag type names (Meta/Info/Data/Manager). Value objects must be
+        immutable with validating constructors.
+    - path: "crates/**/tests/**"
+      instructions: >-
+        Integration/scenario tests over the public API. Expect
+        Arrange/Act/Assert and deterministic, IO-free tests (injected
+        timestamps, fixed key seeds).
+  tools:
+    clippy:
+      enabled: true
+    rustfmt:
+      enabled: true
+
+chat:
+  auto_reply: true

@@ -1,4 +1,5 @@
 # Agate — dev task runner. Run `just` to list recipes.
+# Single source of truth for commands: CI and git hooks both call these recipes.
 
 [doc("List available recipes")]
 default:
@@ -16,6 +17,10 @@ fmt-check:
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+[doc("Type-check the workspace (used for the MSRV gate)")]
+check:
+    cargo check --workspace --all-features
+
 [doc("Run the workspace test suite")]
 test:
     cargo test --workspace
@@ -28,13 +33,13 @@ test-all:
 deny:
     cargo deny check
 
+[doc("Build API docs, denying doc warnings")]
+doc:
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
+
 [doc("Run every git hook over all files (prek)")]
 hooks:
     prek run --all-files
 
-[doc("Build API docs without dependencies")]
-doc:
-    cargo doc --workspace --no-deps
-
-[doc("Full local gate: fmt-check, lint, test, deny")]
-ci: fmt-check lint test deny
+[doc("Full local gate: all hooks (fmt, clippy, deny, typos, hygiene, secrets) + tests")]
+ci: hooks test
