@@ -13,3 +13,6 @@ jiff = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 agate-crypto = { workspace = true, features = ["ed25519"] }
+
+[lints]
+workspace = true

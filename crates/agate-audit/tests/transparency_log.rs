@@ -64,7 +64,9 @@ fn append_only_growth_is_consistent() {
 
     let proof = log.prove_consistency(old_size).unwrap();
     let mh = merkle_hasher();
-    assert!(MerkleProofs::verify_consistency(&mh, &proof, &old_root, &new_root));
+    assert!(MerkleProofs::verify_consistency(
+        &mh, &proof, &old_root, &new_root
+    ));
 }
 
 #[test]

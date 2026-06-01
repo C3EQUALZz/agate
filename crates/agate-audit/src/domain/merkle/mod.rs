@@ -9,9 +9,7 @@ pub mod values;
 pub use entities::TransparencyLog;
 pub use events::AuditEvent;
 pub use factories::TransparencyLogFactory;
-pub use services::{
-    CheckpointSigner, CheckpointVerifier, MerkleHasher, MerkleProofs, MerkleTree,
-};
+pub use services::{CheckpointSigner, CheckpointVerifier, MerkleHasher, MerkleProofs, MerkleTree};
 pub use values::{
     ConsistencyProof, InclusionProof, LeafIndex, LogId, SignedTreeHead, TreeHead, TreeSize,
 };

@@ -1,0 +1,53 @@
+# ---- Rust / Cargo ----
+/target/
+**/target/
+*.rs.bk
+*.pdb
+# Cargo.lock is intentionally committed (this workspace ships a binary).
+
+# ---- Coverage / profiling ----
+*.profraw
+*.profdata
+/coverage/
+tarpaulin-report.*
+lcov.info
+flamegraph.svg
+perf.data*
+
+# ---- IDE / editors ----
+/.idea/
+/.vscode/
+*.iml
+*.swp
+*.swo
+*~
+.\#*
+\#*\#
+.zed/
+
+# ---- OS ----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+# ---- Secrets / local env ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+secrets/
+*.local.toml
+
+# ---- Logs / runtime ----
+*.log
+/logs/
+
+# ---- Misc ----
+*.bak
+*.tmp

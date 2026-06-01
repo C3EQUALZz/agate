@@ -12,7 +12,7 @@
 //! Concrete implementations live behind cargo features so heavier or
 //! less-mature backends (e.g. GOST) stay opt-in and isolated.
 
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::sync::Arc;
 
 mod registry;
@@ -71,7 +71,7 @@ impl Digest {
     pub fn to_hex(&self) -> String {
         let mut s = String::with_capacity(self.bytes.len() * 2);
         for b in &self.bytes {
-            s.push_str(&format!("{b:02x}"));
+            let _ = write!(s, "{b:02x}");
         }
         s
     }
@@ -122,10 +122,16 @@ impl fmt::Display for CryptoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CryptoError::UnsupportedHash(a) => {
-                write!(f, "hash algorithm {a:?} is not enabled (check cargo features)")
+                write!(
+                    f,
+                    "hash algorithm {a:?} is not enabled (check cargo features)"
+                )
             }
             CryptoError::UnsupportedSignature(a) => {
-                write!(f, "signature algorithm {a:?} is not enabled (check cargo features)")
+                write!(
+                    f,
+                    "signature algorithm {a:?} is not enabled (check cargo features)"
+                )
             }
             CryptoError::InvalidKey(msg) => write!(f, "invalid key: {msg}"),
         }

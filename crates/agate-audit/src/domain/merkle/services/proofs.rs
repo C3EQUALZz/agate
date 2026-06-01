@@ -1,7 +1,7 @@
 use agate_crypto::Digest;
 
 use super::hasher::MerkleHasher;
-use super::tree::{split_point, MerkleTree};
+use super::tree::{MerkleTree, split_point};
 use crate::domain::common::services::DomainService;
 use crate::domain::merkle::values::{ConsistencyProof, InclusionProof, LeafIndex, TreeSize};
 

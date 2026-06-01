@@ -73,7 +73,8 @@ impl TransparencyLog {
         let index = LeafIndex(self.leaves.len() as u64);
         let leaf = self.hasher.leaf(record);
         self.leaves.push(leaf.clone());
-        self.events.record(AuditEvent::RecordAppended { index, leaf });
+        self.events
+            .record(AuditEvent::RecordAppended { index, leaf });
         index
     }
 

@@ -1,0 +1,5 @@
+edition = "2024"
+newline_style = "Unix"
+use_small_heuristics = "Default"
+# Note: import grouping (group_imports / imports_granularity) is nightly-only;
+# enable via `cargo +nightly fmt` if desired.
