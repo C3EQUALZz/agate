@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::domain::common::errors::DomainError;
 use crate::domain::merkle::{LeafIndex, LogId};
 
 /// Errors returned by audit application use cases.
@@ -8,6 +9,7 @@ pub enum AuditError {
     LogNotFound(LogId),
     LeafOutOfRange { index: LeafIndex, size: u64 },
     SizeOutOfRange { requested: u64, current: u64 },
+    Domain(DomainError),
     Storage(String),
 }
 
@@ -24,9 +26,23 @@ impl fmt::Display for AuditError {
                     "size {requested} is out of range (current size {current})"
                 )
             }
+            AuditError::Domain(err) => write!(f, "domain error: {err}"),
             AuditError::Storage(msg) => write!(f, "storage error: {msg}"),
         }
     }
 }
 
-impl std::error::Error for AuditError {}
+impl std::error::Error for AuditError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            AuditError::Domain(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<DomainError> for AuditError {
+    fn from(err: DomainError) -> Self {
+        AuditError::Domain(err)
+    }
+}

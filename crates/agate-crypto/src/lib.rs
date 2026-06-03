@@ -48,6 +48,18 @@ impl HashAlgo {
             HashAlgo::Streebog512 => 5,
         }
     }
+
+    /// Inverse of [`code`](Self::code): resolve a stored byte code.
+    pub fn from_code(code: u8) -> Option<HashAlgo> {
+        match code {
+            1 => Some(HashAlgo::Sha256),
+            2 => Some(HashAlgo::Sha512),
+            3 => Some(HashAlgo::Sha3_256),
+            4 => Some(HashAlgo::Streebog256),
+            5 => Some(HashAlgo::Streebog512),
+            _ => None,
+        }
+    }
 }
 
 /// Self-describing signature algorithm identifier.

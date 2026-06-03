@@ -8,13 +8,17 @@ description = "Audit bounded context: append-only transparency log (RFC 6962-sty
 [dependencies]
 agate-crypto = { workspace = true }
 async-trait = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 jiff = { workspace = true }
+sqlx = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
 agate-crypto = { workspace = true, features = ["ed25519"] }
-tokio = { version = "1", features = ["rt", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+rstest = { workspace = true }
 
 [lints]
 workspace = true

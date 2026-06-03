@@ -8,9 +8,11 @@
 //!   (Merkle hashing, the `TransparencyLog` aggregate, proofs). No I/O.
 //! - [`application`] — CQRS use cases (command/query handlers) over a mediator
 //!   pipeline, plus outbound ports implemented by infrastructure.
+//! - [`infrastructure`] — concrete adapters implementing the ports.
 //!
 //! Dependencies point inward only; the crate depends on `agate-crypto` for the
 //! hashing/signing strategies.
 
 pub mod application;
 pub mod domain;
+pub mod infrastructure;

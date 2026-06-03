@@ -40,7 +40,11 @@ crates/
           query_models/         # read models (DTOs) returned by query gateways
         errors/                 # base.rs: AuditError
         usecases/<name>/        # command.rs|query.rs + handler.rs
-    tests/                      # integration / scenario tests (public API only)
+      infrastructure/           # adapters
+        clock.rs  id_generator.rs               # SystemClock, UuidLogIdGenerator
+        persistence/log/postgres/               # PostgresLog{Command,Query}Gateway, run_migrations
+    migrations/                 # sqlx migrations (per-context Postgres schema)
+    tests/                      # integration tests (incl. testcontainers Postgres under persistence/)
 Cargo.toml                      # [workspace], [workspace.dependencies], [workspace.lints]
 deny.toml  justfile  rustfmt.toml  .pre-commit-config.yaml
 ```
