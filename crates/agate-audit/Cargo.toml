@@ -12,6 +12,7 @@ uuid = { workspace = true, features = ["v4"] }
 jiff = { workspace = true }
 sqlx = { workspace = true }
 tokio = { version = "1", default-features = false, features = ["sync"] }
+froodi = { version = "1.0.0-beta.18", features = ["async"] }
 
 [dev-dependencies]
 proptest = { workspace = true }

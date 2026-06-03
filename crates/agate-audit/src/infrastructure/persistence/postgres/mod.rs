@@ -16,11 +16,14 @@ pub mod transaction_manager;
 
 pub use transaction_manager::PgTransactionManager;
 
+/// The slot a request scope's transaction lives in: `None` until `begin`,
+/// `Some` while open. The `'static` lifetime detaches it from the borrowed
+/// pool so it can be shared. Registered as-is in the IoC container; the
+/// container's `Arc` wrapper is exactly a [`SharedTransaction`].
+pub type TxSlot = Mutex<Option<Transaction<'static, Postgres>>>;
+
 /// A single transaction shared by every gateway of one request scope.
-///
-/// `None` until `begin`; `Some` while a transaction is open. The `'static`
-/// lifetime detaches it from the borrowed pool so it can live in an `Arc`.
-pub type SharedTransaction = Arc<Mutex<Option<Transaction<'static, Postgres>>>>;
+pub type SharedTransaction = Arc<TxSlot>;
 
 // Owned arg so it composes as `.map_err(storage_error)`.
 #[allow(clippy::needless_pass_by_value)]
