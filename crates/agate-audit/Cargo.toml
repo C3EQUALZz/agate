@@ -11,6 +11,7 @@ async-trait = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 jiff = { workspace = true }
 sqlx = { workspace = true }
+tokio = { version = "1", default-features = false, features = ["sync"] }
 
 [dev-dependencies]
 proptest = { workspace = true }

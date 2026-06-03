@@ -28,6 +28,7 @@ where
     T: Send + 'static,
 {
     async fn handle(&self, request: R, next: Next<R>) -> R::Response {
+        self.transaction.begin().await?;
         match next.call(request).await {
             Ok(value) => match self.transaction.commit().await {
                 Ok(()) => Ok(value),
@@ -50,12 +51,17 @@ mod tests {
 
     #[derive(Default)]
     struct CountingTransaction {
+        begins: AtomicUsize,
         commits: AtomicUsize,
         rollbacks: AtomicUsize,
     }
 
     #[async_trait]
     impl TransactionManager for CountingTransaction {
+        async fn begin(&self) -> Result<(), AuditError> {
+            self.begins.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
         async fn commit(&self) -> Result<(), AuditError> {
             self.commits.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -102,6 +108,7 @@ mod tests {
         let mediator = Mediator::new(Arc::new(SucceedHandler), behaviors);
 
         assert_eq!(mediator.send(Succeed).await.unwrap(), 42);
+        assert_eq!(tx.begins.load(Ordering::SeqCst), 1);
         assert_eq!(tx.commits.load(Ordering::SeqCst), 1);
         assert_eq!(tx.rollbacks.load(Ordering::SeqCst), 0);
     }
@@ -114,6 +121,7 @@ mod tests {
         let mediator = Mediator::new(Arc::new(FailHandler), behaviors);
 
         assert!(mediator.send(Fail).await.is_err());
+        assert_eq!(tx.begins.load(Ordering::SeqCst), 1);
         assert_eq!(tx.commits.load(Ordering::SeqCst), 0);
         assert_eq!(tx.rollbacks.load(Ordering::SeqCst), 1);
     }

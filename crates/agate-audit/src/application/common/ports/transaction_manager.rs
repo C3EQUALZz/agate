@@ -10,6 +10,7 @@ use crate::application::errors::AuditError;
 /// becomes necessary, a `UnitOfWork` can be layered on top.
 #[async_trait]
 pub trait TransactionManager: Send + Sync {
+    async fn begin(&self) -> Result<(), AuditError>;
     async fn commit(&self) -> Result<(), AuditError>;
     async fn rollback(&self) -> Result<(), AuditError>;
 }

@@ -1,35 +1,44 @@
 use async_trait::async_trait;
-use sqlx::PgPool;
 
 use agate_crypto::{Digest, HashAlgo};
 
-use super::storage_error;
 use crate::application::common::ports::LogCommandGateway;
 use crate::application::errors::AuditError;
 use crate::domain::common::entities::Entity;
 use crate::domain::common::values::{Timestamp, Timestamps};
 use crate::domain::merkle::{LogId, TransparencyLog, TransparencyLogFactory};
+use crate::infrastructure::persistence::postgres::{SharedTransaction, storage_error};
 
-/// Write-side gateway backed by PostgreSQL (append-only).
+/// Write-side gateway backed by PostgreSQL (append-only). Runs every statement
+/// on the shared request-scoped transaction and never commits — the
+/// `PgTransactionManager` owns the commit boundary.
 pub struct PostgresLogCommandGateway {
-    pool: PgPool,
+    transaction: SharedTransaction,
     factory: TransparencyLogFactory,
 }
 
 impl PostgresLogCommandGateway {
-    pub fn new(pool: PgPool, factory: TransparencyLogFactory) -> Self {
-        Self { pool, factory }
+    pub fn new(transaction: SharedTransaction, factory: TransparencyLogFactory) -> Self {
+        Self {
+            transaction,
+            factory,
+        }
     }
 }
 
 #[async_trait]
 impl LogCommandGateway for PostgresLogCommandGateway {
     async fn load(&self, id: LogId) -> Result<Option<TransparencyLog>, AuditError> {
+        let mut slot = self.transaction.lock().await;
+        let connection = slot
+            .as_mut()
+            .ok_or_else(|| AuditError::Storage("load without an active transaction".to_string()))?;
+
         let Some((created, updated, algo_code)) = sqlx::query_as::<_, (i64, i64, i16)>(
             "SELECT created_at, updated_at, hash_algo FROM audit_log WHERE id = $1",
         )
         .bind(id.0)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut **connection)
         .await
         .map_err(storage_error)?
         else {
@@ -43,7 +52,7 @@ impl LogCommandGateway for PostgresLogCommandGateway {
             "SELECT leaf_hash FROM audit_leaf WHERE log_id = $1 ORDER BY leaf_index",
         )
         .bind(id.0)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut **connection)
         .await
         .map_err(storage_error)?;
 
@@ -63,6 +72,11 @@ impl LogCommandGateway for PostgresLogCommandGateway {
     async fn save(&self, log: &TransparencyLog) -> Result<(), AuditError> {
         let id = log.id().0;
 
+        let mut slot = self.transaction.lock().await;
+        let connection = slot
+            .as_mut()
+            .ok_or_else(|| AuditError::Storage("save without an active transaction".to_string()))?;
+
         sqlx::query(
             "INSERT INTO audit_log (id, created_at, updated_at, hash_algo)
              VALUES ($1, $2, $3, $4)
@@ -72,7 +86,7 @@ impl LogCommandGateway for PostgresLogCommandGateway {
         .bind(log.created_at().as_millis())
         .bind(log.updated_at().as_millis())
         .bind(i16::from(log.algo().code()))
-        .execute(&self.pool)
+        .execute(&mut **connection)
         .await
         .map_err(storage_error)?;
 
@@ -85,7 +99,7 @@ impl LogCommandGateway for PostgresLogCommandGateway {
             .bind(id)
             .bind(index as i64)
             .bind(leaf.bytes.as_slice())
-            .execute(&self.pool)
+            .execute(&mut **connection)
             .await
             .map_err(storage_error)?;
         }

@@ -5,9 +5,10 @@ use async_trait::async_trait;
 use agate_audit::application::common::ports::TransactionManager;
 use agate_audit::application::errors::AuditError;
 
-/// Counts commit/rollback calls (test double for the transaction boundary).
+/// Counts begin/commit/rollback calls (test double for the transaction boundary).
 #[derive(Default)]
 pub struct RecordingTransactionManager {
+    pub begins: AtomicUsize,
     pub commits: AtomicUsize,
     pub rollbacks: AtomicUsize,
 }
@@ -20,6 +21,11 @@ impl RecordingTransactionManager {
 
 #[async_trait]
 impl TransactionManager for RecordingTransactionManager {
+    async fn begin(&self) -> Result<(), AuditError> {
+        self.begins.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
     async fn commit(&self) -> Result<(), AuditError> {
         self.commits.fetch_add(1, Ordering::SeqCst);
         Ok(())

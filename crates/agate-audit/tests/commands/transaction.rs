@@ -30,6 +30,7 @@ async fn command_commits_when_transaction_behavior_is_in_the_pipeline() {
         .unwrap();
 
     assert_eq!(index, LeafIndex(0));
+    assert_eq!(tx.begins.load(Ordering::SeqCst), 1);
     assert_eq!(tx.commits.load(Ordering::SeqCst), 1);
     assert_eq!(tx.rollbacks.load(Ordering::SeqCst), 0);
 }

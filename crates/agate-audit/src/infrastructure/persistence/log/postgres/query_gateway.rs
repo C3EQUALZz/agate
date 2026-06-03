@@ -3,11 +3,11 @@ use sqlx::PgPool;
 
 use agate_crypto::Digest;
 
-use super::storage_error;
 use crate::application::common::ports::LogQueryGateway;
 use crate::application::common::query_models::{ConsistencyProofView, InclusionProofView};
 use crate::application::errors::AuditError;
 use crate::domain::merkle::{LeafIndex, LogId, MerkleHasher, MerkleProofs, MerkleTree, TreeSize};
+use crate::infrastructure::persistence::postgres::storage_error;
 
 /// Read-side gateway backed by PostgreSQL, building proof read models.
 pub struct PostgresLogQueryGateway {
