@@ -4,3 +4,4 @@ pub mod append_record;
 pub mod create_log;
 pub mod get_consistency_proof;
 pub mod get_inclusion_proof;
+pub mod issue_checkpoint;

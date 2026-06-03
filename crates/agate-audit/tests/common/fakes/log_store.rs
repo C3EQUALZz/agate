@@ -7,31 +7,14 @@ use agate_audit::application::common::ports::{LogCommandGateway, LogQueryGateway
 use agate_audit::application::common::query_models::{ConsistencyProofView, InclusionProofView};
 use agate_audit::application::errors::AuditError;
 use agate_audit::domain::common::entities::Entity;
-use agate_audit::domain::common::values::{Timestamp, Timestamps};
+use agate_audit::domain::common::values::Timestamps;
 use agate_audit::domain::merkle::{
     LeafIndex, LogId, MerkleHasher, MerkleProofs, MerkleTree, TransparencyLog,
     TransparencyLogFactory, TreeSize,
 };
-use agate_audit::domain::ports::{Clock, IdGenerator};
 use agate_crypto::Digest;
 
-use super::factories::{epoch, log_factory, merkle_hasher};
-
-pub struct FixedClock(pub Timestamp);
-
-impl Clock for FixedClock {
-    fn now(&self) -> Timestamp {
-        self.0
-    }
-}
-
-pub struct FixedId(pub LogId);
-
-impl IdGenerator<LogId> for FixedId {
-    fn generate(&self) -> LogId {
-        self.0
-    }
-}
+use crate::common::factories::{epoch, log_factory, merkle_hasher};
 
 /// In-memory store backing both CQRS gateways over the same leaf hashes.
 pub struct InMemoryLogStore {
