@@ -11,6 +11,7 @@ use crate::domain::common::values::{Timestamp, Timestamps};
 
 /// Assembles `TransparencyLog` aggregates, injecting the hashing strategy and a
 /// fresh event collection.
+#[derive(Clone)]
 pub struct TransparencyLogFactory {
     hasher: Arc<dyn Hasher>,
 }

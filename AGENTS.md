@@ -32,6 +32,14 @@ crates/
           events/    (base.rs: DomainEvent/EventMeta, event_id.rs, events_collection.rs)
         merkle/                 # transparency-log subdomain
           values/  entities/  services/  factories/  events.rs
+        ports/                  # domain ports: Clock, IdGenerator
+      application/              # CQRS use cases over a mediator pipeline
+        common/                 # shared: messaging (mediator), ports, query_models
+          messaging/            # Request/Command/Query, RequestHandler, Behavior+Next, Mediator
+          ports/                # log/{command_gateway, query_gateway} (CQRS), KeyStore, CheckpointAnchor, EventOutbox, TransactionManager
+          query_models/         # read models (DTOs) returned by query gateways
+        errors/                 # base.rs: AuditError
+        usecases/<name>/        # command.rs|query.rs + handler.rs
     tests/                      # integration / scenario tests (public API only)
 Cargo.toml                      # [workspace], [workspace.dependencies], [workspace.lints]
 deny.toml  justfile  rustfmt.toml  .pre-commit-config.yaml
@@ -72,9 +80,10 @@ Per bounded context, layers are added inward-out as the context grows:
 - **Domain service** — stateless unit struct + `impl DomainService`.
 - **Errors** — hierarchy modeled as nested `enum` (`DomainError::Time(TimeError)`) with
   `Error::source()`.
-- **Ports** — `Clock` and `IdGenerator` are **domain ports**; `KeyStore`, `LeafStore`,
-  `CheckpointAnchor` are **application/infrastructure ports**. Obtaining "now" or new ids is
-  I/O and lives behind a port, not inside the domain.
+- **Ports** — `Clock` and `IdGenerator` are **domain ports**; persistence and external systems
+  are **application ports**. Persistence is split CQRS-style: a **command gateway** loads/saves
+  the aggregate (write side), a **query gateway** returns read models/DTOs (read side, possibly
+  from a projection/cache) — not the aggregate. Obtaining "now"/new ids is I/O behind a port.
 
 ---
 
@@ -115,6 +124,12 @@ Enable hooks once: `prek install && prek install --hook-type commit-msg`.
 - Name tests by behavior and expected outcome.
 - Keep tests deterministic, fast, and isolated from network/IO — inject timestamps and use
   fixed key seeds; never call wall-clock or RNG directly.
+- Group an integration suite as one binary (`tests/<area>.rs`) with module folders, sharing
+  helpers from `tests/common/` (`fakes.rs`, `factories.rs`; `#![allow(dead_code)]`).
+- Application tests run handlers over **in-memory fakes**. Database-backed gateway adapters get
+  their own integration tests via **testcontainers** in the infrastructure layer; full wired
+  end-to-end tests use **froodi** later. Don't add a DB/testcontainers/froodi before there's an
+  adapter to test.
 
 ---
 
