@@ -5,7 +5,8 @@ use ed25519_dalek::{
     VerifyingKey,
 };
 
-use crate::{CryptoError, KeyId, SignAlgo, Signature, Signer, Verifier};
+use crate::domain::common::errors::CryptoError;
+use crate::domain::signing::{KeyId, SignAlgo, Signature, Signer, Verifier};
 
 pub struct Ed25519Signer {
     key: SigningKey,

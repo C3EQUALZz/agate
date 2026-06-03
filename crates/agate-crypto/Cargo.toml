@@ -3,7 +3,7 @@ name = "agate-crypto"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Crypto agility (hash + signature) for Agate. A generic subdomain, not a shared kernel."
+description = "Crypto agility (hash + signature + AEAD) for Agate. A generic subdomain, not a shared kernel."
 
 [features]
 default = ["sha2"]
@@ -11,13 +11,27 @@ sha2 = ["dep:sha2"]
 sha3 = ["dep:sha3"]
 streebog = ["dep:streebog"]
 ed25519 = ["dep:ed25519-dalek"]
+aes-gcm = ["dep:aes-gcm", "dep:aead"]
+chacha20poly1305 = ["dep:chacha20poly1305", "dep:aead"]
+# GOST R 34.12-2015 ciphers (Kuznyechik / Magma) in MGM AEAD mode.
+gost-cipher = ["dep:kuznyechik", "dep:magma", "dep:mgm", "dep:aead"]
 
 [dependencies]
 digest = { workspace = true }
+zeroize = { workspace = true }
 sha2 = { workspace = true, optional = true }
 sha3 = { workspace = true, optional = true }
 streebog = { workspace = true, optional = true }
 ed25519-dalek = { workspace = true, optional = true }
+aead = { workspace = true, optional = true }
+aes-gcm = { workspace = true, optional = true }
+chacha20poly1305 = { workspace = true, optional = true }
+kuznyechik = { workspace = true, optional = true }
+magma = { workspace = true, optional = true }
+mgm = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
 
 [lints]
 workspace = true
