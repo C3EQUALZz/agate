@@ -1,16 +1,10 @@
-//! End-to-end test of the `froodi` composition root against a real database
-//! (testcontainers; requires Docker). Drives use cases through the
-//! [`Dispatcher`] exactly as a presentation adapter would: one request scope
-//! per dispatch, each with its own transaction.
+//! The froodi composition root driven through the [`Dispatcher`] against a real
+//! database: one request scope (one transaction) per dispatch — the component
+//! wiring, without HTTP (that is the e2e suite).
 
 use std::sync::Arc;
 
 use froodi::async_impl::Container;
-use rstest::{fixture, rstest};
-use sqlx::postgres::PgPoolOptions;
-use testcontainers::ContainerAsync;
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::postgres::Postgres;
 use uuid::Uuid;
 
 use agate_audit::application::common::messaging::{Dispatcher, Registry, Request};
@@ -21,20 +15,31 @@ use agate_audit::application::usecases::get_consistency_proof::GetConsistencyPro
 use agate_audit::application::usecases::get_inclusion_proof::GetInclusionProof;
 use agate_audit::domain::merkle::{LeafIndex, LogId, MerkleHasher, MerkleProofs, TreeSize};
 use agate_audit::infrastructure::di::{build_container, build_registry};
-use agate_audit::infrastructure::persistence::postgres::run_migrations;
 use agate_crypto::{CryptoRegistry, HashAlgo};
 
-/// The wired application: an App-scope container plus the routing table. Holds
-/// the Postgres container alive (RAII).
+use crate::fixture::{Db, start};
+
+/// The wired application: an App-scope container plus the routing table, over a
+/// live database (the container is held by `_db` for RAII).
 struct App {
-    _container: ContainerAsync<Postgres>,
+    _db: Db,
     container: Container,
     registry: Arc<Registry<Container>>,
 }
 
 impl App {
+    async fn new() -> Self {
+        let db = start().await;
+        let container = build_container(db.pool.clone());
+        Self {
+            _db: db,
+            container,
+            registry: Arc::new(build_registry()),
+        }
+    }
+
     /// Dispatch one request in its own request scope (one transaction), closing
-    /// the scope afterwards so finalizers run — exactly one request's lifecycle.
+    /// the scope afterwards so finalizers run.
     async fn dispatch<R: Request>(&self, request: R) -> R::Response {
         let scope = Arc::new(
             self.container
@@ -49,31 +54,14 @@ impl App {
     }
 }
 
-#[fixture]
-async fn app() -> App {
-    let container = Postgres::default().start().await.unwrap();
-    let port = container.get_host_port_ipv4(5432).await.unwrap();
-    let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
-    let pool = PgPoolOptions::new().connect(&url).await.unwrap();
-    run_migrations(&pool).await.unwrap();
-    App {
-        _container: container,
-        container: build_container(pool),
-        registry: Arc::new(build_registry()),
-    }
-}
-
 fn hasher() -> MerkleHasher {
     MerkleHasher::new(CryptoRegistry::hasher(HashAlgo::Sha256).unwrap())
 }
 
-#[rstest]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn create_append_and_prove_through_the_container(#[future] app: App) {
-    let app = app.await;
+async fn create_append_and_prove_through_the_container() {
+    let app = App::new().await;
 
-    // Each command commits in its own request scope; the next scope loads the
-    // committed state — proving the transaction boundary is wired correctly.
     let log = app.dispatch(CreateLog).await.unwrap();
 
     let first = app
@@ -89,7 +77,6 @@ async fn create_append_and_prove_through_the_container(#[future] app: App) {
         app.dispatch(AppendRecord { log, record }).await.unwrap();
     }
 
-    // Read side (separate connection, no transaction) sees all three records.
     let inclusion = app
         .dispatch(GetInclusionProof {
             log,
@@ -119,10 +106,9 @@ async fn create_append_and_prove_through_the_container(#[future] app: App) {
     ));
 }
 
-#[rstest]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn failed_command_rolls_back_and_reports_not_found(#[future] app: App) {
-    let app = app.await;
+async fn failed_command_rolls_back_and_reports_not_found() {
+    let app = App::new().await;
     let missing = LogId(Uuid::new_v4());
 
     let result = app
@@ -132,7 +118,5 @@ async fn failed_command_rolls_back_and_reports_not_found(#[future] app: App) {
         })
         .await;
 
-    // The handler errors (log absent); TransactionBehavior rolls back and
-    // surfaces the original error through the container.
     assert!(matches!(result, Err(AuditError::LogNotFound(id)) if id == missing));
 }

@@ -1,0 +1,121 @@
+//! Structural behaviour of the `Run` inspection state machine: tool-call
+//! assembly, lifecycle ordering, and resource budgets.
+
+use agate_proxy::domain::inspection::values::{
+    AgentEvent, Budgets, Fragment, LifecyclePhase, OpaqueKind, StateMutation, StructuralOutcome,
+    ToolCallId,
+};
+use agate_proxy::domain::inspection::{Run, RunId};
+use uuid::Uuid;
+
+fn run() -> Run {
+    Run::new(RunId(Uuid::nil()), Budgets::default())
+}
+
+fn started_run() -> Run {
+    let mut run = run();
+    let outcome = run.inspect(Fragment::Lifecycle(LifecyclePhase::RunStarted));
+    assert_eq!(
+        outcome,
+        StructuralOutcome::Ready(AgentEvent::Lifecycle(LifecyclePhase::RunStarted))
+    );
+    run
+}
+
+fn tool(id: &str) -> ToolCallId {
+    ToolCallId(id.to_string())
+}
+
+#[test]
+fn assembles_a_tool_call_from_its_fragments() {
+    let mut run = started_run();
+
+    assert_eq!(
+        run.inspect(Fragment::ToolCallStarted {
+            id: tool("t1"),
+            name: "search".to_string(),
+        }),
+        StructuralOutcome::Buffering
+    );
+    assert_eq!(
+        run.inspect(Fragment::ToolCallArgs {
+            id: tool("t1"),
+            delta: "{\"q\":".to_string(),
+        }),
+        StructuralOutcome::Buffering
+    );
+    assert_eq!(
+        run.inspect(Fragment::ToolCallArgs {
+            id: tool("t1"),
+            delta: "\"hi\"}".to_string(),
+        }),
+        StructuralOutcome::Buffering
+    );
+
+    assert_eq!(
+        run.inspect(Fragment::ToolCallEnded { id: tool("t1") }),
+        StructuralOutcome::Ready(AgentEvent::ToolCall {
+            id: tool("t1"),
+            name: "search".to_string(),
+            arguments: "{\"q\":\"hi\"}".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_content_before_the_run_starts() {
+    let mut run = run();
+    let outcome = run.inspect(Fragment::Opaque(OpaqueKind::Custom));
+    assert!(matches!(outcome, StructuralOutcome::Reject(_)));
+}
+
+#[test]
+fn rejects_events_after_the_run_finishes() {
+    let mut run = started_run();
+    assert!(matches!(
+        run.inspect(Fragment::Lifecycle(LifecyclePhase::RunFinished)),
+        StructuralOutcome::Ready(_)
+    ));
+    assert!(matches!(
+        run.inspect(Fragment::Opaque(OpaqueKind::Raw)),
+        StructuralOutcome::Reject(_)
+    ));
+}
+
+#[test]
+fn rejects_arguments_for_an_unknown_tool_call() {
+    let mut run = started_run();
+    assert!(matches!(
+        run.inspect(Fragment::ToolCallArgs {
+            id: tool("ghost"),
+            delta: "x".to_string(),
+        }),
+        StructuralOutcome::Reject(_)
+    ));
+}
+
+#[test]
+fn enforces_the_tool_argument_budget() {
+    let mut run = Run::new(RunId(Uuid::nil()), Budgets::new(8, 1024, 4));
+    run.inspect(Fragment::Lifecycle(LifecyclePhase::RunStarted));
+    run.inspect(Fragment::ToolCallStarted {
+        id: tool("t1"),
+        name: "x".to_string(),
+    });
+    let outcome = run.inspect(Fragment::ToolCallArgs {
+        id: tool("t1"),
+        delta: "0123456789".to_string(),
+    });
+    assert!(matches!(outcome, StructuralOutcome::Reject(_)));
+}
+
+#[test]
+fn enforces_the_state_mutation_budget() {
+    let mut run = Run::new(RunId(Uuid::nil()), Budgets::new(1024, 4, 4));
+    run.inspect(Fragment::Lifecycle(LifecyclePhase::RunStarted));
+    let outcome = run.inspect(Fragment::StateMutation(StateMutation::Snapshot {
+        byte_size: 16,
+        payload: "{\"big\":\"value\"}".to_string(),
+    }));
+    assert!(matches!(outcome, StructuralOutcome::Reject(_)));
+}

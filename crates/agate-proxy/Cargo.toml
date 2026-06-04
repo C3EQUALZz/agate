@@ -1,0 +1,12 @@
+[package]
+name = "agate-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Proxy bounded context: inline inspection of LLM-agent traffic, protocol-agnostic core."
+
+[dependencies]
+uuid = { workspace = true }
+
+[lints]
+workspace = true
