@@ -3,5 +3,6 @@
 
 pub mod ag_ui;
 pub mod policy;
+pub mod sse;
 
 pub use policy::AllowAllPolicy;
