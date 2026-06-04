@@ -14,7 +14,7 @@ use agate_audit::application::usecases::create_log::CreateLog;
 use agate_audit::application::usecases::get_consistency_proof::GetConsistencyProof;
 use agate_audit::application::usecases::get_inclusion_proof::GetInclusionProof;
 use agate_audit::domain::merkle::{LeafIndex, LogId, MerkleHasher, MerkleProofs, TreeSize};
-use agate_audit::infrastructure::di::{build_container, build_registry};
+use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_crypto::{CryptoRegistry, HashAlgo};
 
 use crate::fixture::{Db, start};

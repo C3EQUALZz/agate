@@ -4,20 +4,20 @@
 use sqlx::postgres::PgPoolOptions;
 
 use agate_audit::infrastructure::persistence::postgres::run_migrations;
-use agate_audit::presentation::build_app;
+use agate_audit::setup::bootstrap::build_app;
+use agate_audit::setup::configs::AppConfig;
 
 #[tokio::main]
 async fn main() {
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
+    let config = AppConfig::from_env();
 
     let pool = PgPoolOptions::new()
-        .connect(&database_url)
+        .connect(config.postgres.url())
         .await
         .expect("connect to Postgres");
     run_migrations(&pool).await.expect("run migrations");
 
-    let listener = tokio::net::TcpListener::bind(&bind_addr)
+    let listener = tokio::net::TcpListener::bind(&config.http.bind_addr)
         .await
         .expect("bind listener");
     axum::serve(listener, build_app(pool)).await.expect("serve");

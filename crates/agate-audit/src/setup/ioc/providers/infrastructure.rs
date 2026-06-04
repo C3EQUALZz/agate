@@ -28,7 +28,7 @@ use crate::infrastructure::{SystemClock, UuidLogIdGenerator};
 
 /// Adapters and the request transaction. `pool` becomes the App-scope singleton
 /// every request-scoped gateway/transaction borrows from.
-pub(super) fn infrastructure_providers(pool: PgPool) -> RegistryWithSync {
+pub(crate) fn infrastructure_providers(pool: PgPool) -> RegistryWithSync {
     async_registry! {
         scope(Request) [
             provide(provide_tx_slot),

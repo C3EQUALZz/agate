@@ -42,15 +42,27 @@ crates/
         usecases/<name>/        # command.rs|query.rs + handler.rs
       infrastructure/           # adapters
         clock.rs  id_generator.rs               # SystemClock, UuidLogIdGenerator
-        persistence/log/postgres/               # PostgresLog{Command,Query}Gateway, run_migrations
+        persistence/log/postgres/               # PostgresLog{Command,Query}Gateway
+        persistence/postgres/                   # SharedTransaction, PgTransactionManager, run_migrations
+      presentation/             # HTTP-facing only (handlers, schemas, error mapping)
+        http/health.rs
+        http/v1/common/         # error.rs (AuditError→HTTP), dispatch.rs
+        http/v1/routes/<aggregate>/             # router.rs + <operation>/{handler.rs, schema.rs}
+      setup/                    # composition root (assembly; outermost layer)
+        configs/                # typed config from env (AppConfig, Postgres/HttpConfig)
+        ioc/                    # froodi container + registry + providers/ (by concern)
+        bootstrap/http.rs       # build_app: route mapping + per-request froodi layer
+      main.rs                   # entrypoint: config → pool → migrate → build_app → serve
     migrations/                 # sqlx migrations (per-context Postgres schema)
-    tests/                      # integration tests (incl. testcontainers Postgres under persistence/)
+    tests/                      # application/ (fakes), integration/ (Postgres), e2e/ (HTTP)
 Cargo.toml                      # [workspace], [workspace.dependencies], [workspace.lints]
 deny.toml  justfile  rustfmt.toml  .pre-commit-config.yaml
 ```
 
 Per bounded context, layers are added inward-out as the context grows:
-`domain → application → infrastructure → presentation`.
+`domain → application → infrastructure → presentation`. The **composition root**
+(`setup/`: configs, the IoC container/providers, and HTTP bootstrap) is the
+outermost layer — it wires everything and depends inward on all the others.
 
 ---
 

@@ -26,7 +26,7 @@ use crate::infrastructure::persistence::postgres::PgTransactionManager;
 use crate::infrastructure::{SystemClock, UuidLogIdGenerator};
 
 /// The use-case handlers and the transaction behavior, all Request-scoped.
-pub(super) fn handler_providers() -> RegistryWithSync {
+pub(crate) fn handler_providers() -> RegistryWithSync {
     async_registry! {
         scope(Request) [
             provide(provide_transaction_behavior),

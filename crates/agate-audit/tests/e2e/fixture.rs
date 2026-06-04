@@ -11,7 +11,7 @@ use testcontainers_modules::postgres::Postgres;
 use tokio::net::TcpListener;
 
 use agate_audit::infrastructure::persistence::postgres::run_migrations;
-use agate_audit::presentation::build_app;
+use agate_audit::setup::bootstrap::build_app;
 
 /// A running application: the HTTP server (background task), its base URL, and a
 /// pool to inspect the database directly. Holds the container alive (RAII).
