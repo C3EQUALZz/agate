@@ -12,6 +12,7 @@ serde_json = { workspace = true }
 reqwest = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+async-stream = { workspace = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net"] }

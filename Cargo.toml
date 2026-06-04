@@ -40,6 +40,7 @@ tracing = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 bytes = "1"
 futures = "0.3"
+async-stream = "0.3"
 
 # --- internal crates ---
 agate-crypto = { path = "crates/agate-crypto", version = "0.1.0" }
