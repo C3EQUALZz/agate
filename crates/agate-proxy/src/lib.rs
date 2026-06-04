@@ -9,6 +9,8 @@
 //! wire events into domain events. See `docs/design/agate-proxy-threat-model.md`.
 //!
 //! Layers are modules (Clean Architecture inside one bounded-context crate);
-//! dependencies point inward only. Only [`domain`] exists so far.
+//! dependencies point inward only.
 
+pub mod application;
 pub mod domain;
+pub mod infrastructure;
