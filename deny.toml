@@ -21,6 +21,8 @@ allow = [
     "Unicode-3.0",
     "Unicode-DFS-2016",
     "Zlib",
+    # Mozilla CA root store data shipped by webpki-roots (via rustls).
+    "CDLA-Permissive-2.0",
 ]
 
 [sources]

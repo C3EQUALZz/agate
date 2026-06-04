@@ -17,3 +17,16 @@ pub use event::SseEvent;
 pub fn encode(data: &str) -> String {
     format!("data: {data}\n\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::encode;
+
+    #[test]
+    fn encode_produces_an_sse_frame() {
+        assert_eq!(
+            encode("{\"type\":\"RUN_ERROR\"}"),
+            "data: {\"type\":\"RUN_ERROR\"}\n\n"
+        );
+    }
+}

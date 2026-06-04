@@ -2,7 +2,9 @@
 //! application-port implementations.
 
 pub mod ag_ui;
+pub mod agent;
 pub mod policy;
 pub mod sse;
 
+pub use agent::ReqwestAgentClient;
 pub use policy::AllowAllPolicy;

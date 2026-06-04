@@ -9,9 +9,21 @@ description = "Proxy bounded context: inline inspection of LLM-agent traffic, pr
 uuid = { workspace = true }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
+reqwest = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net"] }
+axum = { workspace = true }
+
+[[test]]
+name = "application"
+path = "tests/application/main.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
 
 [lints]
 workspace = true
