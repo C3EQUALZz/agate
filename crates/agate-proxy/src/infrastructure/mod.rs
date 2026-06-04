@@ -1,5 +1,7 @@
-//! Infrastructure layer: concrete adapters implementing the application ports.
+//! Infrastructure layer: concrete adapters — the AG-UI protocol adapter and the
+//! application-port implementations.
 
+pub mod ag_ui;
 pub mod policy;
 
 pub use policy::AllowAllPolicy;

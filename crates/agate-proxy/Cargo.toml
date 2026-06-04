@@ -8,6 +8,7 @@ description = "Proxy bounded context: inline inspection of LLM-agent traffic, pr
 [dependencies]
 uuid = { workspace = true }
 async-trait = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
