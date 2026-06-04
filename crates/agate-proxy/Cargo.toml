@@ -6,17 +6,16 @@ license.workspace = true
 description = "Proxy bounded context: inline inspection of LLM-agent traffic, protocol-agnostic core."
 
 [dependencies]
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 async-stream = { workspace = true }
-
-[dev-dependencies]
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net"] }
 axum = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+froodi = { version = "1.0.0-beta.18", features = ["async", "axum"] }
 
 [[test]]
 name = "application"
@@ -25,6 +24,10 @@ path = "tests/application/main.rs"
 [[test]]
 name = "integration"
 path = "tests/integration/main.rs"
+
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
 
 [lints]
 workspace = true

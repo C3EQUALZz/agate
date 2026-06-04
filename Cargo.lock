@@ -86,6 +86,7 @@ dependencies = [
  "async-trait",
  "axum",
  "bytes",
+ "froodi",
  "futures",
  "reqwest",
  "serde_json",
