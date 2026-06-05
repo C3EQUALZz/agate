@@ -21,7 +21,7 @@ aead = { version = "0.4", default-features = false, features = ["alloc"] }
 aes-gcm = { version = "0.9", default-features = false, features = ["alloc", "aes"] }
 chacha20poly1305 = { version = "0.9", default-features = false, features = ["alloc"] }
 kuznyechik = "0.7"
-magma = "0.7"
+magma = "0.10"
 mgm = { version = "0.4", default-features = false, features = ["alloc"] }
 zeroize = { version = "1", default-features = false, features = ["alloc"] }
 uuid = { version = "1", default-features = false }
