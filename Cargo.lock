@@ -12,6 +12,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aead"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0"
+dependencies = [
+ "crypto-common 0.1.7",
+ "generic-array",
+]
+
+[[package]]
 name = "aes"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -29,7 +39,7 @@ version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc3be92e19a7ef47457b8e6f90707e12b6ac5d20c6f3866584fa3be0787d839f"
 dependencies = [
- "aead",
+ "aead 0.4.3",
  "aes",
  "cipher",
  "ctr",
@@ -63,7 +73,7 @@ dependencies = [
 name = "agate-crypto"
 version = "0.1.0"
 dependencies = [
- "aead",
+ "aead 0.5.2",
  "aes-gcm",
  "chacha20poly1305",
  "digest 0.10.7",
@@ -475,7 +485,7 @@ version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a18446b09be63d457bbec447509e85f662f32952b035ce892290396bc0b0cff5"
 dependencies = [
- "aead",
+ "aead 0.4.3",
  "chacha20 0.8.2",
  "cipher",
  "poly1305",
@@ -1747,7 +1757,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "306f9449cd3f2f692e36190712187211a97475b407cd933d2f3e137f43a4f5f2"
 dependencies = [
- "aead",
+ "aead 0.4.3",
  "cipher",
  "subtle",
 ]
