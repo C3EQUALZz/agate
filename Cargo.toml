@@ -20,7 +20,7 @@ ed25519-dalek = "2"
 aead = { version = "0.4", default-features = false, features = ["alloc"] }
 aes-gcm = { version = "0.9", default-features = false, features = ["alloc", "aes"] }
 chacha20poly1305 = { version = "0.9", default-features = false, features = ["alloc"] }
-kuznyechik = "0.7"
+kuznyechik = "0.9"
 magma = "0.7"
 mgm = { version = "0.4", default-features = false, features = ["alloc"] }
 zeroize = { version = "1", default-features = false, features = ["alloc"] }
