@@ -37,6 +37,9 @@ async fn main() {
         .policy_ruleset()
         .expect("invalid policy configuration");
     let postgres = config.postgres_config();
+    let pinned_log_id = std::env::var("AUDIT_LOG_ID")
+        .ok()
+        .map(|raw| LogId(raw.parse::<Uuid>().expect("AUDIT_LOG_ID must be a UUID")));
 
     let pool = PgPoolOptions::new()
         .connect(postgres.url())
@@ -44,7 +47,7 @@ async fn main() {
         .expect("connect to Postgres");
     run_migrations(&pool).await.expect("run migrations");
 
-    let log = resolve_log(&pool).await;
+    let log = resolve_log(&pool, pinned_log_id).await;
     let server = build_server(proxy, pool, log, ruleset);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
@@ -56,10 +59,9 @@ async fn main() {
 /// The transparency log to record into: `AUDIT_LOG_ID` if set, else a freshly
 /// created log (so a first run is self-contained; set the env var to keep
 /// appending to the same log across restarts).
-async fn resolve_log(pool: &PgPool) -> LogId {
-    if let Ok(id) = std::env::var("AUDIT_LOG_ID") {
-        let id = id.parse::<Uuid>().expect("AUDIT_LOG_ID must be a UUID");
-        return LogId(id);
+async fn resolve_log(pool: &PgPool, pinned: Option<LogId>) -> LogId {
+    if let Some(id) = pinned {
+        return id;
     }
 
     let container = build_container(pool.clone());
