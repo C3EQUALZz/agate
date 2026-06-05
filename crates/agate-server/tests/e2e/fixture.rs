@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use axum::http::header::CONTENT_TYPE;
@@ -17,9 +18,11 @@ use tokio::net::TcpListener;
 
 use agate_audit::application::common::messaging::{Dispatcher, Registry, Request};
 use agate_audit::application::usecases::create_log::CreateLog;
-use agate_audit::domain::merkle::LogId;
+use agate_audit::application::usecases::get_inclusion_proof::GetInclusionProof;
+use agate_audit::domain::merkle::{LeafIndex, LogId};
 use agate_audit::infrastructure::persistence::postgres::run_migrations;
 use agate_audit::setup::ioc::{build_container, build_registry};
+use agate_policy::domain::decision::PolicyRuleset;
 use agate_proxy::setup::configs::ProxyConfig;
 use agate_server::setup::bootstrap::{Server, build_server};
 use froodi::async_impl::Container;
@@ -42,8 +45,9 @@ pub struct TestServer {
     pub log: LogId,
 }
 
-/// Boot the stub agent, the database, and the server; create a fresh log.
-pub async fn spawn() -> TestServer {
+/// Boot the stub agent (answering with `sse_body`), the database, and the
+/// server wired to `ruleset`; create a fresh log.
+pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer {
     let container = Postgres::default().start().await.unwrap();
     let port = container.get_host_port_ipv4(5432).await.unwrap();
     let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
@@ -55,11 +59,11 @@ pub async fn spawn() -> TestServer {
         .await
         .unwrap();
 
-    let agent_endpoint = stub_agent().await;
+    let agent_endpoint = stub_agent(sse_body).await;
     let proxy = ProxyConfig::new(agent_endpoint, "127.0.0.1:0".to_string());
     // The outbox task is detached: it lives as long as the served app (and the
     // audit sink inside it) keeps the channel open.
-    let Server { app, .. } = build_server(proxy, pool.clone(), log);
+    let Server { app, .. } = build_server(proxy, pool.clone(), log, ruleset);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -75,11 +79,11 @@ pub async fn spawn() -> TestServer {
     }
 }
 
-/// Boot a stub AG-UI agent answering `POST /run` with [`SSE_BODY`].
-async fn stub_agent() -> String {
+/// Boot a stub AG-UI agent answering `POST /run` with `body`.
+async fn stub_agent(body: &'static str) -> String {
     let app = Router::new().route(
         "/run",
-        post(|| async { ([(CONTENT_TYPE, "text/event-stream")], SSE_BODY) }),
+        post(move || async move { ([(CONTENT_TYPE, "text/event-stream")], body) }),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -112,4 +116,28 @@ pub async fn dispatch<R: Request>(
     let response = dispatcher.send(request).await;
     scope.close().await;
     response
+}
+
+/// Outbox writes are asynchronous; poll the log up to ~5s (50 × 100ms).
+const POLL_ATTEMPTS: usize = 50;
+const POLL_INTERVAL_MS: u64 = 100;
+
+/// Poll the log for an inclusion proof of `index`, tolerating the outbox's
+/// asynchronous write. Returns whether the leaf appeared within the timeout.
+pub async fn poll_inclusion(
+    container: &Container,
+    registry: &Arc<Registry<Container>>,
+    log: LogId,
+    index: LeafIndex,
+) -> bool {
+    for _ in 0..POLL_ATTEMPTS {
+        if dispatch(container, registry, GetInclusionProof { log, index })
+            .await
+            .is_ok()
+        {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
+    }
+    false
 }

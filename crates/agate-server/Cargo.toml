@@ -8,6 +8,7 @@ description = "Composition root: wires the proxy data plane to the audit transpa
 [dependencies]
 agate-proxy = { workspace = true }
 agate-audit = { workspace = true }
+agate-policy = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"] }
