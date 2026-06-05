@@ -5,7 +5,7 @@ flow. Project conventions live in [`AGENTS.md`](../AGENTS.md) — read it first.
 
 ## Prerequisites
 
-- Rust (edition 2024 / resolver 3; toolchain ≥ 1.85) via `rustup`
+- Rust (edition 2024 / resolver 3; toolchain ≥ 1.94) via `rustup`
 - [`just`](https://github.com/casey/just), [`prek`](https://github.com/j178/prek),
   [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny)
 
