@@ -5,8 +5,11 @@ on:
     branches: [main]
   pull_request:
 
-# Dormant until enabled: set repository variable ENABLE_SONAR=true and secrets
-# SONAR_TOKEN + SONAR_HOST_URL. Rust analysis requires SonarQube 10.6+ (or SonarCloud).
+# Targets SonarQube Cloud (sonarcloud.io): the org/project live in
+# sonar-project.properties, so only the SONAR_TOKEN secret is needed (the host
+# defaults to sonarcloud.io). Gated on the ENABLE_SONAR repository variable
+# because secrets cannot be referenced in a job `if`; set ENABLE_SONAR=true to
+# activate. Rust analysis requires SonarQube 10.6+ / SonarQube Cloud.
 permissions:
   contents: read
 
@@ -33,4 +36,3 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
