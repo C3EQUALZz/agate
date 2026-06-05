@@ -1,0 +1,13 @@
+[package]
+name = "agate-policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Policy bounded context: content/authorization decisions over inspected agent actions."
+
+[dependencies]
+# A pure domain: no async runtime, transport, or framework deps. The context
+# decides verdicts from in-memory rules and depends on nothing internal.
+
+[lints]
+workspace = true

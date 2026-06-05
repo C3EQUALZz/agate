@@ -7,12 +7,14 @@ use tokio::task::JoinHandle;
 
 use agate_audit::domain::merkle::LogId;
 use agate_audit::setup::ioc::{build_container, build_registry};
+use agate_policy::application::PolicyService;
+use agate_policy::domain::decision::PolicyRuleset;
 use agate_proxy::application::common::ports::{AuditSink, PolicyPort};
-use agate_proxy::infrastructure::AllowAllPolicy;
 use agate_proxy::setup::bootstrap::build_app_with;
 use agate_proxy::setup::configs::ProxyConfig;
 
 use crate::infrastructure::audit::{AuditLogSink, AuditOutbox};
+use crate::infrastructure::policy::PolicyAdapter;
 
 /// How many inspected records may queue before the forwarding path feels
 /// backpressure from the audit write. Bounded so a slow database cannot grow
@@ -32,20 +34,26 @@ pub struct Server {
     pub outbox: JoinHandle<()>,
 }
 
-/// Wire the proxy to the audit log identified by `log`, backed by `pool`.
+/// Wire the proxy to the policy `ruleset` and the audit log identified by `log`,
+/// backed by `pool`.
 ///
-/// The policy is the proxy's default allow-all (a real `agate-policy` will
-/// replace it later); the audit sink is the real bridge to the transparency
-/// log. Must be called from within a Tokio runtime — it spawns the outbox task.
+/// Policy decisions come from `agate-policy` (via [`PolicyAdapter`]); the audit
+/// sink is the real bridge to the transparency log. Must be called from within a
+/// Tokio runtime — it spawns the outbox task.
 #[must_use]
-pub fn build_server(proxy: ProxyConfig, pool: PgPool, log: LogId) -> Server {
+pub fn build_server(
+    proxy: ProxyConfig,
+    pool: PgPool,
+    log: LogId,
+    ruleset: PolicyRuleset,
+) -> Server {
     let container = build_container(pool);
     let registry = Arc::new(build_registry());
 
     let (tx, rx) = mpsc::channel::<Vec<u8>>(OUTBOX_CAPACITY);
     let outbox = tokio::spawn(AuditOutbox::new(container, registry, log).run(rx));
 
-    let policy: Arc<dyn PolicyPort> = Arc::new(AllowAllPolicy);
+    let policy: Arc<dyn PolicyPort> = Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)));
     let audit: Arc<dyn AuditSink> = Arc::new(AuditLogSink::new(tx));
     let app = build_app_with(proxy, policy, audit);
 

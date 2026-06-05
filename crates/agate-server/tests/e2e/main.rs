@@ -4,4 +4,5 @@
 //! explicit `[[test]]` target.
 
 mod fixture;
+mod policy;
 mod server;
