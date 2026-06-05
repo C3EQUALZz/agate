@@ -30,13 +30,21 @@ impl PolicyConfig {
         }
     }
 
-    /// Assemble the ruleset. An allowlist takes precedence over a denylist; with
-    /// neither set, every tool is permitted.
+    /// Assemble the ruleset. Exactly one tool list may be set; with neither, every
+    /// tool is permitted.
     ///
     /// Fails on the first invalid entry rather than dropping it: a typo in a
     /// denylist or redaction marker would otherwise silently weaken enforcement,
-    /// so it must abort startup instead.
+    /// so it must abort startup instead. Likewise, an allowlist and a denylist
+    /// together are contradictory (which wins?) and rejected rather than silently
+    /// resolved.
     pub fn ruleset(&self) -> Result<PolicyRuleset, DomainError> {
+        if !self.tool_allowlist.is_empty() && !self.tool_denylist.is_empty() {
+            return Err(DomainError::Field(
+                "POLICY_TOOL_ALLOWLIST and POLICY_TOOL_DENYLIST are mutually exclusive".into(),
+            ));
+        }
+
         let tools = if !self.tool_allowlist.is_empty() {
             ToolPolicy::Allowlist(tool_set(&self.tool_allowlist)?)
         } else if !self.tool_denylist.is_empty() {

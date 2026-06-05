@@ -24,6 +24,13 @@ async fn main() {
     let config = ServerConfig::from_env();
     let bind_addr = config.proxy.bind_addr.clone();
 
+    // Validate the policy config before any I/O, so a bad POLICY_* env aborts
+    // startup without first connecting to Postgres or creating a log.
+    let ruleset = config
+        .policy
+        .ruleset()
+        .expect("invalid policy configuration (POLICY_TOOL_ALLOWLIST / POLICY_TOOL_DENYLIST / POLICY_REDACT_PATTERNS)");
+
     let pool = PgPoolOptions::new()
         .connect(config.postgres.url())
         .await
@@ -31,10 +38,6 @@ async fn main() {
     run_migrations(&pool).await.expect("run migrations");
 
     let log = resolve_log(&pool).await;
-    let ruleset = config
-        .policy
-        .ruleset()
-        .expect("invalid policy configuration (POLICY_TOOL_ALLOWLIST / POLICY_TOOL_DENYLIST / POLICY_REDACT_PATTERNS)");
     let server = build_server(config.proxy, pool, log, ruleset);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
