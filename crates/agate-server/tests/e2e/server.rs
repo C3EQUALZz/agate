@@ -8,6 +8,10 @@ use froodi::async_impl::Container;
 
 use crate::fixture::{self, spawn};
 
+/// Outbox writes are asynchronous; poll the log up to ~5s (50 × 100ms).
+const POLL_ATTEMPTS: usize = 50;
+const POLL_INTERVAL_MS: u64 = 100;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proxied_run_is_recorded_to_the_transparency_log() {
     let app = spawn().await;
@@ -46,12 +50,12 @@ async fn poll_inclusion(
     log: LogId,
     index: LeafIndex,
 ) -> bool {
-    for _ in 0..50 {
+    for _ in 0..POLL_ATTEMPTS {
         let proof = fixture::dispatch(container, registry, GetInclusionProof { log, index }).await;
         if proof.is_ok() {
             return true;
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
     }
     false
 }

@@ -57,5 +57,11 @@ async fn resolve_log(pool: &PgPool) -> LogId {
         .await
         .expect("create transparency log");
     scope.close().await;
+    // Printed (not just traced) so it shows without a subscriber configured:
+    // operators need the id to set AUDIT_LOG_ID and keep the same log on restart.
+    println!(
+        "created transparency log {0}; set AUDIT_LOG_ID={0} to reuse it",
+        log.0
+    );
     log
 }

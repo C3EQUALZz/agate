@@ -9,8 +9,11 @@ use super::record::encode_record;
 
 /// The proxy-side [`AuditSink`]: encodes each inspected event and enqueues it on
 /// the outbox channel, returning at once so the forwarding path is never blocked
-/// on the audit write. A full channel applies backpressure (the send awaits);
-/// it never silently drops a record.
+/// on the audit write. A full channel applies backpressure (the send awaits).
+///
+/// A record is dropped only if the channel is closed — which happens at
+/// shutdown, once the outbox task has stopped. The drop is logged, but since
+/// `record` returns `()` (an outbox contract), the caller cannot observe it.
 pub struct AuditLogSink {
     tx: Sender<Vec<u8>>,
 }
