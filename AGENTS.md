@@ -163,12 +163,16 @@ Enable hooks once: `prek install && prek install --hook-type commit-msg`.
 
 ## Documentation (Mandatory)
 
-- **Every user-facing feature ships with documentation** in `docs/` (the published site).
-  A feature is not done until it is documented: what it does, how to configure it (TOML keys +
-  env overrides), and an example. New config keys are added to `agate.example.toml` too.
-- Docs are **bilingual** — English (primary) and Russian. Keep both in sync when a feature lands.
-- Prefer conceptual + how-to + reference structure; use diagrams (mermaid) for flows. Code and
-  identifiers stay English; only docs *prose* is translated.
+- **Every user-facing feature ships with documentation** on the docs site (`docs/`) — a feature
+  is not done until the docs reflect it: what it does, how to configure it (TOML keys + env
+  overrides) with an example, and any architecture decision. New config keys also go in
+  `agate.example.toml`; rustdoc on each public item is the API reference.
+- The site is **Material for MkDocs** (`mkdocs.yml`), **bilingual**: English (`docs/en/`,
+  authoritative) + Russian (`docs/ru/`, mirrors EN, auto-falls back to EN for untranslated
+  pages). Code/identifiers stay English; only docs *prose* is translated.
+- The EN/RU sync workflow and how to add docs are on the **Documentation Guide**
+  ([`docs/en/contributing/documentation.md`](docs/en/contributing/documentation.md)); use
+  diagrams (mermaid) for flows.
 
 ---
 

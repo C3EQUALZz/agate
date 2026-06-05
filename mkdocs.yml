@@ -1,0 +1,160 @@
+# Agate documentation site — Material for MkDocs.
+#
+# Why Material for MkDocs and not Zensical: the maintainer pointed at Zensical
+# (Material for MkDocs team's TOML-configured next-gen SSG), but as of 2026 its
+# multi-language *content* workflow is on the roadmap and not yet implemented —
+# it can localize UI strings, not maintain parallel EN/RU page trees with a
+# language switcher. Bilingual docs are a hard requirement here, so we use the
+# mature Material + mkdocs-static-i18n stack (the same stack FastStream/AG2 use).
+# Migrating to Zensical later is a supported, near-mechanical path.
+
+site_name: Agate
+site_description: >-
+  Agate — an inline reverse proxy that inspects LLM-agent traffic (AG-UI) and
+  records every decision to a tamper-evident RFC 6962 transparency log.
+site_author: Agate maintainers
+# TODO(maintainer): set to the real Pages URL once Pages is enabled.
+site_url: https://OWNER.github.io/agate/
+copyright: Copyright &copy; 2026 Agate maintainers
+
+# TODO(maintainer): point at the canonical repo once it is public.
+repo_name: agate
+repo_url: https://github.com/OWNER/agate
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.indexes
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.action.edit
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  # Folder-based bilingual docs: docs/en/** is primary, docs/ru/** is the
+  # Russian mirror. Untranslated RU pages fall back to EN automatically.
+  - i18n:
+      docs_structure: folder
+      fallback_to_default: true
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: ru
+          name: Русский
+          build: true
+          nav_translations:
+            Home: Главная
+            Getting Started: Начало работы
+            Overview: Обзор
+            Installation (Docker): Установка (Docker)
+            Configuration: Конфигурация
+            Architecture: Архитектура
+            Architecture & DDD: Архитектура и DDD
+            Bounded Contexts: Ограниченные контексты
+            Crypto (agate-crypto): Криптография (agate-crypto)
+            Audit (agate-audit): Аудит (agate-audit)
+            Proxy (agate-proxy): Прокси (agate-proxy)
+            Policy (agate-policy): Политики (agate-policy)
+            Server (agate-server): Сервер (agate-server)
+            Threat Model: Модель угроз
+            Reference: Справочник
+            API (rustdoc): API (rustdoc)
+            Contributing: Участие в разработке
+            Documentation Guide: Руководство по документации
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra:
+  alternate:
+    - name: English
+      link: /en/
+      lang: en
+    - name: Русский
+      link: /ru/
+      lang: ru
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/OWNER/agate
+      name: Agate on GitHub
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - getting-started/index.md
+      - Installation (Docker): getting-started/installation.md
+      - Configuration: getting-started/configuration.md
+  - Architecture:
+      - architecture/index.md
+      - Architecture & DDD: architecture/ddd.md
+      - Threat Model: architecture/threat-model.md
+      - Bounded Contexts:
+          - Crypto (agate-crypto): architecture/contexts/crypto.md
+          - Audit (agate-audit): architecture/contexts/audit.md
+          - Proxy (agate-proxy): architecture/contexts/proxy.md
+          - Policy (agate-policy): architecture/contexts/policy.md
+          - Server (agate-server): architecture/contexts/server.md
+  - Reference:
+      - reference/index.md
+  - Contributing:
+      - contributing/index.md
+      - Documentation Guide: contributing/documentation.md
