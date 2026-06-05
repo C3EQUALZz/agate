@@ -1,0 +1,13 @@
+title = "Agate gitleaks config"
+
+# Keep all of gitleaks' default rules; only add allowlists below.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+SonarQube Cloud project configuration. The project key and organization are
+public identifiers (they appear in the dashboard URL), not secrets — but their
+high-entropy, mixed-case form trips the generic-api-key rule.
+"""
+paths = ['''sonar-project\.properties''']
