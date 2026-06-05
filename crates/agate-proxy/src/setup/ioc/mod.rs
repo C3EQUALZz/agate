@@ -3,4 +3,4 @@
 
 pub mod container;
 
-pub use container::build_container;
+pub use container::{build_container, build_container_with};

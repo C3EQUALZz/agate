@@ -9,27 +9,32 @@ use crate::application::inspection::Inspector;
 use crate::infrastructure::{AllowAllPolicy, NoopAuditSink, ReqwestAgentClient};
 use crate::setup::configs::ProxyConfig;
 
-/// Build the IoC container (everything App-scoped: the proxy holds no
-/// per-request state). The `froodi` axum layer opens a request scope per
-/// request and resolves these singletons from the App parent.
+/// Build the IoC container with the default adapters: an allow-all policy and a
+/// no-op audit sink — the proxy run standalone, deciding nothing and recording
+/// nowhere. The top-level server replaces these via [`build_container_with`].
 #[must_use]
 pub fn build_container(config: ProxyConfig) -> Container {
+    build_container_with(config, Arc::new(AllowAllPolicy), Arc::new(NoopAuditSink))
+}
+
+/// Build the IoC container with an explicit policy and audit sink (everything
+/// App-scoped: the proxy holds no per-request state). The `froodi` axum layer
+/// opens a request scope per request and resolves these singletons from the App
+/// parent.
+#[must_use]
+pub fn build_container_with(
+    config: ProxyConfig,
+    policy: Arc<dyn PolicyPort>,
+    audit: Arc<dyn AuditSink>,
+) -> Container {
     let ioc = async_registry! {
         extend(registry! {
             scope(App) [
                 provide(instance(config)),
-                provide(|| Ok(AllowAllPolicy)),
-                provide(|| Ok(NoopAuditSink)),
                 provide(|Inject(config): Inject<ProxyConfig>| {
                     Ok(ReqwestAgentClient::new(config.agent_endpoint.clone()))
                 }),
-                provide(
-                    |Inject(policy): Inject<AllowAllPolicy>, Inject(audit): Inject<NoopAuditSink>| {
-                        let policy: Arc<dyn PolicyPort> = policy;
-                        let audit: Arc<dyn AuditSink> = audit;
-                        Ok(Inspector::new(policy, audit))
-                    },
-                ),
+                provide(move || Ok(Inspector::new(policy.clone(), audit.clone()))),
             ]
         })
     };

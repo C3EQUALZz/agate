@@ -95,6 +95,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "agate-server"
+version = "0.1.0"
+dependencies = [
+ "agate-audit",
+ "agate-crypto",
+ "agate-proxy",
+ "async-trait",
+ "axum",
+ "froodi",
+ "reqwest",
+ "serde_json",
+ "sqlx",
+ "testcontainers",
+ "testcontainers-modules",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
