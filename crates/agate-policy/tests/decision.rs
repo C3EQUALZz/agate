@@ -103,3 +103,14 @@ fn ungoverned_actions_are_allowed() {
 fn blank_tool_name_is_rejected() {
     assert!(ToolName::new("   ").is_err());
 }
+
+#[test]
+fn padded_allowlist_entry_still_matches_the_tool() {
+    let ruleset = PolicyRuleset::new(
+        ToolPolicy::Allowlist(tool_names(&["  search  "])),
+        Vec::new(),
+    );
+    let service = PolicyService::new(ruleset);
+
+    assert_eq!(service.decide(&tool_call("search")), PolicyDecision::Allow);
+}

@@ -10,13 +10,16 @@ use crate::domain::common::values::ValueObject;
 pub struct ToolName(String);
 
 impl ToolName {
-    /// Build a tool name, rejecting blank input.
+    /// Build a tool name, rejecting blank input. The name is trimmed so a padded
+    /// config entry (`" search "`) still matches the tool it names — parse into
+    /// the normalized value, don't merely validate.
     pub fn new(name: impl Into<String>) -> Result<Self, DomainError> {
         let name = name.into();
-        if name.trim().is_empty() {
+        let normalized = name.trim();
+        if normalized.is_empty() {
             return Err(DomainError::Field("tool name must not be blank".into()));
         }
-        Ok(Self(name))
+        Ok(Self(normalized.to_owned()))
     }
 
     #[must_use]
