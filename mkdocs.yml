@@ -24,6 +24,13 @@ edit_uri: edit/main/docs/
 
 docs_dir: docs
 
+# docs/design/ holds the canonical in-repo design records (e.g. the threat
+# model). They are not standalone pages — they are pulled into localized pages
+# via `--8<--` snippet includes — so exclude them from the page tree to avoid
+# "page not in nav" warnings under `mkdocs build --strict`.
+exclude_docs: |
+  design/
+
 theme:
   name: material
   language: en
@@ -113,7 +120,11 @@ markdown_extensions:
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
-  - pymdownx.snippets
+  - pymdownx.snippets:
+      # Resolve `--8<--` includes from docs/ (e.g. the threat-model page pulls
+      # in docs/design/agate-proxy-threat-model.md, the canonical design record).
+      base_path: [docs]
+      check_paths: true
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
