@@ -1,0 +1,38 @@
+# Example Agate configuration.
+#
+# Mount this into the container and point AGATE_CONFIG at it
+# (default path: /etc/agate/agate.toml). Every value can be overridden by an
+# environment variable named AGATE__<SECTION>__<KEY> (uppercase, "__" between
+# levels), e.g. AGATE__AUDIT__DATABASE_URL — prefer env for secrets.
+#
+# Precedence (low → high): built-in defaults < this file < environment.
+
+[proxy]
+# Upstream agent run endpoint the proxy forwards to (required).
+agent_endpoint = "http://agent:8000/run"
+# Address the proxy listens on.
+bind = "0.0.0.0:8080"
+
+[audit]
+# PostgreSQL URL for the transparency log (required).
+# Supply the password via the env override, not here:
+#   AGATE__AUDIT__DATABASE_URL=postgres://agate:<password>@postgres:5432/agate
+database_url = "postgres://agate@postgres:5432/agate"
+
+[policy.tools]
+# allow-all | allowlist | denylist
+mode = "allowlist"
+# Tools governed by `mode` (ignored when mode = "allow-all").
+names = ["search", "fetch"]
+
+[policy]
+# Literal markers redacted from emitted assistant text (case-insensitive).
+redact = ["sk-", "AKIA"]
+
+[observability.logging]
+# Set false to silence logs entirely.
+enabled = true
+# pretty (console) | json (structured, one object per line)
+format = "pretty"
+# Filter directive; RUST_LOG overrides it when set.
+level = "info"

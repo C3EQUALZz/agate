@@ -1,7 +1,13 @@
-//! Typed configuration, loaded from the environment.
+//! Typed configuration: a layered TOML + environment load.
+//!
+//! [`load`] reads built-in defaults, then `agate.toml`, then `AGATE__*`
+//! environment overrides into an [`AppConfig`]; the composition root maps each
+//! section onto the bounded contexts' own config types.
 
-pub mod policy_config;
-pub mod server_config;
+pub mod app_config;
+pub mod loader;
+pub mod observability;
 
-pub use policy_config::PolicyConfig;
-pub use server_config::ServerConfig;
+pub use app_config::{AppConfig, ToolMode};
+pub use loader::load;
+pub use observability::{LogFormat, LoggingConfig, ObservabilityConfig};

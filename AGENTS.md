@@ -161,6 +161,17 @@ Enable hooks once: `prek install && prek install --hook-type commit-msg`.
 
 ---
 
+## Documentation (Mandatory)
+
+- **Every user-facing feature ships with documentation** in `docs/` (the published site).
+  A feature is not done until it is documented: what it does, how to configure it (TOML keys +
+  env overrides), and an example. New config keys are added to `agate.example.toml` too.
+- Docs are **bilingual** — English (primary) and Russian. Keep both in sync when a feature lands.
+- Prefer conceptual + how-to + reference structure; use diagrams (mermaid) for flows. Code and
+  identifiers stay English; only docs *prose* is translated.
+
+---
+
 ## Commit & Pull Request Rules
 
 - **Conventional Commits**: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`, `ci:`.
@@ -172,5 +183,6 @@ Enable hooks once: `prek install && prek install --hook-type commit-msg`.
 ## Definition of Done
 
 A change is complete when: `just ci` is green; new behavior has tests (unit + proptest for
-invariants, scenario tests for cross-layer flows); the domain layer stays pure; public types are
-constructed through their factories; and the dependency rule is preserved.
+invariants, scenario tests for cross-layer flows); **user-facing features are documented in
+`docs/` (EN + RU)**; the domain layer stays pure; public types are constructed through their
+factories; and the dependency rule is preserved.

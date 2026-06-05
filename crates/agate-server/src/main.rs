@@ -1,9 +1,10 @@
 //! Runs the full Agate server: an inspecting reverse proxy that records every
 //! decision to the audit transparency log.
 //!
-//! Configure with `AGENT_ENDPOINT` (required), `DATABASE_URL` (required),
-//! `BIND_ADDR` (default `0.0.0.0:8080`), and optionally `AUDIT_LOG_ID` (a UUID);
-//! when `AUDIT_LOG_ID` is unset a fresh log is created on startup.
+//! Configuration is loaded from `agate.toml` (path from `AGATE_CONFIG`, default
+//! `/etc/agate/agate.toml`) layered with `AGATE__SECTION__KEY` environment
+//! overrides — see `agate.example.toml`. `AUDIT_LOG_ID` (a UUID) optionally
+//! pins the transparency log; when unset a fresh log is created on startup.
 
 use std::sync::Arc;
 
@@ -17,28 +18,37 @@ use agate_audit::domain::merkle::LogId;
 use agate_audit::infrastructure::persistence::postgres::run_migrations;
 use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_server::setup::bootstrap::build_server;
-use agate_server::setup::configs::ServerConfig;
+use agate_server::setup::configs::load;
+use agate_server::setup::observability::init_logging;
 
 #[tokio::main]
 async fn main() {
-    let config = ServerConfig::from_env();
-    let bind_addr = config.proxy.bind_addr.clone();
+    let config = load().expect("load configuration");
+    config
+        .validate()
+        .unwrap_or_else(|error| panic!("invalid configuration: {error}"));
+    init_logging(&config.observability.logging);
 
-    // Validate the policy config before any I/O, so a bad POLICY_* env aborts
-    // startup without first connecting to Postgres or creating a log.
+    // Build everything that can fail from config before any I/O, so a bad config
+    // aborts startup before connecting to Postgres or creating a log.
+    let proxy = config.proxy_config();
+    let bind_addr = proxy.bind_addr.clone();
     let ruleset = config
-        .policy
-        .ruleset()
-        .expect("invalid policy configuration (POLICY_TOOL_ALLOWLIST / POLICY_TOOL_DENYLIST / POLICY_REDACT_PATTERNS)");
+        .policy_ruleset()
+        .expect("invalid policy configuration");
+    let postgres = config.postgres_config();
+    let pinned_log_id = std::env::var("AUDIT_LOG_ID")
+        .ok()
+        .map(|raw| LogId(raw.parse::<Uuid>().expect("AUDIT_LOG_ID must be a UUID")));
 
     let pool = PgPoolOptions::new()
-        .connect(config.postgres.url())
+        .connect(postgres.url())
         .await
         .expect("connect to Postgres");
     run_migrations(&pool).await.expect("run migrations");
 
-    let log = resolve_log(&pool).await;
-    let server = build_server(config.proxy, pool, log, ruleset);
+    let log = resolve_log(&pool, pinned_log_id).await;
+    let server = build_server(proxy, pool, log, ruleset);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
@@ -49,10 +59,9 @@ async fn main() {
 /// The transparency log to record into: `AUDIT_LOG_ID` if set, else a freshly
 /// created log (so a first run is self-contained; set the env var to keep
 /// appending to the same log across restarts).
-async fn resolve_log(pool: &PgPool) -> LogId {
-    if let Ok(id) = std::env::var("AUDIT_LOG_ID") {
-        let id = id.parse::<Uuid>().expect("AUDIT_LOG_ID must be a UUID");
-        return LogId(id);
+async fn resolve_log(pool: &PgPool, pinned: Option<LogId>) -> LogId {
+    if let Some(id) = pinned {
+        return id;
     }
 
     let container = build_container(pool.clone());
