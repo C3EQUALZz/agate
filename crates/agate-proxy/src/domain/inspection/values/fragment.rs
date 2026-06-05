@@ -10,7 +10,8 @@ use crate::domain::common::values::ValueObject;
 /// its own — assembling a tool call from its fragments is the domain's job.
 ///
 /// Tool calls arrive as three fragment kinds (`Started` → `Args*` → `Ended`);
-/// the other categories map one-to-one onto a complete [`AgentEvent`].
+/// the other categories map one-to-one onto a complete
+/// [`AgentEvent`](crate::domain::inspection::AgentEvent).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fragment {
     ToolCallStarted { id: ToolCallId, name: String },
