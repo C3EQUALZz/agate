@@ -1,0 +1,33 @@
+[package]
+name = "agate-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Composition root: wires the proxy data plane to the audit transparency log."
+
+[dependencies]
+agate-proxy = { workspace = true }
+agate-audit = { workspace = true }
+axum = { workspace = true }
+sqlx = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"] }
+froodi = { version = "1.0.0-beta.18", features = ["async"] }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+reqwest = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+axum = { workspace = true }
+agate-crypto = { workspace = true, features = ["ed25519"] }
+
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+
+[lints]
+workspace = true

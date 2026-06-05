@@ -2,4 +2,4 @@
 
 pub mod http;
 
-pub use http::build_app;
+pub use http::{build_app, build_app_with};
