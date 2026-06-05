@@ -7,7 +7,7 @@ use crate::domain::common::values::ValueObject;
 /// value object without touching callers.
 ///
 /// Validated non-empty: an empty needle would "match" everywhere.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SecretPattern(String);
 
 impl SecretPattern {

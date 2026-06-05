@@ -4,7 +4,7 @@ use crate::domain::common::values::ValueObject;
 /// The content/authorization verdict for one action. Deliberately narrower than
 /// the proxy's structural verdict: this context only allows, denies, or rewrites
 /// emitted text — it never reasons about buffering or stream termination.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PolicyDecision {
     /// Permit the action unchanged.
     Allow,

@@ -7,7 +7,7 @@ use crate::domain::common::values::ValueObject;
 /// composition root assembles it from configuration.
 ///
 /// [`PolicyEvaluator`]: super::super::services::PolicyEvaluator
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PolicyRuleset {
     tools: ToolPolicy,
     secrets: Vec<SecretPattern>,

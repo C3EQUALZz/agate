@@ -31,7 +31,10 @@ async fn main() {
     run_migrations(&pool).await.expect("run migrations");
 
     let log = resolve_log(&pool).await;
-    let ruleset = config.policy.ruleset();
+    let ruleset = config
+        .policy
+        .ruleset()
+        .expect("invalid policy configuration (POLICY_TOOL_ALLOWLIST / POLICY_TOOL_DENYLIST / POLICY_REDACT_PATTERNS)");
     let server = build_server(config.proxy, pool, log, ruleset);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)

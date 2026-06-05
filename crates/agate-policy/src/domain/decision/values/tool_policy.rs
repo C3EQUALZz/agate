@@ -8,7 +8,7 @@ use crate::domain::common::values::ValueObject;
 /// - `AllowAll` — no tool restriction (the permissive default).
 /// - `Allowlist` — only the listed tools may run; everything else is denied.
 /// - `Denylist` — every tool may run except the listed ones.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ToolPolicy {
     AllowAll,
     Allowlist(BTreeSet<ToolName>),

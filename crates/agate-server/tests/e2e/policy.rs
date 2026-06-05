@@ -18,8 +18,8 @@ const SSE: &str = concat!(
     "data: {\"type\":\"RUN_FINISHED\"}\n\n",
 );
 
+/// Permit only `search` (so `rm_rf` is denied) and redact the literal `sk-LEAK`.
 fn ruleset() -> PolicyRuleset {
-    // Permit only "search" (so "rm_rf" is denied) and redact the literal "sk-LEAK".
     let allowlist: BTreeSet<ToolName> = [ToolName::new("search").expect("valid tool")]
         .into_iter()
         .collect();
@@ -33,7 +33,7 @@ fn ruleset() -> PolicyRuleset {
 async fn policy_redacts_secrets_and_denies_unlisted_tools() {
     let app = spawn(ruleset(), SSE).await;
 
-    let body = reqwest::Client::new()
+    let body = fixture::client()
         .post(&app.base_url)
         .body("{}")
         .send()
@@ -43,28 +43,23 @@ async fn policy_redacts_secrets_and_denies_unlisted_tools() {
         .await
         .expect("read streamed body");
 
-    // Lifecycle still flows through.
     assert!(
         body.contains("RUN_STARTED") && body.contains("RUN_FINISHED"),
         "lifecycle forwarded: {body}"
     );
-    // The secret is redacted: the original is gone, the mask is present.
     assert!(!body.contains("sk-LEAK"), "secret leaked to client: {body}");
-    assert!(body.contains("[REDACTED]"), "expected a redaction: {body}");
-    // The unlisted tool call is denied and dropped entirely.
+    assert!(body.contains("[REDACTED]"), "message was redacted: {body}");
     assert!(!body.contains("rm_rf"), "denied tool leaked: {body}");
     assert!(
         !body.contains("TOOL_CALL"),
         "denied tool frames leaked: {body}"
     );
 
-    // Every Ready event is recorded regardless of verdict (lifecycle ×2, the
-    // redacted message, and the denied tool call) — leaves 0..=3.
     let container = fixture::audit_container(app.pool.clone());
     let registry = fixture::audit_registry();
-    let present = fixture::poll_inclusion(&container, &registry, app.log, LeafIndex(3)).await;
+    let recorded = fixture::poll_inclusion(&container, &registry, app.log, LeafIndex(3)).await;
     assert!(
-        present,
-        "expected four records including the deny and redact"
+        recorded,
+        "all four Ready events recorded (lifecycle x2 + redacted message + denied tool)"
     );
 }

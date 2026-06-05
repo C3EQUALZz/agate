@@ -3,7 +3,7 @@ use crate::domain::common::values::ValueObject;
 /// What an agent is attempting, described in the policy context's own terms —
 /// only the facts a content/authorization decision needs. The composition root
 /// projects the proxy's events onto this; the policy never sees wire formats.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum InspectedAction {
     /// A complete tool invocation (the authorization target).
     ToolCall { name: String, arguments: String },

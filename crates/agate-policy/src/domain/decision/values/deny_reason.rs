@@ -3,7 +3,7 @@ use crate::domain::common::values::ValueObject;
 /// Why an action was denied. Surfaced to the proxy (which turns it into a
 /// client-visible `RUN_ERROR` or drops the event) and recorded in the audit
 /// trail.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DenyReason(String);
 
 impl DenyReason {

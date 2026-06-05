@@ -25,49 +25,35 @@ fn tool_call(name: &str) -> InspectedAction {
 
 #[test]
 fn allow_all_permits_every_tool() {
-    // Arrange
     let service = PolicyService::new(PolicyRuleset::allow_all());
 
-    // Act
-    let decision = service.decide(&tool_call("rm_rf"));
-
-    // Assert
-    assert_eq!(decision, PolicyDecision::Allow);
+    assert_eq!(service.decide(&tool_call("rm_rf")), PolicyDecision::Allow);
 }
 
 #[test]
 fn allowlist_denies_a_tool_not_on_it() {
-    // Arrange
     let ruleset = PolicyRuleset::new(ToolPolicy::Allowlist(tool_names(&["search"])), Vec::new());
     let service = PolicyService::new(ruleset);
 
-    // Act
-    let decision = service.decide(&tool_call("rm_rf"));
-
-    // Assert
     assert_eq!(
-        decision,
+        service.decide(&tool_call("rm_rf")),
         PolicyDecision::Deny(DenyReason::new("tool 'rm_rf' is not permitted"))
     );
 }
 
 #[test]
 fn allowlist_permits_a_listed_tool() {
-    // Arrange
     let ruleset = PolicyRuleset::new(ToolPolicy::Allowlist(tool_names(&["search"])), Vec::new());
     let service = PolicyService::new(ruleset);
 
-    // Act / Assert
     assert_eq!(service.decide(&tool_call("search")), PolicyDecision::Allow);
 }
 
 #[test]
 fn denylist_blocks_only_listed_tools() {
-    // Arrange
     let ruleset = PolicyRuleset::new(ToolPolicy::Denylist(tool_names(&["rm_rf"])), Vec::new());
     let service = PolicyService::new(ruleset);
 
-    // Act / Assert
     assert!(matches!(
         service.decide(&tool_call("rm_rf")),
         PolicyDecision::Deny(_)
@@ -77,45 +63,36 @@ fn denylist_blocks_only_listed_tools() {
 
 #[test]
 fn message_with_a_secret_is_redacted() {
-    // Arrange
     let pattern = SecretPattern::new("sk-SECRET").expect("valid pattern");
     let service = PolicyService::new(PolicyRuleset::new(ToolPolicy::AllowAll, vec![pattern]));
     let action = InspectedAction::Message {
         text: "my key is sk-secret, keep it safe".to_owned(),
     };
 
-    // Act
-    let decision = service.decide(&action);
-
-    // Assert: matched case-insensitively, replaced with the mask.
     assert_eq!(
-        decision,
+        service.decide(&action),
         PolicyDecision::RedactText(format!("my key is {REDACTION_MASK}, keep it safe"))
     );
 }
 
 #[test]
 fn clean_message_is_allowed() {
-    // Arrange
     let pattern = SecretPattern::new("sk-SECRET").expect("valid pattern");
     let service = PolicyService::new(PolicyRuleset::new(ToolPolicy::AllowAll, vec![pattern]));
     let action = InspectedAction::Message {
         text: "nothing sensitive here".to_owned(),
     };
 
-    // Act / Assert
     assert_eq!(service.decide(&action), PolicyDecision::Allow);
 }
 
 #[test]
 fn ungoverned_actions_are_allowed() {
-    // Arrange
     let service = PolicyService::new(PolicyRuleset::new(
         ToolPolicy::Allowlist(tool_names(&["search"])),
         vec![SecretPattern::new("secret").expect("valid pattern")],
     ));
 
-    // Act / Assert: a non-tool, non-message action is not the policy's concern.
     assert_eq!(
         service.decide(&InspectedAction::Other),
         PolicyDecision::Allow
@@ -124,6 +101,5 @@ fn ungoverned_actions_are_allowed() {
 
 #[test]
 fn blank_tool_name_is_rejected() {
-    // Arrange / Act / Assert
     assert!(ToolName::new("   ").is_err());
 }

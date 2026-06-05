@@ -118,6 +118,16 @@ pub async fn dispatch<R: Request>(
     response
 }
 
+/// A reqwest client with a request timeout, so a stalled proxy or agent fails
+/// the test instead of hanging CI.
+#[must_use]
+pub fn client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("build reqwest client")
+}
+
 /// Outbox writes are asynchronous; poll the log up to ~5s (50 × 100ms).
 const POLL_ATTEMPTS: usize = 50;
 const POLL_INTERVAL_MS: u64 = 100;

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use agate_policy::domain::common::errors::DomainError;
 use agate_policy::domain::decision::{PolicyRuleset, SecretPattern, ToolName, ToolPolicy};
 
 /// Policy rules loaded from the environment, turned into a [`PolicyRuleset`].
@@ -31,21 +32,24 @@ impl PolicyConfig {
 
     /// Assemble the ruleset. An allowlist takes precedence over a denylist; with
     /// neither set, every tool is permitted.
-    #[must_use]
-    pub fn ruleset(&self) -> PolicyRuleset {
+    ///
+    /// Fails on the first invalid entry rather than dropping it: a typo in a
+    /// denylist or redaction marker would otherwise silently weaken enforcement,
+    /// so it must abort startup instead.
+    pub fn ruleset(&self) -> Result<PolicyRuleset, DomainError> {
         let tools = if !self.tool_allowlist.is_empty() {
-            ToolPolicy::Allowlist(tool_set(&self.tool_allowlist))
+            ToolPolicy::Allowlist(tool_set(&self.tool_allowlist)?)
         } else if !self.tool_denylist.is_empty() {
-            ToolPolicy::Denylist(tool_set(&self.tool_denylist))
+            ToolPolicy::Denylist(tool_set(&self.tool_denylist)?)
         } else {
             ToolPolicy::AllowAll
         };
         let secrets = self
             .redact_patterns
             .iter()
-            .filter_map(|pattern| SecretPattern::new(pattern.clone()).ok())
-            .collect();
-        PolicyRuleset::new(tools, secrets)
+            .map(|pattern| SecretPattern::new(pattern.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(PolicyRuleset::new(tools, secrets))
     }
 }
 
@@ -62,9 +66,9 @@ fn csv_env(key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn tool_set(names: &[String]) -> BTreeSet<ToolName> {
+fn tool_set(names: &[String]) -> Result<BTreeSet<ToolName>, DomainError> {
     names
         .iter()
-        .filter_map(|name| ToolName::new(name.clone()).ok())
+        .map(|name| ToolName::new(name.clone()))
         .collect()
 }
