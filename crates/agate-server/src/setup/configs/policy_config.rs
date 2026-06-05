@@ -80,3 +80,51 @@ fn tool_set(names: &[String]) -> Result<BTreeSet<ToolName>, DomainError> {
         .map(|name| ToolName::new(name.clone()))
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use agate_policy::domain::decision::ToolPolicy;
+
+    use super::PolicyConfig;
+
+    fn config(allow: &[&str], deny: &[&str], redact: &[&str]) -> PolicyConfig {
+        let owned = |items: &[&str]| items.iter().map(|s| (*s).to_owned()).collect();
+        PolicyConfig {
+            tool_allowlist: owned(allow),
+            tool_denylist: owned(deny),
+            redact_patterns: owned(redact),
+        }
+    }
+
+    #[test]
+    fn empty_config_permits_everything() {
+        let ruleset = config(&[], &[], &[]).ruleset().expect("valid");
+        assert_eq!(*ruleset.tools(), ToolPolicy::AllowAll);
+        assert!(ruleset.secrets().is_empty());
+    }
+
+    #[test]
+    fn allowlist_with_patterns_builds() {
+        let ruleset = config(&["search"], &[], &["sk-x"])
+            .ruleset()
+            .expect("valid");
+        assert!(matches!(ruleset.tools(), ToolPolicy::Allowlist(_)));
+        assert_eq!(ruleset.secrets().len(), 1);
+    }
+
+    #[test]
+    fn denylist_builds() {
+        let ruleset = config(&[], &["rm"], &[]).ruleset().expect("valid");
+        assert!(matches!(ruleset.tools(), ToolPolicy::Denylist(_)));
+    }
+
+    #[test]
+    fn allowlist_and_denylist_together_is_rejected() {
+        assert!(config(&["a"], &["b"], &[]).ruleset().is_err());
+    }
+
+    #[test]
+    fn a_blank_tool_name_is_rejected() {
+        assert!(config(&["   "], &[], &[]).ruleset().is_err());
+    }
+}

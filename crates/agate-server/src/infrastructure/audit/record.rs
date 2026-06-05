@@ -108,3 +108,124 @@ fn encode_opaque(kind: OpaqueKind) -> &'static str {
         OpaqueKind::Encrypted => "encrypted",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use agate_proxy::application::inspection::InspectionContext;
+    use agate_proxy::domain::inspection::{
+        AgentEvent, DenyReason, LifecyclePhase, MessageId, OpaqueKind, RunId, SessionId,
+        StateMutation, ToolCallId, Verdict,
+    };
+    use serde_json::Value;
+    use uuid::Uuid;
+
+    use super::encode_record;
+
+    fn decode(event: &AgentEvent, verdict: &Verdict<AgentEvent>) -> Value {
+        let context = InspectionContext::new(SessionId(Uuid::nil()), RunId(Uuid::nil()));
+        serde_json::from_slice(&encode_record(&context, event, verdict)).expect("valid JSON")
+    }
+
+    fn lifecycle() -> AgentEvent {
+        AgentEvent::Lifecycle(LifecyclePhase::RunStarted)
+    }
+
+    #[test]
+    fn encodes_context_and_verdict() {
+        let record = decode(&lifecycle(), &Verdict::Allow);
+        assert_eq!(record["session"], Uuid::nil().to_string());
+        assert_eq!(record["run"], Uuid::nil().to_string());
+        assert_eq!(record["verdict"], "allow");
+    }
+
+    #[test]
+    fn encodes_every_verdict_label() {
+        let e = lifecycle();
+        assert_eq!(
+            decode(&e, &Verdict::Deny(DenyReason::new("x")))["verdict"],
+            "deny"
+        );
+        assert_eq!(
+            decode(&e, &Verdict::Transform(e.clone()))["verdict"],
+            "transform"
+        );
+        assert_eq!(decode(&e, &Verdict::Buffer)["verdict"], "buffer");
+        assert_eq!(
+            decode(&e, &Verdict::Terminate(DenyReason::new("x")))["verdict"],
+            "terminate"
+        );
+    }
+
+    #[test]
+    fn encodes_every_event_kind() {
+        let allow = Verdict::Allow;
+        let cases = [
+            (
+                AgentEvent::MessageChunk {
+                    message: MessageId("m".into()),
+                    text: "hi".into(),
+                },
+                "message_chunk",
+            ),
+            (
+                AgentEvent::ToolCall {
+                    id: ToolCallId("c".into()),
+                    name: "t".into(),
+                    arguments: "{}".into(),
+                },
+                "tool_call",
+            ),
+            (
+                AgentEvent::ToolResult {
+                    id: ToolCallId("c".into()),
+                    content: "r".into(),
+                },
+                "tool_result",
+            ),
+            (
+                AgentEvent::StateMutation(StateMutation::Snapshot {
+                    byte_size: 2,
+                    payload: "{}".into(),
+                }),
+                "state_snapshot",
+            ),
+            (
+                AgentEvent::StateMutation(StateMutation::Delta {
+                    op_count: 1,
+                    byte_size: 2,
+                    payload: "[]".into(),
+                }),
+                "state_delta",
+            ),
+        ];
+        for (event, kind) in cases {
+            assert_eq!(decode(&event, &allow)["event"]["kind"], kind);
+        }
+    }
+
+    #[test]
+    fn encodes_every_lifecycle_phase() {
+        let allow = Verdict::Allow;
+        let phase = |p| decode(&AgentEvent::Lifecycle(p), &allow)["event"]["phase"].clone();
+        assert_eq!(phase(LifecyclePhase::RunStarted), "run_started");
+        assert_eq!(phase(LifecyclePhase::RunFinished), "run_finished");
+        assert_eq!(phase(LifecyclePhase::RunError), "run_error");
+        assert_eq!(
+            phase(LifecyclePhase::StepStarted("s".into()))["step_started"],
+            "s"
+        );
+        assert_eq!(
+            phase(LifecyclePhase::StepFinished("s".into()))["step_finished"],
+            "s"
+        );
+    }
+
+    #[test]
+    fn encodes_every_opaque_kind() {
+        let allow = Verdict::Allow;
+        let opaque = |k| decode(&AgentEvent::Opaque(k), &allow)["event"]["opaque"].clone();
+        assert_eq!(opaque(OpaqueKind::Raw), "raw");
+        assert_eq!(opaque(OpaqueKind::Custom), "custom");
+        assert_eq!(opaque(OpaqueKind::Encrypted), "encrypted");
+    }
+}
