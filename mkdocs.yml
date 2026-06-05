@@ -13,13 +13,11 @@ site_description: >-
   Agate — an inline reverse proxy that inspects LLM-agent traffic (AG-UI) and
   records every decision to a tamper-evident RFC 6962 transparency log.
 site_author: Agate maintainers
-# TODO(maintainer): set to the real Pages URL once Pages is enabled.
-site_url: https://OWNER.github.io/agate/
+site_url: https://C3EQUALZz.github.io/agate/
 copyright: Copyright &copy; 2026 Agate maintainers
 
-# TODO(maintainer): point at the canonical repo once it is public.
 repo_name: agate
-repo_url: https://github.com/OWNER/agate
+repo_url: https://github.com/C3EQUALZz/agate
 edit_uri: edit/main/docs/
 
 docs_dir: docs
@@ -145,7 +143,7 @@ extra:
       lang: ru
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/OWNER/agate
+      link: https://github.com/C3EQUALZz/agate
       name: Agate on GitHub
 
 nav:

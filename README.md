@@ -24,8 +24,7 @@ Full documentation — overview, getting started, configuration, architecture,
 and the threat model — is published with Material for MkDocs and is **bilingual
 (English + Russian)**.
 
-- 📖 **Documentation site:** `https://OWNER.github.io/agate/`
-  <!-- TODO(maintainer): replace OWNER with the GitHub org/user once Pages is enabled. -->
+- 📖 **Documentation site:** `https://C3EQUALZz.github.io/agate/`
 - Build it locally:
 
   ```bash

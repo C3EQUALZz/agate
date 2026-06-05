@@ -8,7 +8,7 @@
 
 !!! note "Канонический документ — на английском"
     Канонический источник находится в репозитории
-    ([`docs/design/agate-proxy-threat-model.md`](https://github.com/OWNER/agate/blob/main/docs/design/agate-proxy-threat-model.md))
+    ([`docs/design/agate-proxy-threat-model.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/agate-proxy-threat-model.md))
     и включён ниже дословно (на английском), чтобы опубликованная документация
     и внутренняя проектная запись никогда не расходились. Резюме на русском —
     в блоке ниже.

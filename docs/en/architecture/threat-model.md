@@ -6,7 +6,7 @@ proxy defends, against whom, where it sits, and the single decision seam**
 (event → verdict) that the audit and policy contexts plug into.
 
 The canonical source lives in the repository at
-[`docs/design/agate-proxy-threat-model.md`](https://github.com/OWNER/agate/blob/main/docs/design/agate-proxy-threat-model.md)
+[`docs/design/agate-proxy-threat-model.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/agate-proxy-threat-model.md)
 and is included verbatim below, so the published docs and the in-repo design
 record never drift apart.
 
