@@ -12,14 +12,16 @@ RUN cargo install cargo-chef --locked
 
 # ---- planner: capture the dependency graph ----
 FROM chef AS planner
-COPY . .
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
 RUN cargo chef prepare --recipe-path recipe.json
 
 # ---- builder: cook deps (cached layer), then build the server ----
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
-COPY . .
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
 RUN cargo build --release --bin agate-server
 
 # ---- runtime: slim, non-root, with a health probe ----
