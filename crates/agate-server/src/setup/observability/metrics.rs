@@ -13,15 +13,9 @@ use crate::setup::configs::{MetricsConfig, MetricsExporter};
 /// runtime: the Prometheus exporter spawns an HTTP listener serving `/metrics`
 /// on its own port.
 pub fn init_metrics(config: &MetricsConfig) -> bool {
-    if !config.enabled || config.exporter == MetricsExporter::None {
+    let Some(addr) = endpoint(config) else {
         return false;
-    }
-    let addr: SocketAddr = config.bind.parse().unwrap_or_else(|error| {
-        panic!(
-            "invalid observability.metrics.bind '{}': {error}",
-            config.bind
-        )
-    });
+    };
     PrometheusBuilder::new()
         .with_http_listener(addr)
         .install()
@@ -29,9 +23,64 @@ pub fn init_metrics(config: &MetricsConfig) -> bool {
     true
 }
 
+/// The address the exporter should listen on, or `None` when metrics are
+/// disabled. Pure decision + parse, split out from the side-effecting install
+/// so it can be tested directly.
+fn endpoint(config: &MetricsConfig) -> Option<SocketAddr> {
+    if !config.enabled || config.exporter == MetricsExporter::None {
+        return None;
+    }
+    let addr = config.bind.parse().unwrap_or_else(|error| {
+        panic!(
+            "invalid observability.metrics.bind '{}': {error}",
+            config.bind
+        )
+    });
+    Some(addr)
+}
+
 #[cfg(test)]
 mod tests {
     use metrics_exporter_prometheus::PrometheusBuilder;
+
+    use super::endpoint;
+    use crate::setup::configs::{MetricsConfig, MetricsExporter};
+
+    fn config(enabled: bool, exporter: MetricsExporter, bind: &str) -> MetricsConfig {
+        MetricsConfig {
+            enabled,
+            exporter,
+            bind: bind.into(),
+        }
+    }
+
+    #[test]
+    fn endpoint_is_none_when_disabled() {
+        let c = config(false, MetricsExporter::Prometheus, "0.0.0.0:9090");
+        assert!(endpoint(&c).is_none());
+    }
+
+    #[test]
+    fn endpoint_is_none_when_exporter_is_none() {
+        let c = config(true, MetricsExporter::None, "0.0.0.0:9090");
+        assert!(endpoint(&c).is_none());
+    }
+
+    #[test]
+    fn endpoint_parses_the_bind_when_enabled() {
+        let c = config(true, MetricsExporter::Prometheus, "127.0.0.1:9100");
+        assert_eq!(
+            endpoint(&c).expect("some addr").to_string(),
+            "127.0.0.1:9100"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid observability.metrics.bind")]
+    fn endpoint_panics_on_an_invalid_bind() {
+        let c = config(true, MetricsExporter::Prometheus, "not-an-address");
+        let _ = endpoint(&c);
+    }
 
     #[test]
     fn prometheus_renders_agate_counters() {

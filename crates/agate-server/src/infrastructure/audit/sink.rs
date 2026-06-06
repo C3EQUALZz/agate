@@ -42,3 +42,40 @@ impl AuditSink for AuditLogSink {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use agate_proxy::domain::inspection::{LifecyclePhase, RunId, SessionId};
+    use tokio::sync::mpsc;
+    use uuid::Uuid;
+
+    use super::{AgentEvent, AuditLogSink, AuditSink, InspectionContext, Verdict};
+
+    fn context() -> InspectionContext {
+        InspectionContext::new(SessionId(Uuid::nil()), RunId(Uuid::nil()))
+    }
+
+    #[tokio::test]
+    async fn record_enqueues_the_encoded_event() {
+        let (tx, mut rx) = mpsc::channel::<Vec<u8>>(4);
+        let sink = AuditLogSink::new(tx);
+
+        let event = AgentEvent::Lifecycle(LifecyclePhase::RunStarted);
+        sink.record(&context(), &event, &Verdict::Allow).await;
+
+        let bytes = rx.try_recv().expect("a record was enqueued");
+        let json: serde_json::Value = serde_json::from_slice(&bytes).expect("valid JSON");
+        assert_eq!(json["verdict"], "allow");
+    }
+
+    #[tokio::test]
+    async fn record_on_a_closed_outbox_does_not_panic() {
+        let (tx, rx) = mpsc::channel::<Vec<u8>>(1);
+        drop(rx); // the outbox task has stopped
+
+        let sink = AuditLogSink::new(tx);
+        let event = AgentEvent::Lifecycle(LifecyclePhase::RunFinished);
+        // Logs + counts a drop rather than panicking.
+        sink.record(&context(), &event, &Verdict::Allow).await;
+    }
+}

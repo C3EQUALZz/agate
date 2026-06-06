@@ -133,6 +133,23 @@ mod tests {
         }
     }
 
+    /// Replaces every message chunk with a fixed redacted text.
+    struct RedactMessages;
+    #[async_trait]
+    impl PolicyPort for RedactMessages {
+        async fn decide(&self, _: &InspectionContext, event: &AgentEvent) -> Verdict<AgentEvent> {
+            match event {
+                AgentEvent::MessageChunk { message, .. } => {
+                    Verdict::Transform(AgentEvent::MessageChunk {
+                        message: message.clone(),
+                        text: "[redacted]".into(),
+                    })
+                }
+                _ => Verdict::Allow,
+            }
+        }
+    }
+
     fn upstream(chunks: &[&'static str]) -> AgentResponseStream {
         let items: Vec<_> = chunks
             .iter()
@@ -155,6 +172,30 @@ mod tests {
 
     fn inspector(policy: Arc<dyn PolicyPort>) -> Arc<Inspector> {
         Arc::new(Inspector::new(policy, Arc::new(NoopAudit)))
+    }
+
+    #[tokio::test]
+    async fn transforms_a_message_and_forwards_the_replacement() {
+        let stream = inspect_stream(
+            upstream(&[
+                "data: {\"type\":\"RUN_STARTED\"}\n\n",
+                "data: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"m1\",\"delta\":\"secret\"}\n\n",
+                "data: {\"type\":\"RUN_FINISHED\"}\n\n",
+            ]),
+            inspector(Arc::new(RedactMessages)),
+            context(),
+            Budgets::default(),
+        );
+
+        let out = collect(stream).await;
+        assert!(
+            out.contains("[redacted]"),
+            "expected the replacement: {out}"
+        );
+        assert!(
+            !out.contains("secret"),
+            "original text should be gone: {out}"
+        );
     }
 
     #[tokio::test]
