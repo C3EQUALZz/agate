@@ -31,6 +31,17 @@ jobs:
       - uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1
         with:
           tool: cargo-llvm-cov
+      # Pre-pull the testcontainers Postgres image with retries so a transient
+      # Docker Hub rate-limit/timeout doesn't fail the coverage run's e2e tests.
+      - name: Pre-pull Postgres image
+        run: |
+          for attempt in 1 2 3 4 5; do
+            docker pull postgres:17-alpine && exit 0
+            echo "docker pull failed (attempt ${attempt}); retrying in 15s" >&2
+            sleep 15
+          done
+          echo "could not pull postgres:17-alpine after 5 attempts" >&2
+          exit 1
       - name: Generate coverage (lcov)
         run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
       - name: SonarQube scan
