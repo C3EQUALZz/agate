@@ -96,4 +96,11 @@ services:
       # AUDIT_LOG_ID: "…"   # set after first run to reuse the log
 ```
 
+## Graceful shutdown
+
+On `SIGTERM` (what a container runtime sends to stop) or `SIGINT` (Ctrl+C),
+Agate stops accepting new connections, lets in-flight requests finish, then
+**flushes the audit outbox** — the records still queued are appended before the
+process exits. Safe for rolling restarts and Kubernetes pod termination.
+
 Continue to **[Configuration](configuration.md)** for the full key reference.

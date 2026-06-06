@@ -62,7 +62,44 @@ async fn main() {
         .await
         .expect("bind listener");
     info!(%bind_addr, "agate-server listening");
-    axum::serve(listener, server.app).await.expect("serve");
+
+    axum::serve(listener, server.app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("serve");
+
+    // axum::serve has returned, so the served app — and the audit sink inside it —
+    // is dropped, closing the outbox channel. Awaiting the outbox task lets it
+    // drain the queued records before the process exits.
+    info!("draining the audit outbox");
+    server.outbox.await.expect("audit outbox task");
+    info!("shutdown complete");
+}
+
+/// Resolves once the process receives SIGINT (Ctrl+C) or SIGTERM (the signal a
+/// container runtime sends to stop), triggering an axum graceful shutdown.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("install the Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("install the SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
+    info!("shutdown signal received; stopping new work");
 }
 
 /// The transparency log to record into: `AUDIT_LOG_ID` if set, else a freshly
