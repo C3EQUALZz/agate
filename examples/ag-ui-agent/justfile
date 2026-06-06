@@ -1,0 +1,50 @@
+set shell := ["bash", "-uc"]
+
+default:
+    @just --list
+
+# Sync dependencies (stub backend only — no API key, no AG2).
+install:
+    uv sync
+
+# Sync with the real-AG2 extra (needs an OpenAI key at runtime).
+install-ag2:
+    uv sync --extra ag2
+
+# Run the dev server with auto-reload (stub backend by default).
+dev:
+    uv run uvicorn ag_ui_agent.main.entrypoint:app --reload --port 8000
+
+# Run the real-AG2 backend (requires --extra ag2 and AGENT__OPENAI_API_KEY).
+dev-ag2:
+    AGENT__BACKEND=ag2 uv run uvicorn ag_ui_agent.main.entrypoint:app --reload --port 8000
+
+# Run all tests.
+test:
+    uv run pytest
+
+# Unit tests only.
+test-unit:
+    uv run pytest tests/unit
+
+# Lint imports against the .importlinter contracts.
+lint-imports:
+    uv run lint-imports
+
+# Ruff check + format check.
+lint:
+    uv run ruff check src tests
+    uv run ruff format --check src tests
+
+# Auto-fix lint issues and format.
+fmt:
+    uv run ruff check --fix src tests
+    uv run ruff format src tests
+
+# Type-check with mypy (strict).
+typecheck:
+    uv run mypy src tests
+
+# Build the stub agent container image.
+docker-build:
+    docker build -t ag-ui-agent:stub .

@@ -1,0 +1,89 @@
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "ag_ui_agent"
+module-root = "src"
+
+[project]
+name = "ag-ui-agent"
+version = "0.1.0"
+description = "Clean-layered AG2.beta + AG-UI + Dishka agent — the upstream Agate protects."
+readme = "README.md"
+requires-python = ">=3.13"
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "dishka>=1.4.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "structlog>=25.1.0",
+    "httpx>=0.28.0",
+]
+
+[project.optional-dependencies]
+# The real-LLM path. Kept optional so the stub backend installs (and runs) with
+# no heavy AG2/OpenAI dependency tree and no API key. Install with:
+#   uv sync --extra ag2
+ag2 = [
+    "ag2[ag-ui,openai]>=0.12",
+    "dishka-ag2>=0.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "dirty-equals>=0.8",
+    "import-linter>=2.0",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+]
+
+[project.scripts]
+ag-ui-agent = "ag_ui_agent.main.entrypoint:run"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.mypy]
+files = ["src/ag_ui_agent", "tests"]
+strict = true
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+# The real-AG2 path is an optional extra; its types are absent in the default
+# (stub-only) environment. Ignore the missing imports rather than fail strict.
+[[tool.mypy.overrides]]
+module = ["autogen.*", "dishka_ag2.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+src = ["src", "tests"]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "C4", "SIM",
+]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ag_ui_agent"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
