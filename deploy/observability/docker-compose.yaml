@@ -25,6 +25,9 @@ services:
     image: grafana/grafana:11.4.0
     depends_on:
       - prometheus
+    # LOCAL DEMO ONLY: admin/admin and anonymous viewing are for convenience on a
+    # developer machine. Do NOT expose this stack publicly — set a real password
+    # (GF_SECURITY_ADMIN_PASSWORD) and disable anonymous access for any shared use.
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
