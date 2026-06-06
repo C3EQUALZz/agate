@@ -16,9 +16,14 @@ from __future__ import annotations
 import argparse
 import sys
 
+from audit_verify.adapters import (
+    AuditLogReadError,
+    SqlAlchemyAuditLogReader,
+    SqlAlchemyTransactionManager,
+)
 from audit_verify.config import DEFAULT_DATABASE_URL, Config
 from audit_verify.domain import TransparencyLogSummary
-from audit_verify.gateways import AuditLogReadError, PostgresAuditLogReader
+from audit_verify.persistence import build_session_factory
 
 # How many hex chars of each leaf digest to show in the sample listing.
 _DIGEST_PREVIEW_LEN = 32
@@ -26,7 +31,11 @@ _DIGEST_PREVIEW_LEN = 32
 
 def run(config: Config) -> int:
     """Read every transparency log, print a summary, and return an exit code."""
-    reader = PostgresAuditLogReader(config)
+    session_factory = build_session_factory(
+        config.database_url,
+        connect_timeout=config.connect_timeout,
+    )
+    reader = SqlAlchemyAuditLogReader(SqlAlchemyTransactionManager(session_factory), config)
     try:
         summaries = reader.list_summaries()
     except AuditLogReadError as error:

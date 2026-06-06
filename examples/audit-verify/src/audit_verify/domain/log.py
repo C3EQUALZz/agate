@@ -1,7 +1,7 @@
 """Domain model of a transparency-log summary.
 
-Pure: no psycopg, no I/O. The gateway adapter builds these from query rows; the
-CLI renders them.
+Pure: no SQLAlchemy, no I/O. The gateway adapter builds these from the mapped
+persistence entities; the CLI renders them.
 """
 
 from __future__ import annotations

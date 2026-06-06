@@ -14,7 +14,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 
 dependencies = [
-    # Pure-Python Postgres driver — no system libpq needed.
+    # ORM with imperative (classical) mapping onto Agate's existing audit tables.
+    "sqlalchemy>=2.0",
+    # Pure-Python Postgres driver (psycopg v3) — no system libpq needed.
     "psycopg[binary]>=3.2",
 ]
 
@@ -41,6 +43,9 @@ python_version = "3.13"
 warn_unreachable = true
 no_implicit_reexport = true
 disallow_any_generics = true
+# SQLAlchemy ships PEP 561 stubs; no mypy plugin is needed for Core constructs
+# (Table/Column/select), and we deliberately avoid the declarative `Mapped[...]`
+# style the plugin targets — imperative mapping keeps the entities plain.
 
 [tool.ruff]
 src = ["src", "tests"]

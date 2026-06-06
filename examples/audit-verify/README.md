@@ -60,15 +60,30 @@ Each leaf corresponds to one inspected AG-UI event and its verdict (allow / deny
 
 ## Layout
 
+Persistence uses **SQLAlchemy with imperative (classical) mapping**: this tool
+does not own the schema (Agate's `agate-audit` migrations do), so plain domain
+entities are mapped onto the *pre-existing* `Table`s rather than declared. A sync
+session factory + a small transaction manager own the unit-of-work lifecycle, and
+the gateway queries through the ORM/Core over the mapped entities — no
+hand-written row→object tuples.
+
 ```
 src/audit_verify/
-├── config.py                 # Config (database url / timeout / sample size)
-├── domain/log.py             # TransparencyLogSummary (+ is_contiguous), LeafSample
-├── gateways/audit_log.py     # AuditLogReader port + PostgresAuditLogReader adapter
-└── cli.py                    # argument parsing + rendering
+├── config.py                          # Config (database url / timeout / sample size)
+├── domain/log.py                      # TransparencyLogSummary (+ is_contiguous), LeafSample
+├── persistence/
+│   ├── registry.py                    # shared MetaData + imperative registry
+│   ├── entities.py                    # plain AuditLog / AuditLeaf entities
+│   ├── tables.py                      # Table defs + map_imperatively(...)
+│   └── provider.py                    # sync Engine + Session factory
+├── adapters/
+│   ├── transaction_manager.py         # SqlAlchemyTransactionManager (context-managed session)
+│   └── audit_log_gateway.py           # AuditLogReader port + SqlAlchemyAuditLogReader
+└── cli.py                             # argument parsing + rendering
 ```
 
-`uv run pytest` runs the `is_contiguous` / digest unit tests (no Postgres needed).
+`uv run pytest` runs the `is_contiguous` / digest unit tests plus a reader test
+that maps the same entities onto in-memory SQLite (no Postgres needed).
 
 ## Quality gate
 
