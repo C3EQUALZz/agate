@@ -36,3 +36,12 @@ enabled = true
 format = "pretty"
 # Filter directive; RUST_LOG overrides it when set.
 level = "info"
+
+[observability.metrics]
+# Expose a Prometheus /metrics endpoint (off by default).
+enabled = false
+# prometheus | none
+exporter = "prometheus"
+# Its own port — scraped by Prometheus inside the network, NOT the public
+# data-plane port. Map/expose it only where your scraper can reach it.
+bind = "0.0.0.0:9090"

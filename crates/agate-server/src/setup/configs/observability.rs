@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-/// `[observability]` — logging now; metrics/tracing connectors land here next.
+/// `[observability]` — logging and metrics connectors (tracing lands here next).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ObservabilityConfig {
     pub logging: LoggingConfig,
+    pub metrics: MetricsConfig,
 }
 
 /// `[observability.logging]` — the console/structured log output.
@@ -39,4 +40,40 @@ pub enum LogFormat {
     Pretty,
     /// One JSON object per line, for log shippers.
     Json,
+}
+
+/// `[observability.metrics]` — a Prometheus scrape endpoint, on its own port so
+/// it stays off the public data-plane port.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MetricsConfig {
+    /// Install a metrics recorder + exporter at all. `false` makes every metric
+    /// a no-op (the `metrics` facade does nothing without a recorder).
+    pub enabled: bool,
+    /// Which exporter to expose the metrics through.
+    pub exporter: MetricsExporter,
+    /// Address the Prometheus `/metrics` endpoint listens on (its own port,
+    /// scraped from inside the network — not the client-facing proxy port).
+    pub bind: String,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            exporter: MetricsExporter::Prometheus,
+            bind: "0.0.0.0:9090".into(),
+        }
+    }
+}
+
+/// The metrics "connector" — selectable like the logging format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MetricsExporter {
+    /// A Prometheus text endpoint (`/metrics`) on its own port.
+    #[default]
+    Prometheus,
+    /// No exporter (metrics disabled even if `enabled = true`).
+    None,
 }

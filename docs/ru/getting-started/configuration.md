@@ -74,9 +74,27 @@ docker run --rm \
 (например, `level = "agate_proxy=debug,info"`) для детализации по каждому событию
 (каждое переданное/буферизованное событие, каждая добавленная запись аудита).
 
-!!! info "Метрики и трейсинг"
-    Метрики Prometheus и трейсинг OpenTelemetry подключаются в той же секции
-    `[observability]` и будут описаны здесь по мере появления.
+## `[observability.metrics]`
+
+Эндпоинт для Prometheus на **отдельном порту**, не на публичном data-plane
+порту (скрейпится из внутренней сети).
+
+| Ключ | По умолчанию | Значение |
+| --- | --- | --- |
+| `enabled` | `false` | Устанавливать ли recorder + экспортёр метрик. Если выключено — метрики no-op. |
+| `exporter` | `prometheus` | `prometheus` (эндпоинт `/metrics`) или `none`. |
+| `bind` | `0.0.0.0:9090` | Адрес, который слушает эндпоинт `/metrics`. |
+
+Экспортируемые метрики:
+
+- `agate_runs_total` — проксированных прогонов.
+- `agate_events_inspected_total{outcome="forward|buffer|transform|deny|terminate"}` — проинспектированные события по исходу (разбивка по вердиктам).
+- `agate_upstream_errors_total` — ошибки запроса/потока к вышестоящему агенту.
+- `agate_audit_records_appended_total` / `agate_audit_records_dropped_total` — записи в журнал прозрачности против дропов (ненулевой drop-rate = аудит не успевает, ставьте алерт).
+
+!!! info "Распределённый трейсинг"
+    Трейсинг OpenTelemetry (OTLP) подключается в той же секции `[observability]`
+    и будет описан здесь по мере появления.
 
 ## Полный пример
 
@@ -100,4 +118,9 @@ redact = ["sk-", "AKIA"]
 enabled = true
 format = "pretty"
 level = "info"
+
+[observability.metrics]
+enabled = true
+exporter = "prometheus"
+bind = "0.0.0.0:9090"
 ```
