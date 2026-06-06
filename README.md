@@ -34,6 +34,12 @@ and the threat model — is published with Material for MkDocs and is **bilingua
 
 The API reference is the rustdoc: `cargo doc --workspace --no-deps --open`.
 
+## Examples
+
+Runnable Python examples that put an AG-UI agent **behind Agate** and show its
+protections (tool-call denial, secret redaction, the audit trail) in action live
+under [`examples/`](examples/) — start with [`examples/README.md`](examples/README.md).
+
 ## License
 
 [MIT](LICENSE).

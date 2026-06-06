@@ -1,0 +1,31 @@
+# Agate configuration for the protected demo.
+#
+# Mounted into the Agate container at /etc/agate/agate.toml. Secrets (the DB
+# password) come from AGATE__AUDIT__DATABASE_URL in docker-compose, not here.
+
+[proxy]
+# The upstream AG-UI agent Agate forwards inspected runs to. "agent" is the
+# compose service name; the agent serves AG-UI at POST /run on port 8000.
+agent_endpoint = "http://agent:8000/run"
+# Agate listens here; the client posts runs to http://localhost:8080/.
+bind = "0.0.0.0:8080"
+
+[audit]
+# PostgreSQL transparency log. Password supplied via env override in compose.
+database_url = "postgres://agate@db:5432/agate"
+
+[policy.tools]
+# Allowlist: only "search" may run. The stub agent also emits a "delete_file"
+# tool call — Agate DENIES it (surfaced as RUN_ERROR), which is the whole point.
+mode = "allowlist"
+names = ["search"]
+
+[policy]
+# Redact secret markers from emitted assistant text (case-insensitive). The stub
+# agent leaks a fake "sk-..." credential; Agate masks it before the client sees it.
+redact = ["sk-"]
+
+[observability.logging]
+enabled = true
+format = "pretty"
+level = "info"

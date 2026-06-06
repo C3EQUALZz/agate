@@ -1,0 +1,20 @@
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# uv keeps uv.lock committed (reproducible installs); the venv is local-only.
+
+# ---- Local env (the root .gitignore already ignores .env / .env.*; repeated
+#       here so these projects stay safe even when copied out of the repo) ----
+.env
+.env.*
+!.env.example
