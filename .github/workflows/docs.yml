@@ -6,11 +6,13 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "scripts/check-mermaid.sh"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "scripts/check-mermaid.sh"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -44,6 +46,23 @@ jobs:
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
+
+  mermaid:
+    name: Validate Mermaid diagrams (mmdc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+      # mkdocs build does not validate Mermaid (it renders client-side), so parse
+      # every diagram with the real engine here to catch "Syntax error in text".
+      - name: Install mermaid-cli
+        run: npm install -g @mermaid-js/mermaid-cli@11.15.0
+      - name: Validate fenced mermaid blocks
+        run: ./scripts/check-mermaid.sh
 
   deploy:
     name: Deploy to GitHub Pages

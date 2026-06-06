@@ -46,7 +46,7 @@ flowchart LR
     seam --> buffer["Buffer — нужно больше кадров"]
     seam --> terminate["Terminate — завершить run"]
     seam -.->|спрашивает| policy["agate-policy"]
-    seam -.->|записывает (событие, вердикт)| audit["agate-audit"]
+    seam -.->|"записывает (событие, вердикт)"| audit["agate-audit"]
 ```
 
 ## Читайте дальше

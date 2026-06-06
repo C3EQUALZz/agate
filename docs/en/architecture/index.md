@@ -45,7 +45,7 @@ flowchart LR
     seam --> buffer["Buffer — need more frames"]
     seam --> terminate["Terminate — end the run"]
     seam -.->|asks| policy["agate-policy"]
-    seam -.->|records (event, verdict)| audit["agate-audit"]
+    seam -.->|"records (event, verdict)"| audit["agate-audit"]
 ```
 
 ## Read on
