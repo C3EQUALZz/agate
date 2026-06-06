@@ -77,6 +77,21 @@ The practical workflow:
 - Prefer **small, page-scoped PRs** so an EN change and its RU translation can
   land together.
 
+!!! info "The bilingual policy is CI-enforced"
+    `scripts/check-i18n.sh` (the `i18n` job in the docs workflow) guards two
+    things on every PR:
+
+    - **Structural parity** — every `docs/en/**/*.md` must have a matching
+      `docs/ru/**/*.md` at the mirror path, and vice-versa. A missing
+      counterpart fails the build.
+    - **Threat-model drift-guard** — the Russian translation
+      `docs/design/agate-proxy-threat-model.ru.md` embeds the
+      `git hash-object` SHA of its English source
+      (`docs/design/agate-proxy-threat-model.md`) in an
+      `<!-- en-source-sha: … -->` comment. If the English canonical record
+      changes, the SHA no longer matches and the check fails until the
+      translation is refreshed and the embedded SHA updated.
+
 !!! tip "Diagrams and code are shared, not translated"
     Mermaid diagrams, code blocks, identifiers, env-var names, and CLI commands
     are identical across languages — only prose is translated. This keeps the

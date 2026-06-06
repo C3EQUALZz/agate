@@ -6,12 +6,14 @@
 шов принятия решений** (событие → вердикт), к которому подключаются контексты
 аудита и политик.
 
-!!! note "Канонический документ — на английском"
-    Канонический источник находится в репозитории
-    ([`docs/design/agate-proxy-threat-model.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/agate-proxy-threat-model.md))
-    и включён ниже дословно (на английском), чтобы опубликованная документация
-    и внутренняя проектная запись никогда не расходились. Резюме на русском —
-    в блоке ниже.
+!!! note "Перевод канонической записи"
+    Канонический источник истины — английский и находится в репозитории
+    ([`docs/design/agate-proxy-threat-model.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/agate-proxy-threat-model.md)).
+    Ниже включён его русский перевод
+    ([`docs/design/agate-proxy-threat-model.ru.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/agate-proxy-threat-model.ru.md)).
+    Перевод поддерживается в синхронизации с английским оригиналом через
+    CI-страж дрейфа (`scripts/check-i18n.sh`): если английский документ
+    меняется, проверка падает, пока перевод не обновят.
 
 !!! abstract "Кратко"
     - **Режим:** гибридный встроенный (inline) — превентивный на «ноге» запроса,
@@ -39,4 +41,4 @@ flowchart LR
 
 ---
 
---8<-- "design/agate-proxy-threat-model.md"
+--8<-- "design/agate-proxy-threat-model.ru.md"

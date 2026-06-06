@@ -7,12 +7,14 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - "scripts/check-mermaid.sh"
+      - "scripts/check-i18n.sh"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "docs/**"
       - "mkdocs.yml"
       - "scripts/check-mermaid.sh"
+      - "scripts/check-i18n.sh"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -63,6 +65,18 @@ jobs:
         run: npm install -g @mermaid-js/mermaid-cli@11.15.0
       - name: Validate fenced mermaid blocks
         run: ./scripts/check-mermaid.sh
+
+  i18n:
+    name: Check bilingual docs (parity + drift-guard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      # `git hash-object` operates on the working-tree file, so a plain
+      # checkout (no full history) is sufficient for the drift-guard.
+      - name: Check EN/RU parity and threat-model translation drift
+        run: bash ./scripts/check-i18n.sh
 
   deploy:
     name: Deploy to GitHub Pages
