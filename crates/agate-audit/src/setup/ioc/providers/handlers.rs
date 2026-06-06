@@ -11,8 +11,10 @@ use froodi::{
     DefaultScope::Request, Inject, InstantiatorResult, async_impl::RegistryWithSync, async_registry,
 };
 
-use crate::application::common::behaviors::TransactionBehavior;
-use crate::application::common::ports::{LogCommandGateway, LogQueryGateway, TransactionManager};
+use crate::application::common::behaviors::{MetricsBehavior, TransactionBehavior};
+use crate::application::common::ports::{
+    AuditMetrics, LogCommandGateway, LogQueryGateway, TransactionManager,
+};
 use crate::application::usecases::append_record::AppendRecordHandler;
 use crate::application::usecases::create_log::CreateLogHandler;
 use crate::application::usecases::get_consistency_proof::GetConsistencyProofHandler;
@@ -23,13 +25,14 @@ use crate::infrastructure::persistence::log::postgres::{
     PostgresLogCommandGateway, PostgresLogQueryGateway,
 };
 use crate::infrastructure::persistence::postgres::PgTransactionManager;
-use crate::infrastructure::{SystemClock, UuidLogIdGenerator};
+use crate::infrastructure::{AuditMetricsRecorder, SystemClock, UuidLogIdGenerator};
 
 /// The use-case handlers and the transaction behavior, all Request-scoped.
 pub(crate) fn handler_providers() -> RegistryWithSync {
     async_registry! {
         scope(Request) [
             provide(provide_transaction_behavior),
+            provide(provide_metrics_behavior),
             provide(provide_create_log_handler),
             provide(provide_append_record_handler),
             provide(provide_get_inclusion_proof_handler),
@@ -43,6 +46,11 @@ async fn provide_transaction_behavior(
 ) -> InstantiatorResult<TransactionBehavior> {
     let manager: Arc<dyn TransactionManager> = manager;
     Ok(TransactionBehavior::new(manager))
+}
+
+async fn provide_metrics_behavior() -> InstantiatorResult<MetricsBehavior> {
+    let metrics: Arc<dyn AuditMetrics> = Arc::new(AuditMetricsRecorder);
+    Ok(MetricsBehavior::new(metrics))
 }
 
 async fn provide_create_log_handler(

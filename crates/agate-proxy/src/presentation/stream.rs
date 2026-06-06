@@ -2,11 +2,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
-use metrics::counter;
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
 
-use crate::application::common::ports::AgentResponseStream;
+use crate::application::common::ports::{AgentResponseStream, InspectionOutcome, ProxyMetrics};
 use crate::application::inspection::{InspectionAction, InspectionContext, Inspector};
 use crate::domain::inspection::{Budgets, Run};
 use crate::infrastructure::ag_ui::{to_event, to_fragment};
@@ -26,6 +25,7 @@ pub fn inspect_stream(
     inspector: Arc<Inspector>,
     context: InspectionContext,
     budgets: Budgets,
+    metrics: Arc<dyn ProxyMetrics>,
 ) -> impl Stream<Item = Bytes> + Send {
     async_stream::stream! {
         let mut decoder = SseDecoder::new();
@@ -37,7 +37,7 @@ pub fn inspect_stream(
                 Ok(chunk) => chunk,
                 Err(error) => {
                     warn!(run = %context.run.0, %error, "upstream stream error; ending run with RUN_ERROR");
-                    counter!("agate_upstream_errors_total").increment(1);
+                    metrics.record_upstream_error();
                     yield Bytes::from(run_error(&error.to_string()));
                     return;
                 }
@@ -61,7 +61,7 @@ pub fn inspect_stream(
                 match inspector.inspect(&mut run, &context, fragment).await {
                     InspectionAction::Forward => {
                         debug!(run = %context.run.0, "forwarding inspected event");
-                        counter!("agate_events_inspected_total", "outcome" => "forward").increment(1);
+                        metrics.record_inspected(InspectionOutcome::Forward);
                         for held in pending.drain(..) {
                             yield Bytes::from(held);
                         }
@@ -69,12 +69,12 @@ pub fn inspect_stream(
                     }
                     InspectionAction::Hold => {
                         debug!(run = %context.run.0, "buffering event until the tool call is complete");
-                        counter!("agate_events_inspected_total", "outcome" => "buffer").increment(1);
+                        metrics.record_inspected(InspectionOutcome::Buffer);
                         pending.push(event.raw);
                     }
                     InspectionAction::ForwardTransformed(replacement) => {
                         info!(run = %context.run.0, "policy transformed an event (e.g. redaction); forwarding the replacement");
-                        counter!("agate_events_inspected_total", "outcome" => "transform").increment(1);
+                        metrics.record_inspected(InspectionOutcome::Transform);
                         pending.clear();
                         match to_event(&replacement) {
                             Some(value) => yield Bytes::from(encode(&value.to_string())),
@@ -83,12 +83,12 @@ pub fn inspect_stream(
                     }
                     InspectionAction::Drop(reason) => {
                         info!(run = %context.run.0, reason = reason.as_str(), "policy denied an event; dropping it");
-                        counter!("agate_events_inspected_total", "outcome" => "deny").increment(1);
+                        metrics.record_inspected(InspectionOutcome::Deny);
                         pending.clear();
                     }
                     InspectionAction::Terminate(reason) => {
                         warn!(run = %context.run.0, reason = reason.as_str(), "terminating run with RUN_ERROR");
-                        counter!("agate_events_inspected_total", "outcome" => "terminate").increment(1);
+                        metrics.record_inspected(InspectionOutcome::Terminate);
                         pending.clear();
                         yield Bytes::from(run_error(reason.as_str()));
                         return;
@@ -174,6 +174,28 @@ mod tests {
         Arc::new(Inspector::new(policy, Arc::new(NoopAudit)))
     }
 
+    /// A fake [`ProxyMetrics`] that records every call, for asserting outcomes.
+    #[derive(Default)]
+    struct CountingMetrics {
+        upstream_errors: std::sync::atomic::AtomicUsize,
+        inspected: std::sync::Mutex<Vec<InspectionOutcome>>,
+    }
+
+    impl ProxyMetrics for CountingMetrics {
+        fn record_run(&self) {}
+        fn record_upstream_error(&self) {
+            self.upstream_errors
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn record_inspected(&self, outcome: InspectionOutcome) {
+            self.inspected.lock().unwrap().push(outcome);
+        }
+    }
+
+    fn metrics() -> Arc<dyn ProxyMetrics> {
+        Arc::new(CountingMetrics::default())
+    }
+
     #[tokio::test]
     async fn transforms_a_message_and_forwards_the_replacement() {
         let stream = inspect_stream(
@@ -185,6 +207,7 @@ mod tests {
             inspector(Arc::new(RedactMessages)),
             context(),
             Budgets::default(),
+            metrics(),
         );
 
         let out = collect(stream).await;
@@ -208,6 +231,7 @@ mod tests {
             inspector(Arc::new(AllowAllPolicy)),
             context(),
             Budgets::default(),
+            metrics(),
         );
 
         let out = collect(stream).await;
@@ -227,6 +251,7 @@ mod tests {
             inspector(Arc::new(AllowAllPolicy)),
             context(),
             Budgets::default(),
+            metrics(),
         );
 
         let out = collect(stream).await;
@@ -244,6 +269,7 @@ mod tests {
             inspector(Arc::new(DenyAll)),
             context(),
             Budgets::default(),
+            metrics(),
         );
 
         let out = collect(stream).await;
@@ -258,10 +284,30 @@ mod tests {
             inspector(Arc::new(AllowAllPolicy)),
             context(),
             Budgets::default(),
+            metrics(),
         );
 
         let out = collect(stream).await;
         assert!(out.contains("RUN_ERROR"));
         assert!(out.contains("boom"));
+    }
+
+    #[tokio::test]
+    async fn records_the_inspection_outcome_through_the_port() {
+        let recorder = Arc::new(CountingMetrics::default());
+        let metrics: Arc<dyn ProxyMetrics> = recorder.clone();
+        let stream = inspect_stream(
+            upstream(&["data: {\"type\":\"RUN_STARTED\"}\n\n"]),
+            inspector(Arc::new(DenyAll)),
+            context(),
+            Budgets::default(),
+            metrics,
+        );
+
+        let _ = collect(stream).await;
+        assert_eq!(
+            *recorder.inspected.lock().unwrap(),
+            vec![InspectionOutcome::Deny],
+        );
     }
 }

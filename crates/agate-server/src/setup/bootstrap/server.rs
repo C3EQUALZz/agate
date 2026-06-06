@@ -5,7 +5,9 @@ use sqlx::PgPool;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use agate_audit::application::common::ports::AuditMetrics;
 use agate_audit::domain::merkle::LogId;
+use agate_audit::infrastructure::AuditMetricsRecorder;
 use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::PolicyRuleset;
@@ -48,12 +50,13 @@ pub fn build_server(
 ) -> Server {
     let container = build_container(pool);
     let registry = Arc::new(build_registry());
+    let metrics: Arc<dyn AuditMetrics> = Arc::new(AuditMetricsRecorder);
 
     let (tx, rx) = mpsc::channel::<Vec<u8>>(OUTBOX_CAPACITY);
-    let outbox = tokio::spawn(AuditOutbox::new(container, registry, log).run(rx));
+    let outbox = tokio::spawn(AuditOutbox::new(container, registry, log, metrics.clone()).run(rx));
 
     let policy: Arc<dyn PolicyPort> = Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)));
-    let audit: Arc<dyn AuditSink> = Arc::new(AuditLogSink::new(tx));
+    let audit: Arc<dyn AuditSink> = Arc::new(AuditLogSink::new(tx, metrics));
     let app = build_app_with(proxy, policy, audit);
 
     Server { app, outbox }

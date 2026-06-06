@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 
+use agate_audit::application::common::ports::AuditMetrics;
 use agate_proxy::application::common::ports::AuditSink;
 use agate_proxy::application::inspection::InspectionContext;
 use agate_proxy::domain::inspection::{AgentEvent, Verdict};
@@ -16,12 +19,13 @@ use super::record::encode_record;
 /// `record` returns `()` (an outbox contract), the caller cannot observe it.
 pub struct AuditLogSink {
     tx: Sender<Vec<u8>>,
+    metrics: Arc<dyn AuditMetrics>,
 }
 
 impl AuditLogSink {
     #[must_use]
-    pub fn new(tx: Sender<Vec<u8>>) -> Self {
-        Self { tx }
+    pub fn new(tx: Sender<Vec<u8>>, metrics: Arc<dyn AuditMetrics>) -> Self {
+        Self { tx, metrics }
     }
 }
 
@@ -36,7 +40,7 @@ impl AuditSink for AuditLogSink {
         let record = encode_record(context, event, verdict);
         if self.tx.send(record).await.is_err() {
             tracing::error!("audit outbox closed; dropping inspected record");
-            metrics::counter!("agate_audit_records_dropped_total").increment(1);
+            self.metrics.record_dropped();
         } else {
             tracing::debug!(run = %context.run.0, "enqueued inspected event to the audit outbox");
         }
@@ -45,11 +49,27 @@ impl AuditSink for AuditLogSink {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use agate_audit::application::common::ports::AuditMetrics;
     use agate_proxy::domain::inspection::{LifecyclePhase, RunId, SessionId};
     use tokio::sync::mpsc;
     use uuid::Uuid;
 
     use super::{AgentEvent, AuditLogSink, AuditSink, InspectionContext, Verdict};
+
+    #[derive(Default)]
+    struct CountingMetrics {
+        dropped: AtomicUsize,
+    }
+
+    impl AuditMetrics for CountingMetrics {
+        fn record_appended(&self) {}
+        fn record_dropped(&self) {
+            self.dropped.fetch_add(1, Ordering::SeqCst);
+        }
+    }
 
     fn context() -> InspectionContext {
         InspectionContext::new(SessionId(Uuid::nil()), RunId(Uuid::nil()))
@@ -58,7 +78,7 @@ mod tests {
     #[tokio::test]
     async fn record_enqueues_the_encoded_event() {
         let (tx, mut rx) = mpsc::channel::<Vec<u8>>(4);
-        let sink = AuditLogSink::new(tx);
+        let sink = AuditLogSink::new(tx, Arc::new(CountingMetrics::default()));
 
         let event = AgentEvent::Lifecycle(LifecyclePhase::RunStarted);
         sink.record(&context(), &event, &Verdict::Allow).await;
@@ -69,13 +89,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn record_on_a_closed_outbox_does_not_panic() {
+    async fn record_on_a_closed_outbox_counts_a_drop() {
         let (tx, rx) = mpsc::channel::<Vec<u8>>(1);
         drop(rx); // the outbox task has stopped
 
-        let sink = AuditLogSink::new(tx);
+        let metrics = Arc::new(CountingMetrics::default());
+        let sink = AuditLogSink::new(tx, metrics.clone());
         let event = AgentEvent::Lifecycle(LifecyclePhase::RunFinished);
-        // Logs + counts a drop rather than panicking.
+        // Records a drop through the port rather than panicking.
         sink.record(&context(), &event, &Verdict::Allow).await;
+
+        assert_eq!(metrics.dropped.load(Ordering::SeqCst), 1);
     }
 }
