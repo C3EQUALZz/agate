@@ -23,6 +23,8 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.7",
     "mypy>=1.13",
+    "flake8>=7.1",
+    "wemake-python-styleguide>=1.0",
 ]
 
 [project.scripts]
@@ -36,6 +38,9 @@ testpaths = ["tests"]
 files = ["src/audit_verify", "tests"]
 strict = true
 python_version = "3.13"
+warn_unreachable = true
+no_implicit_reexport = true
+disallow_any_generics = true
 
 [tool.ruff]
 src = ["src", "tests"]
@@ -43,11 +48,21 @@ line-length = 100
 target-version = "py313"
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM"]
-ignore = ["E501"]
+select = ["ALL"]
+ignore = [
+    "D203", "D213", "D104", "D107", "COM812", "ANN401",
+    "EM101", "EM102", "TRY003",
+    "TC001", "TC002", "TC003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "D100", "D101", "D102", "D103", "D104", "PLR2004", "ANN201"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["audit_verify"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.format]
 quote-style = "double"
