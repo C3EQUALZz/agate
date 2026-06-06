@@ -195,8 +195,7 @@ just ci         # полный локальный гейт: fmt, строгий 
 ```
 
 Коммиты следуют [Conventional Commits](https://www.conventionalcommits.org/); CI
-прогоняет проверки форматирования, строгий clippy, тесты на Linux/macOS/Windows,
-cargo-deny и CodeQL.
+прогоняет проверки форматирования, строгий clippy, тесты, cargo-deny и CodeQL.
 
 ## Лицензия
 

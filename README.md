@@ -188,8 +188,7 @@ just ci         # full local gate: fmt, strict clippy, cargo-deny, typos, tests
 ```
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/); CI
-runs format checks, strict clippy, tests on Linux/macOS/Windows, cargo-deny, and
-CodeQL.
+runs format checks, strict clippy, tests, cargo-deny, and CodeQL.
 
 ## License
 
