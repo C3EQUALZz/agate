@@ -1,29 +1,54 @@
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "audit_verify"
+module-root = "src"
+
 [project]
 name = "audit-verify"
 version = "0.1.0"
-description = "Inspect Agate's transparency log: show the recorded (event, verdict) leaves"
+description = "Inspect Agate's transparency log: show the recorded (event, verdict) leaves."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
+
 dependencies = [
     # Pure-Python Postgres driver — no system libpq needed.
-    "psycopg[binary]>=3.1",
+    "psycopg[binary]>=3.2",
 ]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.6",
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "mypy>=1.13",
 ]
 
 [project.scripts]
-audit-verify = "audit_verify.__main__:main"
+audit-verify = "audit_verify.cli:main"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/audit_verify"]
+[tool.mypy]
+files = ["src/audit_verify", "tests"]
+strict = true
+python_version = "3.13"
 
 [tool.ruff]
+src = ["src", "tests"]
 line-length = 100
-target-version = "py310"
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["audit_verify"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
