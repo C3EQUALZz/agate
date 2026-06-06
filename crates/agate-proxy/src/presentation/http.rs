@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use froodi::Inject;
 use futures::StreamExt;
+use metrics::counter;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -43,6 +44,7 @@ async fn proxy_run(
         run = %context.run.0,
         "run received; forwarding to upstream agent"
     );
+    counter!("agate_runs_total").increment(1);
 
     let request = RunRequest {
         body,
@@ -53,6 +55,7 @@ async fn proxy_run(
         Ok(stream) => stream,
         Err(error) => {
             warn!(run = %context.run.0, %error, "upstream agent request failed");
+            counter!("agate_upstream_errors_total").increment(1);
             return (StatusCode::BAD_GATEWAY, error.to_string()).into_response();
         }
     };

@@ -73,9 +73,27 @@ redactions, and transparency-log creation. Raise to `debug` (e.g.
 `level = "agate_proxy=debug,info"`) for per-event detail (each forwarded/buffered
 event, every appended audit record).
 
-!!! info "Metrics and tracing"
-    Prometheus metrics and OpenTelemetry tracing plug into the same
-    `[observability]` section and are documented here as they land.
+## `[observability.metrics]`
+
+A Prometheus scrape endpoint on **its own port**, kept off the public data-plane
+port (scrape it from inside the network).
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `false` | Install the metrics recorder + exporter. When off, metrics are no-ops. |
+| `exporter` | `prometheus` | `prometheus` (a `/metrics` endpoint) or `none`. |
+| `bind` | `0.0.0.0:9090` | Address the `/metrics` endpoint listens on. |
+
+Exposed metrics:
+
+- `agate_runs_total` — runs proxied.
+- `agate_events_inspected_total{outcome="forward|buffer|transform|deny|terminate"}` — inspected events by outcome (the verdict breakdown).
+- `agate_upstream_errors_total` — upstream agent request/stream failures.
+- `agate_audit_records_appended_total` / `agate_audit_records_dropped_total` — transparency-log writes vs. drops (a non-zero drop rate means audit is falling behind — alert on it).
+
+!!! info "Distributed tracing"
+    OpenTelemetry (OTLP) tracing plugs into the same `[observability]` section
+    and is documented here as it lands.
 
 ## Full example
 
@@ -99,4 +117,9 @@ redact = ["sk-", "AKIA"]
 enabled = true
 format = "pretty"
 level = "info"
+
+[observability.metrics]
+enabled = true
+exporter = "prometheus"
+bind = "0.0.0.0:9090"
 ```

@@ -19,7 +19,7 @@ use agate_audit::infrastructure::persistence::postgres::run_migrations;
 use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_server::setup::bootstrap::build_server;
 use agate_server::setup::configs::load;
-use agate_server::setup::observability::init_logging;
+use agate_server::setup::observability::{init_logging, init_metrics};
 use tracing::info;
 
 #[tokio::main]
@@ -29,6 +29,9 @@ async fn main() {
         .validate()
         .unwrap_or_else(|error| panic!("invalid configuration: {error}"));
     init_logging(&config.observability.logging);
+    if init_metrics(&config.observability.metrics) {
+        info!(bind = %config.observability.metrics.bind, "Prometheus metrics endpoint serving /metrics");
+    }
 
     // Build everything that can fail from config before any I/O, so a bad config
     // aborts startup before connecting to Postgres or creating a log.

@@ -4,5 +4,7 @@
 //! tracing connectors plug in here next, selected by `[observability]` config.
 
 pub mod logging;
+pub mod metrics;
 
 pub use logging::init_logging;
+pub use metrics::init_metrics;

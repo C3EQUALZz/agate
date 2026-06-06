@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
+use metrics::counter;
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
 
@@ -36,6 +37,7 @@ pub fn inspect_stream(
                 Ok(chunk) => chunk,
                 Err(error) => {
                     warn!(run = %context.run.0, %error, "upstream stream error; ending run with RUN_ERROR");
+                    counter!("agate_upstream_errors_total").increment(1);
                     yield Bytes::from(run_error(&error.to_string()));
                     return;
                 }
@@ -59,6 +61,7 @@ pub fn inspect_stream(
                 match inspector.inspect(&mut run, &context, fragment).await {
                     InspectionAction::Forward => {
                         debug!(run = %context.run.0, "forwarding inspected event");
+                        counter!("agate_events_inspected_total", "outcome" => "forward").increment(1);
                         for held in pending.drain(..) {
                             yield Bytes::from(held);
                         }
@@ -66,10 +69,12 @@ pub fn inspect_stream(
                     }
                     InspectionAction::Hold => {
                         debug!(run = %context.run.0, "buffering event until the tool call is complete");
+                        counter!("agate_events_inspected_total", "outcome" => "buffer").increment(1);
                         pending.push(event.raw);
                     }
                     InspectionAction::ForwardTransformed(replacement) => {
                         info!(run = %context.run.0, "policy transformed an event (e.g. redaction); forwarding the replacement");
+                        counter!("agate_events_inspected_total", "outcome" => "transform").increment(1);
                         pending.clear();
                         match to_event(&replacement) {
                             Some(value) => yield Bytes::from(encode(&value.to_string())),
@@ -78,10 +83,12 @@ pub fn inspect_stream(
                     }
                     InspectionAction::Drop(reason) => {
                         info!(run = %context.run.0, reason = reason.as_str(), "policy denied an event; dropping it");
+                        counter!("agate_events_inspected_total", "outcome" => "deny").increment(1);
                         pending.clear();
                     }
                     InspectionAction::Terminate(reason) => {
                         warn!(run = %context.run.0, reason = reason.as_str(), "terminating run with RUN_ERROR");
+                        counter!("agate_events_inspected_total", "outcome" => "terminate").increment(1);
                         pending.clear();
                         yield Bytes::from(run_error(reason.as_str()));
                         return;
@@ -126,6 +133,23 @@ mod tests {
         }
     }
 
+    /// Replaces every message chunk with a fixed redacted text.
+    struct RedactMessages;
+    #[async_trait]
+    impl PolicyPort for RedactMessages {
+        async fn decide(&self, _: &InspectionContext, event: &AgentEvent) -> Verdict<AgentEvent> {
+            match event {
+                AgentEvent::MessageChunk { message, .. } => {
+                    Verdict::Transform(AgentEvent::MessageChunk {
+                        message: message.clone(),
+                        text: "[redacted]".into(),
+                    })
+                }
+                _ => Verdict::Allow,
+            }
+        }
+    }
+
     fn upstream(chunks: &[&'static str]) -> AgentResponseStream {
         let items: Vec<_> = chunks
             .iter()
@@ -148,6 +172,30 @@ mod tests {
 
     fn inspector(policy: Arc<dyn PolicyPort>) -> Arc<Inspector> {
         Arc::new(Inspector::new(policy, Arc::new(NoopAudit)))
+    }
+
+    #[tokio::test]
+    async fn transforms_a_message_and_forwards_the_replacement() {
+        let stream = inspect_stream(
+            upstream(&[
+                "data: {\"type\":\"RUN_STARTED\"}\n\n",
+                "data: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"m1\",\"delta\":\"secret\"}\n\n",
+                "data: {\"type\":\"RUN_FINISHED\"}\n\n",
+            ]),
+            inspector(Arc::new(RedactMessages)),
+            context(),
+            Budgets::default(),
+        );
+
+        let out = collect(stream).await;
+        assert!(
+            out.contains("[redacted]"),
+            "expected the replacement: {out}"
+        );
+        assert!(
+            !out.contains("secret"),
+            "original text should be gone: {out}"
+        );
     }
 
     #[tokio::test]

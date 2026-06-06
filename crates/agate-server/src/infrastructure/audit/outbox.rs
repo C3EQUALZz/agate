@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use froodi::async_impl::Container;
+use metrics::counter;
 use tokio::sync::mpsc::Receiver;
 use tracing::{debug, error};
 
@@ -46,6 +47,7 @@ impl AuditOutbox {
             Ok(scope) => Arc::new(scope),
             Err(error) => {
                 error!(?error, "audit outbox: cannot open request scope");
+                counter!("agate_audit_records_dropped_total").increment(1);
                 return;
             }
         };
@@ -57,8 +59,14 @@ impl AuditOutbox {
             })
             .await
         {
-            Ok(index) => debug!(log = %self.log.0, index = index.0, "appended audit record"),
-            Err(error) => error!(?error, "audit outbox: append failed"),
+            Ok(index) => {
+                debug!(log = %self.log.0, index = index.0, "appended audit record");
+                counter!("agate_audit_records_appended_total").increment(1);
+            }
+            Err(error) => {
+                error!(?error, "audit outbox: append failed");
+                counter!("agate_audit_records_dropped_total").increment(1);
+            }
         }
         scope.close().await;
     }
