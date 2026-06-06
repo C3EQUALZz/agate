@@ -18,7 +18,7 @@ class DocumentRepository(Protocol):
         """Return the document with this id, or ``None`` if absent."""
         ...
 
-    async def list(self, limit: int = DEFAULT_LIMIT, offset: int = 0) -> list[Document]:
+    async def list_page(self, limit: int = DEFAULT_LIMIT, offset: int = 0) -> list[Document]:
         """Return a page of documents (newest first)."""
         ...
 

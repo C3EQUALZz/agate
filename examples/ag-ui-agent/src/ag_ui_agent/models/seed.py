@@ -17,7 +17,8 @@ from ag_ui_agent.domain.entities import Document, DocumentId
 # Fixed UUIDs keep the demo output deterministic across runs.
 _README_ID = DocumentId(UUID("00000000-0000-0000-0000-000000000001"))
 _NOTES_ID = DocumentId(UUID("00000000-0000-0000-0000-000000000002"))
-_EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
+_SEED_YEAR = 2026
+_EPOCH = datetime(_SEED_YEAR, 1, 1, tzinfo=UTC)
 
 
 def seed_documents() -> list[Document]:

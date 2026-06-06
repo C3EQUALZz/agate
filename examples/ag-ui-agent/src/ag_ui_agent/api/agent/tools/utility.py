@@ -1,3 +1,5 @@
+"""Utility agent tools (a safe, read-only status probe)."""
+
 from autogen.beta import tool
 
 

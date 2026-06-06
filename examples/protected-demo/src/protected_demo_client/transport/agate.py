@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from http import HTTPStatus
 from typing import Any
 
 import httpx
@@ -34,10 +35,11 @@ def stream_run(url: str, prompt: str, timeout: float) -> Iterator[dict[str, Any]
     """
     body = build_run_input(prompt)
     try:
-        with httpx.Client(timeout=timeout) as client, client.stream(
-            "POST", url, json=body
-        ) as response:
-            if response.status_code != 200:
+        with (
+            httpx.Client(timeout=timeout) as client,
+            client.stream("POST", url, json=body) as response,
+        ):
+            if response.status_code != HTTPStatus.OK:
                 response.read()
                 raise AgateClientError(f"HTTP {response.status_code}: {response.text}")
             yield from parse_sse_lines(response.iter_lines())

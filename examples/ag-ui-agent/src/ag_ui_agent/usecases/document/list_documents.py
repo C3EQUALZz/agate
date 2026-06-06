@@ -31,5 +31,5 @@ class ListDocumentsUseCase:
 
     async def execute(self, request: ListDocumentsRequest) -> ListDocumentsResponse:
         """Fetch a page of documents from the repository."""
-        documents = await self._repo.list(limit=request.limit, offset=request.offset)
+        documents = await self._repo.list_page(limit=request.limit, offset=request.offset)
         return ListDocumentsResponse(documents=documents)

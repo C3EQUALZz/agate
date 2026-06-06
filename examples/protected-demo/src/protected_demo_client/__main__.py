@@ -1,3 +1,5 @@
+"""Console entrypoint for ``python -m protected_demo_client``."""
+
 from protected_demo_client.cli import main
 
 if __name__ == "__main__":

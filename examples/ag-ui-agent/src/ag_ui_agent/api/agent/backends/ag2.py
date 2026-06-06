@@ -56,4 +56,5 @@ class Ag2AgUiStreamer:
         # VERIFY: AGUIStream.dispatch(run_input, accept=accept) returns the AG-UI
         # SSE async iterator (the reference's exact call). Type ignored because
         # autogen ships no stubs for the default environment.
-        return AGUIStream(self._agent).dispatch(native, accept=accept)  # type: ignore[no-any-return]
+        stream = AGUIStream(self._agent)
+        return stream.dispatch(native, accept=accept)

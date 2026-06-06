@@ -22,6 +22,7 @@ class AG2ContainerMiddleware:
         self.container = container
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Wrap each HTTP request in an ``AG2Scope.REQUEST`` container."""
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return

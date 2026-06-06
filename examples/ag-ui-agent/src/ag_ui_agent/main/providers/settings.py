@@ -1,3 +1,5 @@
+"""Dishka provider exposing the application ``Settings``."""
+
 from dishka import Provider
 from dishka_ag2 import AG2Scope
 

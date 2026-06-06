@@ -23,11 +23,13 @@ class HealthCheckAccessFilter(logging.Filter):
         return "/api/health" not in record.getMessage()
 
 
-def configure_logging(level: str = "INFO", json_output: bool = False) -> None:
-    """Configure structlog + stdlib logging (console or JSON)."""
-    log_level = getattr(logging, level.upper(), logging.INFO)
+# stdlib loggers whose own handlers we clear so records flow through structlog.
+_NOISY_LOGGERS = ("uvicorn", "uvicorn.access", "uvicorn.error", "fastapi")
 
-    shared_processors: list[Processor] = [
+
+def _shared_processors() -> list[Processor]:
+    """The structlog processors shared by both console and JSON output."""
+    return [
         structlog.contextvars.merge_contextvars,
         add_logger_name,
         add_log_level,
@@ -36,15 +38,28 @@ def configure_logging(level: str = "INFO", json_output: bool = False) -> None:
         structlog.dev.set_exc_info,
     ]
 
-    renderer: structlog.typing.Processor
+
+def _silence_stdlib_loggers() -> None:
+    """Route uvicorn/fastapi records through the root structlog handler."""
+    for logger_name in _NOISY_LOGGERS:
+        logging.getLogger(logger_name).handlers.clear()
+        logging.getLogger(logger_name).propagate = True
+
+
+def configure_logging(level: str = "INFO", json_output: bool = False) -> None:
+    """Configure structlog + stdlib logging (console or JSON)."""
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    shared = _shared_processors()
+
+    renderer: Processor
     if json_output:
         renderer = JSONRenderer()
-        shared_processors.append(structlog.processors.format_exc_info)
+        shared.append(structlog.processors.format_exc_info)
     else:
         renderer = structlog.dev.ConsoleRenderer()
 
     structlog.configure(
-        processors=shared_processors + [ProcessorFormatter.wrap_for_formatter],
+        processors=[*shared, ProcessorFormatter.wrap_for_formatter],
         context_class=dict,
         logger_factory=LoggerFactory(),
         wrapper_class=structlog.make_filtering_bound_logger(log_level),
@@ -53,15 +68,11 @@ def configure_logging(level: str = "INFO", json_output: bool = False) -> None:
 
     formatter = ProcessorFormatter(
         processor=renderer,
-        foreign_pre_chain=shared_processors + [ExtraAdder()],
+        foreign_pre_chain=[*shared, ExtraAdder()],
     )
-
     logging.basicConfig(level=log_level, handlers=[logging.StreamHandler(sys.stdout)])
-    for handler in logging.getLogger().handlers:
-        handler.setFormatter(formatter)
-
-    for logger_name in ["uvicorn", "uvicorn.access", "uvicorn.error", "fastapi"]:
-        logging.getLogger(logger_name).handlers.clear()
-        logging.getLogger(logger_name).propagate = True
+    for log_handler in logging.getLogger().handlers:
+        log_handler.setFormatter(formatter)
+    _silence_stdlib_loggers()
 
     logging.getLogger("uvicorn.access").addFilter(HealthCheckAccessFilter())

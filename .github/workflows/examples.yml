@@ -1,0 +1,69 @@
+name: Examples
+
+# The Python examples are linted and tested on their own quality gate so changes
+# under examples/ are held to the same bar as the Rust crates. Triggers only when
+# example code (or this workflow) changes, to keep the matrix off unrelated PRs.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - ".github/workflows/examples.yml"
+  pull_request:
+    paths:
+      - "examples/**"
+      - ".github/workflows/examples.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: examples-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: ${{ matrix.example }} (ruff + WPS + mypy + pytest)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [ag-ui-agent, protected-demo, audit-verify]
+    defaults:
+      run:
+        working-directory: examples/${{ matrix.example }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          # Lockfiles are per-example; key the cache on each one.
+          cache-dependency-glob: "examples/${{ matrix.example }}/uv.lock"
+
+      # --frozen fails if uv.lock is missing or out of date, so dependency drift
+      # is caught here rather than discovered at runtime.
+      - name: Install (locked)
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+
+      - name: Lint (flake8 + wemake-python-styleguide)
+        run: uv run flake8 src tests
+
+      - name: Type-check (mypy, strict)
+        run: uv run mypy src tests
+
+      # Only the ag-ui-agent ships layered import contracts.
+      - name: Architecture (import-linter)
+        if: matrix.example == 'ag-ui-agent'
+        run: uv run lint-imports
+
+      - name: Test (pytest)
+        run: uv run pytest

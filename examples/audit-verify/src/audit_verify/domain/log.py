@@ -19,6 +19,7 @@ class LeafSample:
 
     @property
     def digest_hex(self) -> str:
+        """The Merkle leaf hash as a lowercase hex string."""
         return self.leaf_hash.hex()
 
 

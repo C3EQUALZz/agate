@@ -29,9 +29,7 @@ def _doc(name: str, body: str = "", *, day: int = 1) -> Document:
 
 @pytest.mark.asyncio
 async def test_search_matches_name_and_body() -> None:
-    repo = FakeDocumentRepository(
-        [_doc("readme.md", "hello"), _doc("notes.txt", "secret key")]
-    )
+    repo = FakeDocumentRepository([_doc("readme.md", "hello"), _doc("notes.txt", "secret key")])
     uc = SearchDocumentsUseCase(repo=repo)
 
     by_name = await uc.execute(SearchDocumentsRequest(query="readme"))

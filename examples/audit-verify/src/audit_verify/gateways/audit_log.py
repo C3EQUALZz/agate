@@ -31,7 +31,9 @@ class AuditLogReadError(RuntimeError):
 class AuditLogReader(Protocol):
     """Port: read summarized transparency logs from some store."""
 
-    def list_summaries(self) -> list[TransparencyLogSummary]: ...
+    def list_summaries(self) -> list[TransparencyLogSummary]:
+        """Return a summary of every transparency log in the store."""
+        ...
 
 
 class PostgresAuditLogReader(AuditLogReader):
@@ -41,57 +43,70 @@ class PostgresAuditLogReader(AuditLogReader):
         self._config = config
 
     def list_summaries(self) -> list[TransparencyLogSummary]:
+        """Return a summary of every transparency log in the database."""
         try:
             with psycopg.connect(
                 self._config.database_url,
                 connect_timeout=self._config.connect_timeout,
             ) as conn:
-                return [self._summarize(conn, log_id, c, u, algo) for log_id, c, u, algo in self._logs(conn)]
+                return [self._summarize(conn, row) for row in _fetch_logs(conn)]
         except psycopg.Error as error:
             raise AuditLogReadError(str(error)) from error
-
-    @staticmethod
-    def _logs(conn: psycopg.Connection) -> list[tuple[Any, ...]]:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, created_at, updated_at, hash_algo "
-                "FROM audit_log ORDER BY created_at"
-            )
-            return cur.fetchall()
 
     def _summarize(
         self,
         conn: psycopg.Connection,
-        log_id: object,
-        created_at: int,
-        updated_at: int,
-        hash_algo: int,
+        row: tuple[Any, ...],
     ) -> TransparencyLogSummary:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT count(*), min(leaf_index), max(leaf_index) "
-                "FROM audit_leaf WHERE log_id = %s",
-                (log_id,),
-            )
-            row = cur.fetchone()
-            count, lo, hi = row if row is not None else (0, None, None)
-            cur.execute(
-                "SELECT leaf_index, leaf_hash FROM audit_leaf "
-                "WHERE log_id = %s ORDER BY leaf_index LIMIT %s",
-                (log_id, self._config.sample_leaves),
-            )
-            sample = tuple(
-                LeafSample(index=index, leaf_hash=bytes(leaf_hash))
-                for index, leaf_hash in cur.fetchall()
-            )
-
+        log_id, created_at, updated_at, hash_algo = row
+        count, min_index, max_index = _fetch_leaf_bounds(conn, log_id)
         return TransparencyLogSummary(
             log_id=log_id if isinstance(log_id, UUID) else UUID(str(log_id)),
             created_at_ms=created_at,
             updated_at_ms=updated_at,
             hash_algo_code=hash_algo,
             leaf_count=count,
-            min_index=lo,
-            max_index=hi,
-            sample=sample,
+            min_index=min_index,
+            max_index=max_index,
+            sample=_fetch_leaf_sample(conn, log_id, self._config.sample_leaves),
+        )
+
+
+def _fetch_logs(conn: psycopg.Connection) -> list[tuple[Any, ...]]:
+    """Return ``(id, created_at, updated_at, hash_algo)`` for every log."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, created_at, updated_at, hash_algo FROM audit_log ORDER BY created_at"
+        )
+        return cur.fetchall()
+
+
+def _fetch_leaf_bounds(
+    conn: psycopg.Connection,
+    log_id: object,
+) -> tuple[int, int | None, int | None]:
+    """Return ``(leaf_count, min_index, max_index)`` for one log."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*), min(leaf_index), max(leaf_index) FROM audit_leaf WHERE log_id = %s",
+            (log_id,),
+        )
+        return cur.fetchone() or (0, None, None)
+
+
+def _fetch_leaf_sample(
+    conn: psycopg.Connection,
+    log_id: object,
+    limit: int,
+) -> tuple[LeafSample, ...]:
+    """Return the first ``limit`` recorded leaves of one log."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT leaf_index, leaf_hash FROM audit_leaf "
+            "WHERE log_id = %s ORDER BY leaf_index LIMIT %s",
+            (log_id, limit),
+        )
+        return tuple(
+            LeafSample(index=index, leaf_hash=bytes(leaf_hash))
+            for index, leaf_hash in cur.fetchall()
         )

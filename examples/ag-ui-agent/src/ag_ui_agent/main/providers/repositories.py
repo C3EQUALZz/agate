@@ -1,3 +1,5 @@
+"""Dishka provider wiring the document repository to its port."""
+
 from dishka import Provider, WithParents
 from dishka_ag2 import AG2Scope
 

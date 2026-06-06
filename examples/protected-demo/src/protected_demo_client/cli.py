@@ -19,9 +19,15 @@ What to look for in the output (with the demo's agate.toml policy):
 from __future__ import annotations
 
 import argparse
+import sys
 
 from protected_demo_client import render
-from protected_demo_client.config import DEFAULT_AGATE_URL, DEFAULT_PROMPT, ClientConfig
+from protected_demo_client.config import (
+    DEFAULT_AGATE_URL,
+    DEFAULT_PROMPT,
+    DEFAULT_TIMEOUT,
+    ClientConfig,
+)
 from protected_demo_client.domain.observation import Observation
 from protected_demo_client.transport.agate import (
     AgateClientError,
@@ -31,6 +37,7 @@ from protected_demo_client.transport.agate import (
 
 
 def run(config: ClientConfig) -> int:
+    """Stream one run through Agate, render it, and return a process exit code."""
     render.header(config.url, build_run_input(config.prompt))
     observation = Observation()
     try:
@@ -45,16 +52,20 @@ def run(config: ClientConfig) -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> ClientConfig:
+    """Parse command-line arguments into a :class:`ClientConfig`."""
     parser = argparse.ArgumentParser(description="Send an AG-UI run through Agate.")
-    parser.add_argument("--url", default=DEFAULT_AGATE_URL, help=f"Agate URL (default {DEFAULT_AGATE_URL})")
+    parser.add_argument(
+        "--url", default=DEFAULT_AGATE_URL, help=f"Agate URL (default {DEFAULT_AGATE_URL})"
+    )
     parser.add_argument("--prompt", default=DEFAULT_PROMPT, help="user prompt to send")
-    parser.add_argument("--timeout", type=float, default=30.0, help="HTTP timeout (s)")
+    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="HTTP timeout (s)")
     args = parser.parse_args(argv)
     return ClientConfig(url=args.url, prompt=args.prompt, timeout=args.timeout)
 
 
 def main() -> None:
-    raise SystemExit(run(parse_args()))
+    """Console-script entrypoint: parse args, run, and exit with its code."""
+    sys.exit(run(parse_args()))
 
 
 if __name__ == "__main__":

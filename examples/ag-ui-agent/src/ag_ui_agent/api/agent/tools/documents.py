@@ -60,7 +60,7 @@ async def search_documents(
         limit: maximum number of results.
     """
     response = await uc.execute(SearchDocumentsRequest(query=query, limit=limit))
-    return [DocumentToolResult.from_entity(d) for d in response.documents]
+    return [DocumentToolResult.from_entity(doc) for doc in response.documents]
 
 
 @tool
@@ -75,7 +75,7 @@ async def list_documents(
         limit: maximum number of documents to return (newest first).
     """
     response = await uc.execute(ListDocumentsRequest(limit=limit))
-    return [DocumentToolResult.from_entity(d) for d in response.documents]
+    return [DocumentToolResult.from_entity(doc) for doc in response.documents]
 
 
 @tool

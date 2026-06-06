@@ -1,8 +1,8 @@
-"""A tiny Server-Sent-Events parser for the AG-UI stream.
+r"""A tiny Server-Sent-Events parser for the AG-UI stream.
 
 SSE frames are separated by a blank line; ``data:`` lines within a frame are
 concatenated. For AG-UI the concatenated data is one JSON event object. This is
-the exact framing Agate emits (``data: {json}\\n\\n``).
+the exact framing Agate emits (``data: {json}\n\n``).
 """
 
 from __future__ import annotations
@@ -25,13 +25,21 @@ def parse_sse_lines(lines: Iterator[str]) -> Iterator[dict[str, Any]]:
                 yield _decode("".join(data_parts))
                 data_parts = []
             continue
-        if line.startswith(":"):
-            continue  # SSE comment / keep-alive.
-        field, _, value = line.partition(":")
-        if field == "data":
-            data_parts.append(value[1:] if value.startswith(" ") else value)
+        chunk = _data_field(line)
+        if chunk is not None:
+            data_parts.append(chunk)
     if data_parts:  # Stream ended without a trailing blank line.
         yield _decode("".join(data_parts))
+
+
+def _data_field(line: str) -> str | None:
+    """Return an SSE line's ``data:`` payload, or ``None`` for other lines."""
+    if line.startswith(":"):  # SSE comment / keep-alive.
+        return None
+    field, _, payload = line.partition(":")
+    if field != "data":
+        return None
+    return payload.removeprefix(" ")
 
 
 def _decode(payload: str) -> dict[str, Any]:

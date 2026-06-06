@@ -35,7 +35,7 @@ def build_app(settings: Settings, container: AsyncContainer) -> FastAPI:
     configure_logging(level=settings.log_level, json_output=settings.log_json)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
         await container.close()
 

@@ -47,9 +47,7 @@ def test_stream_has_run_lifecycle(client: TestClient) -> None:
 
 
 def test_stream_emits_safe_and_dangerous_tool_calls(client: TestClient) -> None:
-    tool_names = [
-        e["toolCallName"] for e in _events(client) if e["type"] == "TOOL_CALL_START"
-    ]
+    tool_names = [e["toolCallName"] for e in _events(client) if e["type"] == "TOOL_CALL_START"]
     assert "search_documents" in tool_names  # safe — Agate allows
     assert "delete_file" in tool_names  # dangerous — Agate denies
 

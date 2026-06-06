@@ -6,14 +6,12 @@ class FakeDocumentRepository(DocumentRepository):
     """A trivial in-memory double used to drive use cases in unit tests."""
 
     def __init__(self, documents: list[Document] | None = None) -> None:
-        self._documents: dict[DocumentId, Document] = {
-            d.id: d for d in (documents or [])
-        }
+        self._documents: dict[DocumentId, Document] = {d.id: d for d in (documents or [])}
 
     async def get_by_id(self, document_id: DocumentId) -> Document | None:
         return self._documents.get(document_id)
 
-    async def list(self, limit: int = 20, offset: int = 0) -> list[Document]:
+    async def list_page(self, limit: int = 20, offset: int = 0) -> list[Document]:
         items = sorted(self._documents.values(), key=lambda d: d.created_at, reverse=True)
         return items[offset : offset + limit]
 

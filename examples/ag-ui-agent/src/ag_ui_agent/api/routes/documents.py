@@ -26,18 +26,23 @@ from ag_ui_agent.usecases.errors import DocumentNotFoundError
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
+# Query bounds (named so they are not magic numbers at the call site).
+_MAX_PAGE_SIZE = 200
+_DEFAULT_PAGE_SIZE = 50
+_MAX_QUERY_LEN = 512
+
 
 @router.get("")
 @inject
 async def list_documents(
     use_case: FromDishka[ListDocumentsUseCase],
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    limit: Annotated[int, Query(ge=1, le=_MAX_PAGE_SIZE)] = _DEFAULT_PAGE_SIZE,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> DocumentList:
     """List documents in the workspace (newest first)."""
     response = await use_case.execute(ListDocumentsRequest(limit=limit, offset=offset))
     return DocumentList(
-        documents=[DocumentRead.from_entity(d) for d in response.documents],
+        documents=[DocumentRead.from_entity(doc) for doc in response.documents],
         total=len(response.documents),
     )
 
@@ -46,13 +51,13 @@ async def list_documents(
 @inject
 async def search_documents(
     use_case: FromDishka[SearchDocumentsUseCase],
-    query: Annotated[str, Query(min_length=1, max_length=512)],
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    query: Annotated[str, Query(min_length=1, max_length=_MAX_QUERY_LEN)],
+    limit: Annotated[int, Query(ge=1, le=_MAX_PAGE_SIZE)] = _DEFAULT_PAGE_SIZE,
 ) -> DocumentList:
     """Search documents by a query over names and bodies."""
     response = await use_case.execute(SearchDocumentsRequest(query=query, limit=limit))
     return DocumentList(
-        documents=[DocumentRead.from_entity(d) for d in response.documents],
+        documents=[DocumentRead.from_entity(doc) for doc in response.documents],
         total=len(response.documents),
     )
 
@@ -66,8 +71,8 @@ async def get_document(
     """Fetch a single document by id (404 if it does not exist)."""
     try:
         response = await use_case.execute(GetDocumentRequest(document_id=DocumentId(document_id)))
-    except DocumentNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return DocumentRead.from_entity(response.document)
 
 
@@ -80,5 +85,5 @@ async def delete_document(
     """Delete a document by id (404 if it does not exist)."""
     try:
         await use_case.execute(DeleteDocumentRequest(document_id=DocumentId(document_id)))
-    except DocumentNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

@@ -57,6 +57,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "D100", "D101", "D102", "D103", "D104", "PLR2004", "ANN201"]
+# render.py is the CLI's terminal-output module; writing to stdout via print is
+# its entire purpose, so the "print found" check (T201) does not apply.
+"src/protected_demo_client/render.py" = ["T201"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["protected_demo_client"]

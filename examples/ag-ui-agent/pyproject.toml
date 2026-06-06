@@ -102,6 +102,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests may use assert, fixtures shadow names, and need no docstrings.
 "tests/**" = ["S101", "D100", "D101", "D102", "D103", "D104", "PLR2004", "ANN201"]
+# Agent tool docstrings are LLM-facing; the DI-injected `uc` parameter is wiring,
+# not a model-supplied argument, so it is intentionally absent from the docstring.
+"src/ag_ui_agent/api/agent/tools/*.py" = ["D417"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["ag_ui_agent"]

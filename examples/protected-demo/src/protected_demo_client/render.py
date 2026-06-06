@@ -46,36 +46,44 @@ def describe(event: dict[str, Any]) -> str:
     if kind in {"RUN_STARTED", "RUN_FINISHED"}:
         return f"{DIM}{kind}{RESET}"
 
-    rest = {k: v for k, v in event.items() if k != "type"}
+    rest = {field: field_value for field, field_value in event.items() if field != "type"}
     return f"{kind} {DIM}{json.dumps(rest)}{RESET}"
 
 
 def header(url: str, body: dict[str, Any]) -> None:
+    """Print the request line and body the demo is about to send."""
     print(f"{DIM}POST {url}{RESET}")
     print(f"{DIM}body {json.dumps(body)}{RESET}\n")
 
 
 def event_line(event: dict[str, Any]) -> None:
-    print("  " + describe(event))
+    """Print one inspected AG-UI event as an annotated line."""
+    print(f"  {describe(event)}")
 
 
 def error(message: str) -> None:
+    """Print a transport-failure message with a hint to start the demo."""
     print(f"{RED}request failed{RESET}: {message}")
     print(f"{DIM}is the demo up?  docker compose up --build{RESET}")
 
 
 def summary(observation: Observation) -> None:
+    """Print the "what Agate did" summary inferred from the stream."""
     print(f"\n{BOLD}What Agate did{RESET}")
-    _line(observation.saw_redaction, "secret marker redacted to [REDACTED] in assistant text")
-    _line(observation.dangerous_tool_blocked, "dangerous 'delete_file' tool call NOT forwarded (denied)")
-    _line(observation.saw_run_error, "run terminated with RUN_ERROR after the denied tool call")
-    _line(observation.allowed_tool_passed, "allowed 'search_documents' tool call passed through")
+    _line("secret marker redacted to [REDACTED] in assistant text", ok=observation.saw_redaction)
+    _line(
+        "dangerous 'delete_file' tool call NOT forwarded (denied)",
+        ok=observation.dangerous_tool_blocked,
+    )
+    _line("run terminated with RUN_ERROR after the denied tool call", ok=observation.saw_run_error)
+    _line("allowed 'search_documents' tool call passed through", ok=observation.allowed_tool_passed)
     print(
         f"{DIM}Every (event, verdict) decision above was appended to Agate's "
         f"transparency log; see ../audit-verify to inspect it.{RESET}"
     )
 
 
-def _line(ok: bool, text: str) -> None:
+def _line(text: str, *, ok: bool) -> None:
+    """Print a checklist line: a green ``OK`` if ``ok`` else a dim ``--``."""
     mark = f"{GREEN}OK{RESET}" if ok else f"{YELLOW}--{RESET}"
     print(f"  [{mark}] {text}")

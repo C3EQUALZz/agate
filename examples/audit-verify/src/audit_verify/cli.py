@@ -20,16 +20,19 @@ from audit_verify.config import DEFAULT_DATABASE_URL, Config
 from audit_verify.domain import TransparencyLogSummary
 from audit_verify.gateways import AuditLogReadError, PostgresAuditLogReader
 
+# How many hex chars of each leaf digest to show in the sample listing.
+_DIGEST_PREVIEW_LEN = 32
+
 
 def run(config: Config) -> int:
+    """Read every transparency log, print a summary, and return an exit code."""
     reader = PostgresAuditLogReader(config)
     try:
         summaries = reader.list_summaries()
     except AuditLogReadError as error:
         print(f"database error: {error}", file=sys.stderr)
         print(
-            "is Postgres reachable? expose the demo's db port or run inside the "
-            "compose network.",
+            "is Postgres reachable? expose the demo's db port or run inside the compose network.",
             file=sys.stderr,
         )
         return 1
@@ -59,11 +62,13 @@ def _print_summary(summary: TransparencyLogSummary) -> None:
     if summary.sample:
         print("  first leaves   :")
         for leaf in summary.sample:
-            print(f"    #{leaf.index:<4} {leaf.digest_hex[:32]}...")
+            digest = leaf.digest_hex[:_DIGEST_PREVIEW_LEN]
+            print(f"    #{leaf.index:<4} {digest}...")
     print()
 
 
 def parse_args(argv: list[str] | None = None) -> Config:
+    """Parse command-line arguments into a :class:`Config`."""
     parser = argparse.ArgumentParser(description="Inspect Agate's transparency log.")
     parser.add_argument(
         "--database-url",
@@ -75,7 +80,8 @@ def parse_args(argv: list[str] | None = None) -> Config:
 
 
 def main() -> None:
-    raise SystemExit(run(parse_args()))
+    """Console-script entrypoint: parse args, run, and exit with its code."""
+    sys.exit(run(parse_args()))
 
 
 if __name__ == "__main__":

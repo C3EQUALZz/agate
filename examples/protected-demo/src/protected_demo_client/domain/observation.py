@@ -25,6 +25,7 @@ class Observation:
     tool_calls: list[str] = field(default_factory=list)
 
     def observe(self, event: dict[str, Any]) -> None:
+        """Fold one AG-UI event into the running tally."""
         kind = event.get("type")
         if kind == "TOOL_CALL_START":
             name = str(event.get("toolCallName", "?"))
@@ -40,9 +41,10 @@ class Observation:
 
     @property
     def allowed_tool_passed(self) -> bool:
+        """Whether the allowed ``search_documents`` tool call was observed."""
         return self.saw_search
 
     @property
     def dangerous_tool_blocked(self) -> bool:
-        # The dangerous call must NOT have reached us.
+        """Whether the dangerous ``delete_file`` call was blocked (never seen)."""
         return not self.saw_delete

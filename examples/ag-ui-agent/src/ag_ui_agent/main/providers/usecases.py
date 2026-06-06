@@ -1,3 +1,5 @@
+"""Dishka provider for the document use cases."""
+
 from dishka import Provider
 from dishka_ag2 import AG2Scope
 

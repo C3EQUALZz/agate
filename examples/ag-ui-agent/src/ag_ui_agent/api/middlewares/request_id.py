@@ -17,6 +17,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
+        """Assign a request id, bind it for logging, and echo it back."""
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
 
         structlog.contextvars.clear_contextvars()

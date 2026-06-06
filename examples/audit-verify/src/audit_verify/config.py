@@ -1,3 +1,5 @@
+"""Configuration: which Postgres to read Agate's transparency log from."""
+
 from dataclasses import dataclass
 
 # The protected-demo's Postgres. It is not published to the host by default;
@@ -7,6 +9,8 @@ DEFAULT_DATABASE_URL = "postgres://agate:agate@localhost:5432/agate"
 
 @dataclass(frozen=True, slots=True)
 class Config:
+    """Connection settings and sampling limits for the log reader."""
+
     database_url: str = DEFAULT_DATABASE_URL
     connect_timeout: int = 5
     sample_leaves: int = 10

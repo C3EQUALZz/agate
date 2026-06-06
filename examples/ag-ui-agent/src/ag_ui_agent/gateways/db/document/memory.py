@@ -15,18 +15,20 @@ class InMemoryDocumentRepository(DocumentRepository):
     """
 
     def __init__(self) -> None:
-        self._documents: dict[DocumentId, Document] = {
-            doc.id: doc for doc in seed_documents()
-        }
+        self._documents: dict[DocumentId, Document] = {doc.id: doc for doc in seed_documents()}
 
     async def get_by_id(self, document_id: DocumentId) -> Document | None:
         """Return the document with this id, or ``None`` if absent."""
         return self._documents.get(document_id)
 
-    async def list(self, limit: int = DEFAULT_LIMIT, offset: int = 0) -> list[Document]:
+    async def list_page(self, limit: int = DEFAULT_LIMIT, offset: int = 0) -> list[Document]:
         """Return a page of documents (newest first)."""
-        items = sorted(self._documents.values(), key=lambda doc: doc.created_at, reverse=True)
-        return items[offset : offset + limit]
+        newest_first = sorted(
+            self._documents.values(),
+            key=lambda doc: doc.created_at,
+            reverse=True,
+        )
+        return newest_first[offset : offset + limit]
 
     async def search(self, query: str, limit: int = DEFAULT_LIMIT) -> list[Document]:
         """Return documents whose name or body matches ``query`` (case-insensitive)."""
