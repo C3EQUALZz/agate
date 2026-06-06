@@ -22,7 +22,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN cargo build --release --bin agate-server
+RUN cargo build --locked --release --bin agate-server
 
 # ---- runtime: slim, non-root, with a health probe ----
 FROM debian:bookworm-slim AS runtime
