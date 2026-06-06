@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[codz]
+
+# Virtualenv / uv
+.venv/
+
+# Caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.env
+
+# Editors
+.idea/
+.vscode/

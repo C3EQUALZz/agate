@@ -2,7 +2,7 @@
 
 SSE frames are separated by a blank line; ``data:`` lines within a frame are
 concatenated. For AG-UI the concatenated data is one JSON event object. This is
-the same framing Agate emits (``data: {json}\\n\\n``).
+the exact framing Agate emits (``data: {json}\\n\\n``).
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from typing import Any
 def parse_sse_lines(lines: Iterator[str]) -> Iterator[dict[str, Any]]:
     """Yield decoded JSON events from an iterator of raw SSE lines.
 
-    Lines come without trailing newlines (as httpx's ``iter_lines`` yields them).
-    A blank line terminates a frame; we then decode the accumulated ``data``.
+    Lines arrive without trailing newlines (as httpx's ``iter_lines`` yields
+    them). A blank line terminates a frame; the accumulated ``data`` is decoded.
     """
     data_parts: list[str] = []
     for line in lines:

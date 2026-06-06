@@ -1,12 +1,12 @@
 # Agate configuration for the protected demo.
 #
-# Mounted into the Agate container at /etc/agate/agate.toml. Secrets (the DB
-# password) come from AGATE__AUDIT__DATABASE_URL in docker-compose, not here.
+# Mounted into the Agate container at /etc/agate/agate.toml. The DB password is
+# supplied via AGATE__AUDIT__DATABASE_URL in docker-compose, never here.
 
 [proxy]
 # The upstream AG-UI agent Agate forwards inspected runs to. "agent" is the
-# compose service name; the agent serves AG-UI at POST /run on port 8000.
-agent_endpoint = "http://agent:8000/run"
+# compose service name; the ag-ui-agent serves AG-UI at POST /api/run on :8000.
+agent_endpoint = "http://agent:8000/api/run"
 # Agate listens here; the client posts runs to http://localhost:8080/.
 bind = "0.0.0.0:8080"
 
@@ -15,15 +15,17 @@ bind = "0.0.0.0:8080"
 database_url = "postgres://agate@db:5432/agate"
 
 [policy.tools]
-# Allowlist: only "search" may run. The stub agent also emits a "delete_file"
-# tool call — Agate DENIES it (surfaced as RUN_ERROR), which is the whole point.
+# Allowlist: only "search_documents" may run. The agent also emits a
+# "delete_file" tool call — Agate DENIES it (surfaced as RUN_ERROR). That denial
+# is the whole point of the demo.
 mode = "allowlist"
-names = ["search"]
+names = ["search_documents"]
 
 [policy]
-# Redact secret markers from emitted assistant text (case-insensitive). The stub
-# agent leaks a fake "sk-..." credential; Agate masks it before the client sees it.
-redact = ["sk-"]
+# Redact secret markers from emitted assistant text (case-insensitive). The
+# agent leaks a fake "sk-..." credential; Agate masks it before the client sees
+# it. "AKIA" covers AWS-style access-key ids too.
+redact = ["sk-", "AKIA"]
 
 [observability.logging]
 enabled = true

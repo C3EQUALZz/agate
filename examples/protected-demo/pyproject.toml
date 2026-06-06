@@ -1,29 +1,54 @@
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "protected_demo_client"
+module-root = "src"
+
 [project]
 name = "protected-demo-client"
 version = "0.1.0"
-description = "Client that sends an AG-UI run through Agate and prints the inspected stream"
+description = "Send an AG-UI run through Agate and show its protections (deny / redact / audit)."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
+
 dependencies = [
-    # httpx streams the SSE response cleanly with timeouts.
-    "httpx>=0.27",
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0",
 ]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.6",
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "mypy>=1.13",
 ]
 
 [project.scripts]
-protected-demo-client = "protected_demo_client.__main__:main"
+protected-demo-client = "protected_demo_client.cli:main"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/protected_demo_client"]
+[tool.mypy]
+files = ["src/protected_demo_client", "tests"]
+strict = true
+python_version = "3.13"
 
 [tool.ruff]
+src = ["src", "tests"]
 line-length = 100
-target-version = "py310"
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["protected_demo_client"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
