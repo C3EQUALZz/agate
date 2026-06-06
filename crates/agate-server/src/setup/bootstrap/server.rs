@@ -24,11 +24,10 @@ const OUTBOX_CAPACITY: usize = 1024;
 /// The wired server: the proxy HTTP app to serve, and the audit outbox task
 /// draining records into the transparency log.
 ///
-/// Audit delivery is **best-effort**: the outbox task runs detached for the
-/// process lifetime, and there is no graceful shutdown yet, so records still
-/// queued when the process exits may not be appended. `outbox` is exposed so a
-/// caller that adds shutdown handling (await an axum graceful-shutdown signal,
-/// then `outbox.await`) can drain the queue first — future work.
+/// On graceful shutdown the caller serves `app` with an axum shutdown signal;
+/// once `serve` returns, dropping `app` drops the audit sink and closes the
+/// outbox channel, so awaiting `outbox` flushes the records still queued before
+/// the process exits (see `main`).
 pub struct Server {
     pub app: Router,
     pub outbox: JoinHandle<()>,

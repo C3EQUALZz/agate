@@ -11,7 +11,7 @@ agate-audit = { workspace = true }
 agate-policy = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "signal"] }
 froodi = { version = "1.0.0-beta.18", features = ["async"] }
 async-trait = { workspace = true }
 serde = { workspace = true }
