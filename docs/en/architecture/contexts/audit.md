@@ -51,7 +51,7 @@ the root and breaks every later head.
 | Layer | Contents |
 | --- | --- |
 | `domain` | Pure entities, value objects, and domain services (Merkle hashing, the `TransparencyLog` aggregate, proofs). No I/O. |
-| `application` | CQRS use cases (command/query handlers) over a mediator pipeline; outbound ports (`KeyStore`, `CheckpointAnchor`, `EventOutbox`, `TransactionManager`, and the CQRS log gateways). |
+| `application` | CQRS use cases (command/query handlers) over a mediator pipeline; pipeline **behaviors** (`TransactionBehavior`, `MetricsBehavior`); outbound ports (`KeyStore`, `CheckpointAnchor`, `EventOutbox`, `TransactionManager`, `AuditMetrics`, and the CQRS log gateways). |
 | `infrastructure` | Concrete adapters: `SystemClock`, `UuidLogIdGenerator`, `PostgresLog{Command,Query}Gateway`, transaction management, migrations. |
 | `presentation` | HTTP handlers (health, versioned routes) and `AuditError → HTTP` mapping. |
 | `setup` | Composition root: typed config from env, the `froodi` IoC container, HTTP bootstrap. |
@@ -59,6 +59,18 @@ the root and breaks every later head.
 Persistence is **CQRS-split**: a command gateway loads/saves the aggregate
 (write side); a query gateway returns read models/DTOs (read side). The crate
 depends inward on [`agate-crypto`](crypto.md) for hashing and signing.
+
+## Observability
+
+Append metrics are **application logic hidden behind a port**, not `counter!`
+calls scattered through the code. An `AuditMetrics` port is recorded by a
+`MetricsBehavior` in the mediator pipeline, registered **outermost** on
+`AppendRecord` so it counts the outcome *after* the transaction behavior commits
+or rolls back: one `agate_audit_records_appended_total` on success, one
+`agate_audit_records_dropped_total` on failure. The infrastructure adapter
+writes through the `metrics` facade; unit tests drive the behavior with a fake.
+Records dropped *before* they reach the pipeline (outbox scope-open failures,
+sink backpressure) are counted through the same port at the [server](server.md).
 
 ## Invariants & testing
 

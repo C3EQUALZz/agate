@@ -67,10 +67,20 @@ on the ports; the concrete policy and audit adapters are injected at the
 | Layer | Contents |
 | --- | --- |
 | `domain` | Pure: inspection aggregates, `InspectedEvent`, `Verdict`. No I/O. |
-| `application` | Use cases and ports: `PolicyPort` (verdict source), an audit sink, the upstream agent client. |
+| `application` | Use cases and ports: `PolicyPort` (verdict source), an audit sink, the upstream agent client, a `ProxyMetrics` recorder. |
 | `infrastructure` | Adapters: the AG-UI SSE codec (incremental, order-preserving), `RunAgentInput` validation, the HTTP client to the agent. |
 | `presentation` | HTTP/SSE handlers (axum/hyper), TLS termination, request/response wiring. |
 | `setup` | Composition root: `ProxyConfig` (`AGENT_ENDPOINT`, `BIND_ADDR`), assembly. |
+
+## Observability
+
+Data-plane metrics go **through a `ProxyMetrics` port**, never `counter!` from
+the presentation layer. The run handler and the streaming inspector record
+`agate_runs_total`, `agate_events_inspected_total{outcome}`, and
+`agate_upstream_errors_total` through the injected port — so `inspect_stream`
+takes the port and is unit-testable with a fake recorder. The real adapter
+emits through the `metrics` facade (a no-op until the [server](server.md)
+installs a Prometheus recorder).
 
 ## Fail-open vs fail-closed
 
