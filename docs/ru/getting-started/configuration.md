@@ -92,6 +92,9 @@ docker run --rm \
 - `agate_upstream_errors_total` — ошибки запроса/потока к вышестоящему агенту.
 - `agate_audit_records_appended_total` / `agate_audit_records_dropped_total` — записи в журнал прозрачности против дропов (ненулевой drop-rate = аудит не успевает, ставьте алерт).
 
+Готовый стек Prometheus + Grafana с преднастроенным дашбордом — в
+[`deploy/observability/`](https://github.com/C3EQUALZz/agate/tree/main/deploy/observability).
+
 !!! info "Распределённый трейсинг"
     Трейсинг OpenTelemetry (OTLP) подключается в той же секции `[observability]`
     и будет описан здесь по мере появления.
