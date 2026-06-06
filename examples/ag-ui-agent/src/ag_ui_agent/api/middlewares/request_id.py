@@ -1,3 +1,5 @@
+"""Request-id middleware: bind a correlation id into logs and echo it back."""
+
 import uuid
 from collections.abc import Awaitable, Callable
 

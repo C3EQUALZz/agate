@@ -70,6 +70,18 @@ src/audit_verify/
 
 `uv run pytest` runs the `is_contiguous` / digest unit tests (no Postgres needed).
 
+## Quality gate
+
+The same strict toolchain as the agent (or `just gate`):
+
+```bash
+uv run ruff check src tests          # ruff at select = ALL (curated ignores)
+uv run ruff format --check src tests
+uv run flake8 src tests              # wemake-python-styleguide (WPS); config in setup.cfg
+uv run mypy src tests                # strict
+uv run pytest
+```
+
 > **VERIFY:** this reads the schema directly because the Agate build targeted
 > here exposes the log via Postgres, not (yet) via an HTTP inclusion-proof
 > endpoint. The leaf stores a **hash**, not the decoded event, so you see

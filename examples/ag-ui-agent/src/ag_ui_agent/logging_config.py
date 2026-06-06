@@ -1,3 +1,5 @@
+"""structlog + stdlib logging configuration."""
+
 import logging
 import sys
 
@@ -17,10 +19,12 @@ class HealthCheckAccessFilter(logging.Filter):
     """Drop access-log lines for the health probe to keep logs readable."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """Return ``False`` for health-probe access lines (drop them)."""
         return "/api/health" not in record.getMessage()
 
 
 def configure_logging(level: str = "INFO", json_output: bool = False) -> None:
+    """Configure structlog + stdlib logging (console or JSON)."""
     log_level = getattr(logging, level.upper(), logging.INFO)
 
     shared_processors: list[Processor] = [

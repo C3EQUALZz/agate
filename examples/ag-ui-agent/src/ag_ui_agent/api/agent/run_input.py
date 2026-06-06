@@ -1,10 +1,10 @@
 """A minimal, framework-neutral model of the AG-UI ``RunAgentInput`` body.
 
-The real-AG2 backend uses ``autogen.beta.ag_ui.RunAgentInput`` directly. The
-stub backend has no autogen dependency, so the chat route parses the incoming
-JSON into this Pydantic model instead, and the backend port accepts the raw
-mapping. This keeps the wire contract identical across both backends while
-letting the route stay framework-light.
+The chat route parses the incoming JSON into this Pydantic model so it never
+imports ``autogen``; the AG2 backend rebuilds the native
+``autogen.beta.ag_ui.RunAgentInput`` from this model's wire form. This keeps the
+HTTP layer framework-light and honours the import-linter contract that
+``autogen`` lives only under ``api.agent``.
 
 See the AG-UI protocol: https://docs.ag-ui.com/concepts/events
 """
@@ -15,12 +15,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RunAgentMessage(BaseModel):
+    """One AG-UI conversation message."""
+
     id: str | None = None
     role: str
     content: str = ""
 
 
 class RunAgentInputModel(BaseModel):
+    """The AG-UI ``RunAgentInput`` request body, parsed framework-neutrally."""
+
     thread_id: str = Field(default="thread", alias="threadId")
     run_id: str = Field(default="run", alias="runId")
     messages: list[RunAgentMessage] = Field(default_factory=list)
@@ -32,6 +36,7 @@ class RunAgentInputModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     def last_user_message(self) -> str:
+        """Return the most recent user message's content (or empty)."""
         for message in reversed(self.messages):
             if message.role == "user":
                 return message.content

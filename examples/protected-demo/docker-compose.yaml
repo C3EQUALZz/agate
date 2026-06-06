@@ -22,14 +22,17 @@ services:
       retries: 20
 
   agent:
-    # Builds the ag-ui-agent image in its default STUB backend — no API key, no
-    # AG2/OpenAI deps. The stub emits a safe search call, a dangerous delete_file
-    # call, and a secret-leaking text message, so Agate has all three protections
-    # to demonstrate.
+    # Builds the ag-ui-agent image. It runs the real autogen.beta (AG2) agent,
+    # so it needs an OpenAI key. Its firm system prompt drives the model to make
+    # a safe search call, attempt a dangerous delete_file call, and emit a fake
+    # "sk-..." token — giving Agate all three protections to demonstrate. (What
+    # the model actually does depends on the model; gpt-4o-mini is reliable.)
     build:
       context: ../ag-ui-agent
     environment:
-      AGENT__BACKEND: stub
+      # Provide your key in the shell or an .env file before `docker compose up`.
+      AGENT__OPENAI_API_KEY: ${AGENT__OPENAI_API_KEY:?set AGENT__OPENAI_API_KEY in your env or .env}
+      AGENT__OPENAI_MODEL: ${AGENT__OPENAI_MODEL:-gpt-4o-mini}
     # Not published to the host: only Agate should reach the agent, so all
     # traffic is forced through the proxy. Expose it for debugging if you like.
     expose:

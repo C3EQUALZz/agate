@@ -3,23 +3,15 @@ set shell := ["bash", "-uc"]
 default:
     @just --list
 
-# Sync dependencies (stub backend only — no API key, no AG2).
+# Sync dependencies (the real AG2 backend; needs an OpenAI key at runtime).
 install:
     uv sync
 
-# Sync with the real-AG2 extra (needs an OpenAI key at runtime).
-install-ag2:
-    uv sync --extra ag2
-
-# Run the dev server with auto-reload (stub backend by default).
+# Run the dev server with auto-reload. Requires AGENT__OPENAI_API_KEY.
 dev:
-    uv run uvicorn ag_ui_agent.main.entrypoint:app --reload --port 8000
+    uv run uvicorn --factory ag_ui_agent.main.entrypoint:create_app --reload --port 8000
 
-# Run the real-AG2 backend (requires --extra ag2 and AGENT__OPENAI_API_KEY).
-dev-ag2:
-    AGENT__BACKEND=ag2 uv run uvicorn ag_ui_agent.main.entrypoint:app --reload --port 8000
-
-# Run all tests.
+# Run all tests (no OpenAI call: the chat route is driven by a fake streamer).
 test:
     uv run pytest
 
@@ -31,20 +23,27 @@ test-unit:
 lint-imports:
     uv run lint-imports
 
-# Ruff check + format check.
+# Ruff check + format check (strict: select = ALL).
 lint:
     uv run ruff check src tests
     uv run ruff format --check src tests
+
+# wemake-python-styleguide (WPS) via flake8 (strict; config in setup.cfg).
+lint-wps:
+    uv run flake8 src tests
 
 # Auto-fix lint issues and format.
 fmt:
     uv run ruff check --fix src tests
     uv run ruff format src tests
 
-# Type-check with mypy (strict).
+# Type-check with mypy (maximum strictness).
 typecheck:
     uv run mypy src tests
 
-# Build the stub agent container image.
+# The full quality gate: ruff + WPS + import-linter + mypy + tests.
+gate: lint lint-wps lint-imports typecheck test
+
+# Build the agent container image.
 docker-build:
-    docker build -t ag-ui-agent:stub .
+    docker build -t ag-ui-agent:latest .

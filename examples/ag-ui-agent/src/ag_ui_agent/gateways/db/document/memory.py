@@ -1,5 +1,7 @@
+"""An in-memory adapter for the ``DocumentRepository`` port."""
+
 from ag_ui_agent.domain.entities import Document, DocumentId
-from ag_ui_agent.gateways.db.document.interface import DocumentRepository
+from ag_ui_agent.gateways.db.document.interface import DEFAULT_LIMIT, DocumentRepository
 from ag_ui_agent.models import seed_documents
 
 
@@ -18,21 +20,25 @@ class InMemoryDocumentRepository(DocumentRepository):
         }
 
     async def get_by_id(self, document_id: DocumentId) -> Document | None:
+        """Return the document with this id, or ``None`` if absent."""
         return self._documents.get(document_id)
 
-    async def list(self, limit: int = 20, offset: int = 0) -> list[Document]:
-        items = sorted(self._documents.values(), key=lambda d: d.created_at, reverse=True)
+    async def list(self, limit: int = DEFAULT_LIMIT, offset: int = 0) -> list[Document]:
+        """Return a page of documents (newest first)."""
+        items = sorted(self._documents.values(), key=lambda doc: doc.created_at, reverse=True)
         return items[offset : offset + limit]
 
-    async def search(self, query: str, limit: int = 20) -> list[Document]:
+    async def search(self, query: str, limit: int = DEFAULT_LIMIT) -> list[Document]:
+        """Return documents whose name or body matches ``query`` (case-insensitive)."""
         needle = query.casefold()
         matches = [
             doc
             for doc in self._documents.values()
             if needle in doc.name.casefold() or needle in doc.body.casefold()
         ]
-        matches.sort(key=lambda d: d.created_at, reverse=True)
+        matches.sort(key=lambda doc: doc.created_at, reverse=True)
         return matches[:limit]
 
     async def delete(self, document_id: DocumentId) -> bool:
+        """Delete the document; return whether it existed."""
         return self._documents.pop(document_id, None) is not None

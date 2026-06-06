@@ -1,18 +1,18 @@
 """AG2 tools backed by Dishka-injected use cases.
 
-These are imported only by the real-AG2 backend (``backends/ag2.py``); the
-``autogen`` / ``dishka_ag2`` imports therefore stay inside ``api.agent``, as the
-import-linter contract requires. Each tool looks like a plain Dishka handler:
+The ``autogen`` / ``dishka_ag2`` imports stay inside ``api.agent``, as the
+import-linter contract requires. Each tool is a plain Dishka handler:
 ``@tool @inject async def ...(uc: FromDishka[UseCase], ...)``. ``dishka-ag2``'s
 ``DishkaAsyncMiddleware`` opens an ``AG2Scope.REQUEST`` child container before the
-tool runs and resolves the ``FromDishka[...]`` parameters out of it.
+tool runs and resolves the ``FromDishka[...]`` parameters out of it. The tools
+are assembled into a ``Toolkit`` by ``main.providers.toolkit.ToolkitProvider``.
 """
 
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from autogen.beta import Toolkit, tool
+from autogen.beta import tool
 from dishka_ag2 import FromDishka, inject
 
 from ag_ui_agent.domain.entities import Document, DocumentId
@@ -28,6 +28,8 @@ from ag_ui_agent.usecases import (
 
 @dataclass(slots=True, frozen=True)
 class DocumentToolResult:
+    """The shape a document tool returns to the model (a flat, JSON-friendly view)."""
+
     id: UUID
     name: str
     body: str
@@ -35,6 +37,7 @@ class DocumentToolResult:
 
     @classmethod
     def from_entity(cls, document: Document) -> "DocumentToolResult":
+        """Project a domain ``Document`` into a tool result."""
         return cls(
             id=document.id,
             name=document.name,
@@ -88,7 +91,3 @@ async def delete_file(
     """
     await uc.execute(DeleteDocumentRequest(document_id=DocumentId(UUID(document_id))))
     return "deleted"
-
-
-def documents_toolkit() -> Toolkit:
-    return Toolkit(search_documents, list_documents, delete_file)

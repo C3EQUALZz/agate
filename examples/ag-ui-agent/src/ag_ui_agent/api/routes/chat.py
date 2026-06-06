@@ -2,8 +2,8 @@
 
 Mounted at ``POST /api/run`` (so a proxy points ``agent_endpoint`` here). The
 route has essentially zero agent plumbing: it resolves the :class:`AgUiStreamer`
-port from Dishka and streams its frames. Whether the streamer is the offline
-stub or a real ``autogen.beta`` agent is decided entirely by DI.
+port from Dishka and streams its frames. The concrete streamer (the real
+``autogen.beta`` agent) is wired entirely by DI.
 """
 
 from typing import Annotated
@@ -25,6 +25,7 @@ async def run_agent(
     streamer: FromDishka[AgUiStreamer],
     accept: Annotated[str | None, Header()] = None,
 ) -> StreamingResponse:
+    """Stream the agent's AG-UI run as ``text/event-stream`` frames."""
     return StreamingResponse(
         streamer.dispatch(run_input, accept=accept),
         media_type=accept or "text/event-stream",

@@ -1,17 +1,19 @@
-"""The stub AG-UI stream — what Agate inspects in the protected demo.
+"""The AG-UI run stream -- what Agate inspects in the protected demo.
 
-These assertions pin the exact event shapes Agate's policy acts on: a safe
-``search_documents`` call, a dangerous ``delete_file`` call, and assistant text
-carrying an ``sk-...`` marker. If these change, the protected-demo expectations
-must change too.
+The route is driven here by a *fake* ``AgUiStreamer`` (see the integration
+conftest) so no OpenAI call happens, but it reproduces the exact event shapes
+Agate's policy acts on: a safe ``search_documents`` call, a dangerous
+``delete_file`` call, and assistant text carrying an ``sk-...`` marker. If these
+change, the protected-demo expectations must change too.
 """
 
 import json
+from typing import Any
 
 from fastapi.testclient import TestClient
 
 
-def _events(client: TestClient, prompt: str = "find the api key") -> list[dict]:
+def _events(client: TestClient, prompt: str = "find the api key") -> list[dict[str, Any]]:
     payload = {
         "threadId": "t1",
         "runId": "r1",
@@ -30,7 +32,7 @@ def _events(client: TestClient, prompt: str = "find the api key") -> list[dict]:
         assert response.status_code == 200, response.read()
         body = b"".join(response.iter_bytes()).decode()
 
-    events: list[dict] = []
+    events: list[dict[str, Any]] = []
     for frame in body.split("\n\n"):
         line = frame.strip()
         if line.startswith("data:"):

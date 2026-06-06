@@ -1,9 +1,9 @@
 """The AG-UI streaming port the chat route depends on.
 
-Both backends — the offline stub and the real ``autogen.beta`` agent — implement
-this single Protocol, so the chat route (and Agate in front of it) sees one
-uniform AG-UI SSE contract regardless of which backend is wired in. Selecting a
-backend is a one-line DI change in ``main/providers/agent.py``; no route changes.
+The real ``autogen.beta`` agent backend implements this single Protocol, so the
+chat route (and Agate in front of it) sees one uniform AG-UI SSE contract and
+never imports ``autogen`` directly. Keeping a port here also leaves room for an
+alternative backend without touching the route.
 """
 
 from collections.abc import AsyncIterator
@@ -20,9 +20,9 @@ class AgUiStreamer(Protocol):
         run_input: RunAgentInputModel,
         accept: str | None = None,
     ) -> AsyncIterator[bytes | str]:
-        """Yield ``text/event-stream`` frames (``data: {json}\\n\\n``).
+        r"""Yield ``text/event-stream`` frames (``data: {json}\n\n``).
 
-        ``bytes`` or ``str`` — Starlette's ``StreamingResponse`` accepts both.
-        The stub yields ``bytes``; ``AGUIStream`` yields the frames AG2 produces.
+        ``bytes`` or ``str`` -- Starlette's ``StreamingResponse`` accepts both;
+        ``AGUIStream`` yields the frames AG2 produces.
         """
         ...

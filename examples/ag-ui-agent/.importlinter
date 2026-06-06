@@ -14,7 +14,7 @@ layers =
     ag_ui_agent.domain
 
 [importlinter:contract:no-agent-in-lower-layers]
-name = Agent framework imports stay in api.agent and main.providers.agent
+name = Agent framework imports stay in api.agent and main.providers
 type = forbidden
 source_modules =
     ag_ui_agent.domain

@@ -34,6 +34,7 @@ async def list_documents(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> DocumentList:
+    """List documents in the workspace (newest first)."""
     response = await use_case.execute(ListDocumentsRequest(limit=limit, offset=offset))
     return DocumentList(
         documents=[DocumentRead.from_entity(d) for d in response.documents],
@@ -48,6 +49,7 @@ async def search_documents(
     query: Annotated[str, Query(min_length=1, max_length=512)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> DocumentList:
+    """Search documents by a query over names and bodies."""
     response = await use_case.execute(SearchDocumentsRequest(query=query, limit=limit))
     return DocumentList(
         documents=[DocumentRead.from_entity(d) for d in response.documents],
@@ -61,6 +63,7 @@ async def get_document(
     document_id: Annotated[UUID, Path()],
     use_case: FromDishka[GetDocumentUseCase],
 ) -> DocumentRead:
+    """Fetch a single document by id (404 if it does not exist)."""
     try:
         response = await use_case.execute(GetDocumentRequest(document_id=DocumentId(document_id)))
     except DocumentNotFoundError as e:
@@ -74,6 +77,7 @@ async def delete_document(
     document_id: Annotated[UUID, Path()],
     use_case: FromDishka[DeleteDocumentUseCase],
 ) -> None:
+    """Delete a document by id (404 if it does not exist)."""
     try:
         await use_case.execute(DeleteDocumentRequest(document_id=DocumentId(document_id)))
     except DocumentNotFoundError as e:

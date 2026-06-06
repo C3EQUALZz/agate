@@ -21,7 +21,7 @@ client ◀──inspected SSE stream──  Agate
 
 | Example | What it shows | Needs | Maps to Agate's… |
 | --- | --- | --- | --- |
-| [`ag-ui-agent/`](ag-ui-agent/) | The flagship. A **clean-layered** AG2.beta + AG-UI + **Dishka** FastAPI agent, modeled precisely on [`vvlrff/ag2_ag-ui_example`](https://github.com/vvlrff/ag2_ag-ui_example) (domain → models → gateways → usecases → api → main, `import-linter` contracts, `dishka-ag2` + `AGUIStream`). Runs in an offline **stub** backend (no key) or a real **ag2** backend. Exposes a safe `search_documents`, a dangerous `delete_file`, and a secret-leaking text path. | uv | the agent Agate fronts |
+| [`ag-ui-agent/`](ag-ui-agent/) | The flagship. A **clean-layered** AG2.beta + AG-UI + **Dishka** FastAPI agent, modeled precisely on [`vvlrff/ag2_ag-ui_example`](https://github.com/vvlrff/ag2_ag-ui_example) (domain → models → gateways → usecases → api → main, `import-linter` contracts, a single `dishka-ag2` + `AGUIStream` container). Runs a real `autogen.beta` (AG2) agent over OpenAI — **needs an API key**. Exposes a safe `search_documents`, a dangerous `delete_file`, and a secret-leaking text path. | uv + OpenAI key | the agent Agate fronts |
 | [`protected-demo/`](protected-demo/) | A `docker-compose` running the agent + **Agate** + **Postgres**, wired so Agate **denies** `delete_file` (allowlist = `["search_documents"]`) and **redacts** an `sk-...` marker. A layered client posts a run through Agate and prints the stream so you *see* the dangerous call dropped, the secret masked, the safe call pass. | uv + Docker | **tool denial** + **redaction** |
 | [`audit-verify/`](audit-verify/) | Reads Agate's transparency log from Postgres to show every `(event, verdict)` decision was recorded in a gapless Merkle leaf sequence. | uv + the demo's Postgres | the **audit trail** |
 
@@ -51,10 +51,9 @@ exact `uv run` commands.
 
 ## A note on package versions
 
-The `ag-ui-agent`'s real-**ag2** backend targets a fast-moving, partly-beta
-ecosystem (AG2's `autogen.beta`, the AG-UI SDK, `dishka-ag2`). Those signatures
-are constrained but not hard-pinned, and a few are flagged inline with
-`# VERIFY:`. The default **stub** backend has none of those dependencies, needs
-no key, and is the path the tests and the protected demo exercise — so the demo
-is reproducible fully offline. After `uv sync --extra ag2`, run the ag2 backend
-once and adjust any `# VERIFY:` spot if an API has shifted.
+The `ag-ui-agent` targets a fast-moving, partly-beta ecosystem (AG2's
+`autogen.beta`, the AG-UI SDK, `dishka-ag2`). Those signatures are constrained
+but not hard-pinned, and a few are flagged inline with `# VERIFY:`. Run the agent
+once and adjust any `# VERIFY:` spot if an API has shifted. The test suite drives
+the chat route with a fake `AgUiStreamer`, so `uv run pytest` needs no API key;
+running the live agent (and the protected demo) does.

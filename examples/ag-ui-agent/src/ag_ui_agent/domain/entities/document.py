@@ -1,3 +1,5 @@
+"""The ``Document`` domain entity and its identifier type."""
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import NewType

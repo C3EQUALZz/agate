@@ -1,3 +1,5 @@
+"""The get-document use case."""
+
 from dataclasses import dataclass
 
 from ag_ui_agent.domain.entities import Document, DocumentId
@@ -7,19 +9,26 @@ from ag_ui_agent.usecases.errors import DocumentNotFoundError
 
 @dataclass(kw_only=True)
 class GetDocumentRequest:
+    """Inputs for fetching a single document."""
+
     document_id: DocumentId
 
 
 @dataclass(kw_only=True)
 class GetDocumentResponse:
+    """The fetched document."""
+
     document: Document
 
 
 class GetDocumentUseCase:
+    """Fetch one document by id, or raise if it does not exist."""
+
     def __init__(self, repo: DocumentRepository) -> None:
         self._repo = repo
 
     async def execute(self, request: GetDocumentRequest) -> GetDocumentResponse:
+        """Fetch the document, raising ``DocumentNotFoundError`` if missing."""
         document = await self._repo.get_by_id(request.document_id)
         if document is None:
             raise DocumentNotFoundError(request.document_id)
