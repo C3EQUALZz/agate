@@ -14,9 +14,15 @@ together. It is configured by a mounted **`agate.toml`** (see
 
 ## 2. Get the image
 
+Images are published to GHCR automatically by CI on every push to `main` and on
+release tags:
+
 ```bash
 docker pull ghcr.io/c3equalzz/agate:latest
 ```
+
+Available tags: `latest` (default branch), `vX.Y.Z` / `vX.Y` (release tags), and
+`sha-<commit>` (every build, for pinning an exact commit).
 
 !!! note "Building from source"
     If you prefer to build locally:
