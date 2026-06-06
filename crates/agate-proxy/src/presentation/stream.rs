@@ -3,6 +3,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use serde_json::{Value, json};
+use tracing::{debug, info, warn};
 
 use crate::application::common::ports::AgentResponseStream;
 use crate::application::inspection::{InspectionAction, InspectionContext, Inspector};
@@ -34,6 +35,7 @@ pub fn inspect_stream(
             let chunk = match chunk {
                 Ok(chunk) => chunk,
                 Err(error) => {
+                    warn!(run = %context.run.0, %error, "upstream stream error; ending run with RUN_ERROR");
                     yield Bytes::from(run_error(&error.to_string()));
                     return;
                 }
@@ -56,21 +58,30 @@ pub fn inspect_stream(
 
                 match inspector.inspect(&mut run, &context, fragment).await {
                     InspectionAction::Forward => {
+                        debug!(run = %context.run.0, "forwarding inspected event");
                         for held in pending.drain(..) {
                             yield Bytes::from(held);
                         }
                         yield Bytes::from(event.raw);
                     }
-                    InspectionAction::Hold => pending.push(event.raw),
+                    InspectionAction::Hold => {
+                        debug!(run = %context.run.0, "buffering event until the tool call is complete");
+                        pending.push(event.raw);
+                    }
                     InspectionAction::ForwardTransformed(replacement) => {
+                        info!(run = %context.run.0, "policy transformed an event (e.g. redaction); forwarding the replacement");
                         pending.clear();
                         match to_event(&replacement) {
                             Some(value) => yield Bytes::from(encode(&value.to_string())),
                             None => yield Bytes::from(event.raw),
                         }
                     }
-                    InspectionAction::Drop(_) => pending.clear(),
+                    InspectionAction::Drop(reason) => {
+                        info!(run = %context.run.0, reason = reason.as_str(), "policy denied an event; dropping it");
+                        pending.clear();
+                    }
                     InspectionAction::Terminate(reason) => {
+                        warn!(run = %context.run.0, reason = reason.as_str(), "terminating run with RUN_ERROR");
                         pending.clear();
                         yield Bytes::from(run_error(reason.as_str()));
                         return;

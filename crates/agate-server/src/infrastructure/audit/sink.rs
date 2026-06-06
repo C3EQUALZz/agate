@@ -36,6 +36,8 @@ impl AuditSink for AuditLogSink {
         let record = encode_record(context, event, verdict);
         if self.tx.send(record).await.is_err() {
             tracing::error!("audit outbox closed; dropping inspected record");
+        } else {
+            tracing::debug!(run = %context.run.0, "enqueued inspected event to the audit outbox");
         }
     }
 }

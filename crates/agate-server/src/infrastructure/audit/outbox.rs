@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use froodi::async_impl::Container;
 use tokio::sync::mpsc::Receiver;
+use tracing::{debug, error};
 
 use agate_audit::application::common::messaging::{Dispatcher, Registry};
 use agate_audit::application::usecases::append_record::AppendRecord;
@@ -33,28 +34,31 @@ impl AuditOutbox {
     /// Run until the channel closes (every [`AuditLogSink`](super::AuditLogSink)
     /// has been dropped), appending each queued record in turn.
     pub async fn run(self, mut records: Receiver<Vec<u8>>) {
+        debug!(log = %self.log.0, "audit outbox started");
         while let Some(record) = records.recv().await {
             self.append(record).await;
         }
+        debug!(log = %self.log.0, "audit outbox channel closed; stopping");
     }
 
     async fn append(&self, record: Vec<u8>) {
         let scope = match self.container.clone().enter_build() {
             Ok(scope) => Arc::new(scope),
             Err(error) => {
-                tracing::error!(?error, "audit outbox: cannot open request scope");
+                error!(?error, "audit outbox: cannot open request scope");
                 return;
             }
         };
         let dispatcher = Dispatcher::new(scope.clone(), self.registry.clone());
-        if let Err(error) = dispatcher
+        match dispatcher
             .send(AppendRecord {
                 log: self.log,
                 record,
             })
             .await
         {
-            tracing::error!(?error, "audit outbox: append failed");
+            Ok(index) => debug!(log = %self.log.0, index = index.0, "appended audit record"),
+            Err(error) => error!(?error, "audit outbox: append failed"),
         }
         scope.close().await;
     }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use tracing::info;
 
 use super::command::CreateLog;
 use crate::application::common::messaging::RequestHandler;
@@ -38,6 +39,7 @@ impl RequestHandler<CreateLog> for CreateLogHandler {
         let id = self.ids.generate();
         let log = self.factory.create(id, self.clock.now());
         self.gateway.save(&log).await?;
+        info!(log = %id.0, "created transparency log");
         Ok(id)
     }
 }
