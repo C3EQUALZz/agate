@@ -1,6 +1,6 @@
 use froodi::async_impl::Container;
 
-use crate::application::common::behaviors::TransactionBehavior;
+use crate::application::common::behaviors::{MetricsBehavior, TransactionBehavior};
 use crate::application::common::messaging::Registry;
 use crate::application::usecases::append_record::{AppendRecord, AppendRecordHandler};
 use crate::application::usecases::create_log::{CreateLog, CreateLogHandler};
@@ -21,6 +21,10 @@ pub fn build_registry() -> Registry<Container> {
     registry.handler::<GetInclusionProof, GetInclusionProofHandler>();
     registry.handler::<GetConsistencyProof, GetConsistencyProofHandler>();
     registry.behavior::<CreateLog, TransactionBehavior>();
+    // MetricsBehavior is registered first so it is the outermost link on
+    // AppendRecord: it records the outcome after TransactionBehavior has
+    // committed or rolled back.
+    registry.behavior::<AppendRecord, MetricsBehavior>();
     registry.behavior::<AppendRecord, TransactionBehavior>();
     registry
 }

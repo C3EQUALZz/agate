@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{Body, Bytes};
@@ -7,15 +8,14 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use froodi::Inject;
 use futures::StreamExt;
-use metrics::counter;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::inspect_stream;
-use crate::application::common::ports::{RunRequest, UpstreamAgentClient};
+use crate::application::common::ports::{ProxyMetrics, RunRequest, UpstreamAgentClient};
 use crate::application::inspection::{InspectionContext, Inspector};
 use crate::domain::inspection::{Budgets, RunId, SessionId};
-use crate::infrastructure::ReqwestAgentClient;
+use crate::infrastructure::{ProxyMetricsRecorder, ReqwestAgentClient};
 
 /// Hop-by-hop / framing headers the proxy must not forward verbatim.
 const SKIP_HEADERS: [&str; 4] = ["host", "content-length", "connection", "transfer-encoding"];
@@ -35,16 +35,18 @@ async fn healthz() -> &'static str {
 async fn proxy_run(
     Inject(inspector): Inject<Inspector>,
     Inject(client): Inject<ReqwestAgentClient>,
+    Inject(metrics): Inject<ProxyMetricsRecorder>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    let metrics: Arc<dyn ProxyMetrics> = metrics;
     let context = InspectionContext::new(SessionId(Uuid::new_v4()), RunId(Uuid::new_v4()));
     info!(
         session = %context.session.0,
         run = %context.run.0,
         "run received; forwarding to upstream agent"
     );
-    counter!("agate_runs_total").increment(1);
+    metrics.record_run();
 
     let request = RunRequest {
         body,
@@ -55,12 +57,12 @@ async fn proxy_run(
         Ok(stream) => stream,
         Err(error) => {
             warn!(run = %context.run.0, %error, "upstream agent request failed");
-            counter!("agate_upstream_errors_total").increment(1);
+            metrics.record_upstream_error();
             return (StatusCode::BAD_GATEWAY, error.to_string()).into_response();
         }
     };
 
-    let inspected = inspect_stream(upstream, inspector, context, Budgets::default())
+    let inspected = inspect_stream(upstream, inspector, context, Budgets::default(), metrics)
         .map(Ok::<Bytes, Infallible>);
 
     Response::builder()

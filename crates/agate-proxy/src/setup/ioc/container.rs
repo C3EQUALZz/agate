@@ -6,7 +6,9 @@ use froodi::{
 
 use crate::application::common::ports::{AuditSink, PolicyPort};
 use crate::application::inspection::Inspector;
-use crate::infrastructure::{AllowAllPolicy, NoopAuditSink, ReqwestAgentClient};
+use crate::infrastructure::{
+    AllowAllPolicy, NoopAuditSink, ProxyMetricsRecorder, ReqwestAgentClient,
+};
 use crate::setup::configs::ProxyConfig;
 
 /// Build the IoC container with the default adapters: an allow-all policy and a
@@ -34,6 +36,7 @@ pub fn build_container_with(
                 provide(|Inject(config): Inject<ProxyConfig>| {
                     Ok(ReqwestAgentClient::new(config.agent_endpoint.clone()))
                 }),
+                provide(|| Ok(ProxyMetricsRecorder)),
                 provide(move || Ok(Inspector::new(policy.clone(), audit.clone()))),
             ]
         })

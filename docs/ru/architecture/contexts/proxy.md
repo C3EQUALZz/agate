@@ -70,10 +70,20 @@ stateDiagram-v2
 | Слой | Содержимое |
 | --- | --- |
 | `domain` | Чистый: агрегаты инспекции, `InspectedEvent`, `Verdict`. Без I/O. |
-| `application` | Сценарии и порты: `PolicyPort` (источник вердикта), приёмник аудита, клиент вышестоящего агента. |
+| `application` | Сценарии и порты: `PolicyPort` (источник вердикта), приёмник аудита, клиент вышестоящего агента, рекордер `ProxyMetrics`. |
 | `infrastructure` | Адаптеры: SSE-кодек AG-UI (инкрементальный, сохраняющий порядок), валидация `RunAgentInput`, HTTP-клиент к агенту. |
 | `presentation` | HTTP/SSE-обработчики (axum/hyper), терминирование TLS, обвязка запрос/ответ. |
 | `setup` | Корень композиции: `ProxyConfig` (`AGENT_ENDPOINT`, `BIND_ADDR`), сборка. |
+
+## Наблюдаемость
+
+Метрики плоскости данных идут **через порт `ProxyMetrics`**, а не через `counter!`
+из слоя presentation. Обработчик запуска и потоковый инспектор фиксируют
+`agate_runs_total`, `agate_events_inspected_total{outcome}` и
+`agate_upstream_errors_total` через внедрённый порт — поэтому `inspect_stream`
+принимает порт и юнит-тестируется с фейковым рекордером. Реальный адаптер пишет
+через фасад `metrics` (no-op, пока [сервер](server.md) не установит рекордер
+Prometheus).
 
 ## Fail-open или fail-closed
 

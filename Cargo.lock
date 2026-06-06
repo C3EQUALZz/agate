@@ -46,6 +46,7 @@ dependencies = [
  "axum",
  "froodi",
  "jiff",
+ "metrics",
  "proptest",
  "reqwest",
  "rstest",
