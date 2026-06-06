@@ -79,8 +79,9 @@ flowchart LR
 The purity of the domain and the acyclic crate graph mean correctness-critical
 logic (Merkle proofs, verdict computation, value-object invariants) is testable
 in isolation with no network or clock, and the compiler enforces the layering.
-Domain invariants are covered with **proptest** (e.g. Merkle proof round-trips,
-tamper rejection).
+Algebraic and cryptographic invariants (e.g. Merkle proof round-trips, tamper
+rejection) are covered with **proptest**; contexts without such invariants, like
+the policy, use example-based scenario tests.
 
 See the per-context pages for how each crate applies these rules:
 [crypto](contexts/crypto.md), [audit](contexts/audit.md),

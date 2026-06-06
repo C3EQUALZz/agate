@@ -7,7 +7,7 @@ Agate inspects, decides, records, and forwards.
 ```mermaid
 flowchart LR
     fe["Frontend"] -->|AG-UI| agate["agate-server<br/>(container)"]
-    agate -->|forwarded| agent["Your agent<br/>(AGENT_ENDPOINT)"]
+    agate -->|forwarded| agent["Your agent<br/>(agent_endpoint)"]
     agate --> pg[("Postgres")]
 ```
 

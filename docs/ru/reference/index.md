@@ -13,11 +13,11 @@ cargo doc --workspace --no-deps --open
 Это откроет сгенерированную документацию для каждого крейта рабочего
 пространства:
 
-- `agate_crypto` — стратегии и фабрики хеш / подпись / AEAD.
-- `agate_audit` — агрегат журнала прозрачности, порты и адаптеры.
-- `agate_proxy` — домен инспекции и адаптер AG-UI.
-- `agate_policy` — домен политик (`InspectedAction` → `PolicyDecision`).
-- `agate_server` — корень композиции.
+- `agate-crypto` (`crate agate_crypto`) — стратегии и фабрики хеш / подпись / AEAD.
+- `agate-audit` (`crate agate_audit`) — агрегат журнала прозрачности, порты и адаптеры.
+- `agate-proxy` (`crate agate_proxy`) — домен инспекции и адаптер AG-UI.
+- `agate-policy` (`crate agate_policy`) — домен политик (`InspectedAction` → `PolicyDecision`).
+- `agate-server` (`crate agate_server`) — корень композиции.
 
 !!! tip "С чего начать чтение"
     Начните с документации модуля верхнего уровня каждого крейта (`lib.rs`),

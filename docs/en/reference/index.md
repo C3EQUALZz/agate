@@ -12,11 +12,11 @@ cargo doc --workspace --no-deps --open
 
 This opens the generated documentation for every crate in the workspace:
 
-- `agate_crypto` — hash / signature / AEAD strategies and factories.
-- `agate_audit` — the transparency-log aggregate, ports, and adapters.
-- `agate_proxy` — the inspection domain and the AG-UI adapter.
-- `agate_policy` — the policy domain (`InspectedAction` → `PolicyDecision`).
-- `agate_server` — the composition root.
+- `agate-crypto` (`crate agate_crypto`) — hash / signature / AEAD strategies and factories.
+- `agate-audit` (`crate agate_audit`) — the transparency-log aggregate, ports, and adapters.
+- `agate-proxy` (`crate agate_proxy`) — the inspection domain and the AG-UI adapter.
+- `agate-policy` (`crate agate_policy`) — the policy domain (`InspectedAction` → `PolicyDecision`).
+- `agate-server` (`crate agate_server`) — the composition root.
 
 !!! tip "Where to start reading"
     Begin at each crate's top-level module documentation (`lib.rs`), which gives

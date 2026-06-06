@@ -1,3 +1,4 @@
+
 # AGENTS.md — Agate
 
 **Agate** is a high-performance **security gateway for LLM agents** (AG2 / AG-UI protocol),

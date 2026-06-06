@@ -1,111 +1,97 @@
 # Configuration
 
-Agate is configured **today** through environment variables read at startup by
-`agate-server`. A **file-based `agate.toml`** configuration is being designed in
-parallel; the sections below mark clearly what exists now and what is coming.
+`agate-server` (the Docker entrypoint) is configured by a single **`agate.toml`**
+file, layered with environment overrides. Mount the file into the container and
+point `AGATE_CONFIG` at it. A ready-to-edit template lives at
+[`agate.example.toml`](https://github.com/C3EQUALZz/agate/blob/main/agate.example.toml).
 
-## Environment variables (today)
+## Sources and precedence
 
-These are read once at process start. A missing required variable aborts
-startup (fail fast on misconfiguration) rather than starting in a degraded
-state.
+Lowest to highest — a later layer overrides an earlier one:
 
-### Proxy & networking
+1. **Built-in defaults.**
+2. **`agate.toml`** — path from `AGATE_CONFIG` (default `/etc/agate/agate.toml`).
+   A missing file is fine; the defaults apply.
+3. **Environment** — `AGATE__SECTION__KEY` (uppercase, `__` between levels).
+   Prefer env for secrets.
 
-| Variable | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `AGENT_ENDPOINT` | **yes** | — | URL of the upstream AG-UI agent that Agate forwards inspected traffic to. |
-| `BIND_ADDR` | no | `0.0.0.0:8080` | Address/port Agate listens on for incoming AG-UI traffic. |
-
-### Audit (transparency log)
-
-| Variable | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `DATABASE_URL` | **yes** | — | PostgreSQL connection string for the Merkle transparency log. Migrations run on startup. |
-| `AUDIT_LOG_ID` | no | new log created | UUID of the transparency log to append to. If unset, a fresh log is created and its id is logged so you can pin it on restart. |
-
-### Policy
-
-The policy variables are all optional. With none set, **every tool is permitted
-and nothing is redacted**.
-
-| Variable | Format | Meaning |
-| --- | --- | --- |
-| `POLICY_TOOL_ALLOWLIST` | comma-separated tool names | Only these tools may run. Mutually exclusive with the denylist. |
-| `POLICY_TOOL_DENYLIST` | comma-separated tool names | These tools are denied (used only when no allowlist is set). |
-| `POLICY_REDACT_PATTERNS` | comma-separated literal markers | Substrings redacted from emitted text before it reaches the client. |
-
-!!! warning "Allowlist and denylist are mutually exclusive"
-    Setting both `POLICY_TOOL_ALLOWLIST` and `POLICY_TOOL_DENYLIST` is
-    contradictory (which wins?) and **aborts startup** rather than being
-    silently resolved. A blank or invalid tool name also aborts startup, so a
-    typo cannot silently weaken enforcement.
-
-### Example
-
-```bash
-AGENT_ENDPOINT=http://agent:9000
-DATABASE_URL=postgres://agate:agate@db:5432/agate
-BIND_ADDR=0.0.0.0:8080
-AUDIT_LOG_ID=3f6c0b1e-2c9a-4f1e-bb1b-7e2c0b9a1d34
-POLICY_TOOL_ALLOWLIST=search,read_file,http_get
-POLICY_REDACT_PATTERNS=sk-,AKIA,BEGIN PRIVATE KEY
-```
-
----
-
-## File configuration: `agate.toml` (coming soon)
-
-!!! info "Designed, not yet shipped"
-    A TOML configuration file is being designed so deployments can express the
-    full configuration in one mounted, version-controllable file instead of a
-    growing list of environment variables. The shape below is the **intended
-    structure** — keys and defaults are **subject to change** and are marked
-    `TODO` where not yet finalized. Environment variables remain supported and
-    are expected to **override** file values.
-
-The plan is to mount a single `agate.toml` into the container:
+So `[audit].database_url` is overridden by `AGATE__AUDIT__DATABASE_URL`.
 
 ```bash
 docker run --rm \
   -v "$PWD/agate.toml:/etc/agate/agate.toml:ro" \
   -e AGATE_CONFIG=/etc/agate/agate.toml \
-  agate-server
+  -e AGATE__AUDIT__DATABASE_URL='postgres://agate:secret@db:5432/agate' \
+  ghcr.io/c3equalzz/agate
 ```
 
-Intended sections (illustrative — **do not rely on these names yet**):
+A missing **required** value (`proxy.agent_endpoint`, `audit.database_url`)
+aborts startup — fail fast on misconfiguration rather than running degraded.
+
+## `[proxy]`
+
+| Key | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `agent_endpoint` | **yes** | — | URL of the upstream AG-UI agent that Agate forwards inspected traffic to. |
+| `bind` | no | `0.0.0.0:8080` | Address/port Agate listens on for incoming AG-UI traffic. |
+
+## `[audit]`
+
+| Key | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `database_url` | **yes** | — | PostgreSQL connection string for the Merkle transparency log. Migrations run on startup. Prefer `AGATE__AUDIT__DATABASE_URL` for the password. |
+
+The transparency log to append to is pinned by the **`AUDIT_LOG_ID`** environment
+variable (a UUID). If unset, a fresh log is created on startup and its id is
+printed so you can pin it on the next run.
+
+## `[policy.tools]` and `[policy]`
+
+All policy keys are optional. With none set, **every tool is permitted and
+nothing is redacted**.
+
+| Key | Format | Meaning |
+| --- | --- | --- |
+| `[policy.tools].mode` | `allow-all` \| `allowlist` \| `denylist` | How tool calls are authorized. Default `allow-all`. |
+| `[policy.tools].names` | array of tool names | Tools governed by `mode` (ignored when `allow-all`). |
+| `[policy].redact` | array of literal markers | Substrings masked (case-insensitive) in emitted text before it reaches the client. |
+
+!!! warning "Invalid policy aborts startup"
+    A blank or invalid tool name, or an empty redaction pattern, **aborts
+    startup** — a typo must never silently weaken enforcement.
+
+## `[observability.logging]`
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `true` | Install a log subscriber at all; `false` silences logs. |
+| `format` | `pretty` | `pretty` (console) or `json` (one object per line, for log shippers). |
+| `level` | `info` | Filter directive (e.g. `agate_proxy=debug,info`). `RUST_LOG` overrides it when set. |
+
+!!! info "Metrics and tracing"
+    Prometheus metrics and OpenTelemetry tracing plug into the same
+    `[observability]` section and are documented here as they land.
+
+## Full example
 
 ```toml
-# agate.toml — INTENDED SHAPE, subject to change (TODO: finalize)
-
 [proxy]
-bind_addr      = "0.0.0.0:8080"
-agent_endpoint = "http://agent:9000"
-# fail_mode    = "closed"   # TODO: fail-open vs fail-closed on policy errors
-# limits       = { max_body_bytes = ..., max_run_seconds = ... }  # TODO: DoS budgets
+agent_endpoint = "http://agent:8000/run"
+bind = "0.0.0.0:8080"
 
 [audit]
-database_url = "postgres://agate:agate@db:5432/agate"
-# log_id     = "…"          # equivalent of AUDIT_LOG_ID
-# hash_algo  = "sha256"     # TODO: Merkle epoch hash (sha2 / sha3 / streebog)
-# signing    = { ... }      # TODO: signed tree head key configuration
+# Prefer AGATE__AUDIT__DATABASE_URL for the password.
+database_url = "postgres://agate@postgres:5432/agate"
+
+[policy.tools]
+mode = "allowlist"
+names = ["search", "fetch"]
 
 [policy]
-# tools  = { mode = "allowlist", names = ["search", "read_file"] }  # or denylist / allow_all
-# redact = ["sk-", "AKIA"]
-# TODO: richer rules (regex redaction, per-tool argument constraints, URL screening)
+redact = ["sk-", "AKIA"]
 
-[observability]
-# log_level = "info"        # TODO
-# tracing   = { ... }       # TODO: OpenTelemetry export
-
-[plugins]
-# TODO: toggles for optional adapters/strategies
-# ag_ui = true              # the AG-UI transport adapter
-# agent_llm = false         # the future agent ↔ LLM adapter
-# gost_crypto = false       # Streebog / Kuznyechik / Magma strategies
+[observability.logging]
+enabled = true
+format = "pretty"
+level = "info"
 ```
-
-Until `agate.toml` ships, use the environment variables above. This page will be
-updated with the authoritative schema, defaults, and precedence rules when the
-feature lands.
