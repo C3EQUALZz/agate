@@ -55,3 +55,6 @@ secrets/
 # ---- Misc ----
 *.bak
 *.tmp
+
+# Stray pasted screenshots (e.g. from chat) must not be committed.
+/img.png
