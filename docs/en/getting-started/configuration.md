@@ -91,6 +91,9 @@ Exposed metrics:
 - `agate_upstream_errors_total` — upstream agent request/stream failures.
 - `agate_audit_records_appended_total` / `agate_audit_records_dropped_total` — transparency-log writes vs. drops (a non-zero drop rate means audit is falling behind — alert on it).
 
+A ready-to-run Prometheus + Grafana stack with a pre-built dashboard lives in
+[`deploy/observability/`](https://github.com/C3EQUALZz/agate/tree/main/deploy/observability).
+
 !!! info "Distributed tracing"
     OpenTelemetry (OTLP) tracing plugs into the same `[observability]` section
     and is documented here as it lands.
