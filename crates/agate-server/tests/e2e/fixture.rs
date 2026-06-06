@@ -12,9 +12,13 @@ use axum::routing::post;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use testcontainers::ContainerAsync;
+use testcontainers::ImageExt;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use tokio::net::TcpListener;
+
+/// Pinned Postgres image — a current LTS, not testcontainers' EOL default.
+const POSTGRES_IMAGE_TAG: &str = "17-alpine";
 
 use agate_audit::application::common::messaging::{Dispatcher, Registry, Request};
 use agate_audit::application::usecases::create_log::CreateLog;
@@ -48,7 +52,11 @@ pub struct TestServer {
 /// Boot the stub agent (answering with `sse_body`), the database, and the
 /// server wired to `ruleset`; create a fresh log.
 pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer {
-    let container = Postgres::default().start().await.unwrap();
+    let container = Postgres::default()
+        .with_tag(POSTGRES_IMAGE_TAG)
+        .start()
+        .await
+        .unwrap();
     let port = container.get_host_port_ipv4(5432).await.unwrap();
     let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
     let pool = PgPoolOptions::new().connect(&url).await.unwrap();
