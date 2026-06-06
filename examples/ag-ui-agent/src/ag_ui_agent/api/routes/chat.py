@@ -28,5 +28,7 @@ async def run_agent(
     """Stream the agent's AG-UI run as ``text/event-stream`` frames."""
     return StreamingResponse(
         streamer.dispatch(run_input, accept=accept),
-        media_type=accept or "text/event-stream",
+        # SSE is the only framing this example emits; do not reflect the client's
+        # Accept header back as the response Content-Type.
+        media_type="text/event-stream",
     )

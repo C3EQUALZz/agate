@@ -89,5 +89,9 @@ async def delete_file(
     Args:
         document_id: UUID of the document to delete.
     """
-    await uc.execute(DeleteDocumentRequest(document_id=DocumentId(UUID(document_id))))
+    try:
+        parsed_id = UUID(document_id)
+    except ValueError:
+        return f"invalid document id: {document_id!r}"
+    await uc.execute(DeleteDocumentRequest(document_id=DocumentId(parsed_id)))
     return "deleted"

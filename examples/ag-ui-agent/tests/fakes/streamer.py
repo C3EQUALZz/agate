@@ -52,7 +52,11 @@ class FakeAgUiStreamer:
     async def _safe_search(self, prompt: str) -> AsyncIterator[bytes]:
         query = prompt or "key"
         yield _frame("TOOL_CALL_START", toolCallId=_SEARCH_CALL_ID, toolCallName="search_documents")
-        yield _frame("TOOL_CALL_ARGS", toolCallId=_SEARCH_CALL_ID, delta=f'{{"query": "{query}"}}')
+        yield _frame(
+            "TOOL_CALL_ARGS",
+            toolCallId=_SEARCH_CALL_ID,
+            delta=json.dumps({"query": query}),
+        )
         yield _frame("TOOL_CALL_END", toolCallId=_SEARCH_CALL_ID)
         response = await self._search.execute(
             SearchDocumentsRequest(query=query, limit=_SEARCH_LIMIT),
@@ -65,7 +69,7 @@ class FakeAgUiStreamer:
         yield _frame(
             "TOOL_CALL_ARGS",
             toolCallId=_DELETE_CALL_ID,
-            delta=f'{{"document_id": "{_SEED_DOCUMENT_ID}"}}',
+            delta=json.dumps({"document_id": _SEED_DOCUMENT_ID}),
         )
         yield _frame("TOOL_CALL_END", toolCallId=_DELETE_CALL_ID)
 
