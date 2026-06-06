@@ -1,0 +1,13 @@
+# Keep the build context small and reproducible. The build needs Cargo
+# manifests, crate sources, and the embedded sqlx migrations — nothing else.
+target/
+.git/
+.github/
+.claude/
+.idea/
+docs/
+site/
+*.md
+agate.example.toml
+.gitignore
+.gitattributes
