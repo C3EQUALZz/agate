@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::Client;
+use tracing::debug;
 
 use crate::application::common::ports::{
     AgentResponseStream, RunRequest, UpstreamAgentClient, UpstreamError,
@@ -31,6 +32,7 @@ impl ReqwestAgentClient {
 #[async_trait]
 impl UpstreamAgentClient for ReqwestAgentClient {
     async fn run(&self, request: RunRequest) -> Result<AgentResponseStream, UpstreamError> {
+        debug!(endpoint = %self.endpoint, "POSTing run to upstream agent");
         let mut builder = self.client.post(&self.endpoint).body(request.body);
         for (name, value) in request.headers {
             builder = builder.header(name, value);

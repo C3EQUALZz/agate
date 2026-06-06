@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use froodi::Inject;
 use futures::StreamExt;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::inspect_stream;
@@ -36,6 +37,13 @@ async fn proxy_run(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    let context = InspectionContext::new(SessionId(Uuid::new_v4()), RunId(Uuid::new_v4()));
+    info!(
+        session = %context.session.0,
+        run = %context.run.0,
+        "run received; forwarding to upstream agent"
+    );
+
     let request = RunRequest {
         body,
         headers: forwardable_headers(&headers),
@@ -43,10 +51,12 @@ async fn proxy_run(
 
     let upstream = match client.run(request).await {
         Ok(stream) => stream,
-        Err(error) => return (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
+        Err(error) => {
+            warn!(run = %context.run.0, %error, "upstream agent request failed");
+            return (StatusCode::BAD_GATEWAY, error.to_string()).into_response();
+        }
     };
 
-    let context = InspectionContext::new(SessionId(Uuid::new_v4()), RunId(Uuid::new_v4()));
     let inspected = inspect_stream(upstream, inspector, context, Budgets::default())
         .map(Ok::<Bytes, Infallible>);
 

@@ -20,6 +20,7 @@ use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_server::setup::bootstrap::build_server;
 use agate_server::setup::configs::load;
 use agate_server::setup::observability::init_logging;
+use tracing::info;
 
 #[tokio::main]
 async fn main() {
@@ -41,18 +42,23 @@ async fn main() {
         .ok()
         .map(|raw| LogId(raw.parse::<Uuid>().expect("AUDIT_LOG_ID must be a UUID")));
 
+    info!("configuration loaded; starting agate-server");
+
     let pool = PgPoolOptions::new()
         .connect(postgres.url())
         .await
         .expect("connect to Postgres");
     run_migrations(&pool).await.expect("run migrations");
+    info!("connected to Postgres and applied migrations");
 
     let log = resolve_log(&pool, pinned_log_id).await;
+    info!(log = %log.0, "recording to transparency log");
     let server = build_server(proxy, pool, log, ruleset);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .expect("bind listener");
+    info!(%bind_addr, "agate-server listening");
     axum::serve(listener, server.app).await.expect("serve");
 }
 

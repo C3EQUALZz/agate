@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use tracing::debug;
 
 use super::command::AppendRecord;
 use crate::application::common::messaging::RequestHandler;
@@ -28,6 +29,7 @@ impl RequestHandler<AppendRecord> for AppendRecordHandler {
             .ok_or(AuditError::LogNotFound(request.log))?;
         let index = log.append(&request.record);
         self.gateway.save(&log).await?;
+        debug!(log = %request.log.0, index = index.0, "appended record to transparency log");
         Ok(index)
     }
 }

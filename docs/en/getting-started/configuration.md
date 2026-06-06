@@ -68,6 +68,11 @@ nothing is redacted**.
 | `format` | `pretty` | `pretty` (console) or `json` (one object per line, for log shippers). |
 | `level` | `info` | Filter directive (e.g. `agate_proxy=debug,info`). `RUST_LOG` overrides it when set. |
 
+At `info` you see lifecycle events: startup, each proxied run, policy denials and
+redactions, and transparency-log creation. Raise to `debug` (e.g.
+`level = "agate_proxy=debug,info"`) for per-event detail (each forwarded/buffered
+event, every appended audit record).
+
 !!! info "Metrics and tracing"
     Prometheus metrics and OpenTelemetry tracing plug into the same
     `[observability]` section and are documented here as they land.
