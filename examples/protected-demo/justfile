@@ -1,0 +1,32 @@
+set shell := ["bash", "-uc"]
+
+default:
+    @just --list
+
+install:
+    uv sync
+
+# Run the demo client against Agate (requires the compose stack to be up).
+run:
+    uv run protected-demo-client
+
+test:
+    uv run pytest
+
+# Ruff (strict: select = ALL).
+lint:
+    uv run ruff check src tests
+    uv run ruff format --check src tests
+
+# wemake-python-styleguide (WPS) via flake8 (config in setup.cfg).
+lint-wps:
+    uv run flake8 src tests
+
+fmt:
+    uv run ruff check --fix src tests
+    uv run ruff format src tests
+
+typecheck:
+    uv run mypy src tests
+
+gate: lint lint-wps typecheck test

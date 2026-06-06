@@ -1,29 +1,72 @@
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "protected_demo_client"
+module-root = "src"
+
 [project]
 name = "protected-demo-client"
 version = "0.1.0"
-description = "Client that sends an AG-UI run through Agate and prints the inspected stream"
+description = "Send an AG-UI run through Agate and show its protections (deny / redact / audit)."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
+
 dependencies = [
-    # httpx streams the SSE response cleanly with timeouts.
-    "httpx>=0.27",
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0",
 ]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.6",
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "flake8>=7.1",
+    "wemake-python-styleguide>=1.0",
 ]
 
 [project.scripts]
-protected-demo-client = "protected_demo_client.__main__:main"
+protected-demo-client = "protected_demo_client.cli:main"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/protected_demo_client"]
+[tool.mypy]
+files = ["src/protected_demo_client", "tests"]
+strict = true
+python_version = "3.13"
+warn_unreachable = true
+no_implicit_reexport = true
+disallow_any_generics = true
 
 [tool.ruff]
+src = ["src", "tests"]
 line-length = 100
-target-version = "py310"
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D203", "D213", "D104", "D107", "COM812", "ANN401",
+    "EM101", "EM102", "TRY003",
+    "TC001", "TC002", "TC003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "D100", "D101", "D102", "D103", "D104", "PLR2004", "ANN201"]
+# render.py is the CLI's terminal-output module; writing to stdout via print is
+# its entire purpose, so the "print found" check (T201) does not apply.
+"src/protected_demo_client/render.py" = ["T201"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["protected_demo_client"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

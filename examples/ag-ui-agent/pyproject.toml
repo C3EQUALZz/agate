@@ -1,0 +1,120 @@
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "ag_ui_agent"
+module-root = "src"
+
+[project]
+name = "ag-ui-agent"
+version = "0.1.0"
+description = "Clean-layered AG2.beta + AG-UI + Dishka agent — the upstream Agate protects."
+readme = "README.md"
+requires-python = ">=3.13"
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "dishka>=1.4.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "structlog>=25.1.0",
+    "httpx>=0.28.0",
+    # The single backend: the real autogen.beta (AG2) agent over OpenAI, wired
+    # into Dishka via dishka-ag2. There is no offline mode.
+    "ag2[ag-ui,openai]>=0.12",
+    "dishka-ag2>=0.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "dirty-equals>=0.8",
+    "import-linter>=2.0",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+    # wemake-python-styleguide is a flake8 plugin; it pulls flake8 in, but pin
+    # flake8 explicitly so the gate is reproducible.
+    "flake8>=7.1",
+    "wemake-python-styleguide>=1.0",
+]
+
+[project.scripts]
+ag-ui-agent = "ag_ui_agent.main.entrypoint:run"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.mypy]
+files = ["src/ag_ui_agent", "tests"]
+strict = true
+python_version = "3.13"
+# Maximum strictness: --strict is on; the relaxations the maintainer flagged
+# (disallow_untyped_defs / disallow_incomplete_defs = false) are gone, so every
+# def must be fully typed. A few extra non-strict flags are turned up too.
+warn_unreachable = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_reexport = true
+disallow_any_generics = true
+
+# autogen / dishka_ag2 ship no type stubs, so strict mode cannot resolve their
+# imports. This is the ONLY relaxation kept: ignore their missing imports.
+[[tool.mypy.overrides]]
+module = ["autogen.*", "dishka_ag2.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+src = ["src", "tests"]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# Broad, strict rule set rather than a tiny subset. "ALL" enables every ruff
+# rule; the curated ignores below remove the rules that fight project style,
+# duplicate other tooling (flake8/WPS, mypy), or are noise for an example.
+select = ["ALL"]
+ignore = [
+    "D203",    # one-blank-line-before-class — conflicts with D211 (pick one).
+    "D213",    # multi-line-summary-second-line — conflicts with D212 (pick one).
+    "D107",    # missing docstring in __init__ — the class docstring documents it.
+    "D104",    # missing docstring in public package — __init__ files are re-export facades.
+    "COM812",  # trailing-comma-missing — handled by the formatter; avoids clashes.
+    "B008",    # function call in default — FastAPI's Body()/Query()/Header() idiom.
+    "A003",    # class attribute shadows a builtin — repo.list() is the idiomatic name.
+    "ANN401",  # dynamic typing (Any) — the AG-UI wire model is genuinely dynamic.
+    "EM101",   # raw string in exception — over-strict for small example messages.
+    "EM102",   # f-string in exception — ditto.
+    "TRY003",  # long messages outside the exception class — ditto.
+    "FBT001",  # boolean positional arg — the logging_config flag reads fine.
+    "FBT002",  # boolean default positional arg — ditto.
+    "TC001",   # move first-party import into TYPE_CHECKING — adds noise here.
+    "TC002",   # move third-party import into TYPE_CHECKING — ditto.
+    "TC003",   # move stdlib import into TYPE_CHECKING — ditto.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may use assert, fixtures shadow names, and need no docstrings.
+"tests/**" = ["S101", "D100", "D101", "D102", "D103", "D104", "PLR2004", "ANN201"]
+# Agent tool docstrings are LLM-facing; the DI-injected `uc` parameter is wiring,
+# not a model-supplied argument, so it is intentionally absent from the docstring.
+"src/ag_ui_agent/api/agent/tools/*.py" = ["D417"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ag_ui_agent"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseSettings"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

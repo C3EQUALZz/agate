@@ -1,0 +1,37 @@
+[importlinter]
+root_package = ag_ui_agent
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = Clean architecture layers
+type = layers
+layers =
+    ag_ui_agent.main
+    ag_ui_agent.api
+    ag_ui_agent.usecases
+    ag_ui_agent.gateways
+    ag_ui_agent.models
+    ag_ui_agent.domain
+
+[importlinter:contract:no-agent-in-lower-layers]
+name = Agent framework imports stay in api.agent and main.providers
+type = forbidden
+source_modules =
+    ag_ui_agent.domain
+    ag_ui_agent.models
+    ag_ui_agent.gateways
+    ag_ui_agent.usecases
+forbidden_modules =
+    autogen
+    dishka_ag2
+
+[importlinter:contract:no-fastapi-in-domain]
+name = FastAPI/Starlette stay out of domain / gateways / usecases
+type = forbidden
+source_modules =
+    ag_ui_agent.domain
+    ag_ui_agent.gateways
+    ag_ui_agent.usecases
+forbidden_modules =
+    fastapi
+    starlette

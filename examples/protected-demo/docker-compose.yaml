@@ -1,0 +1,55 @@
+# The protected demo: the AG-UI agent + Agate + Postgres.
+#
+#   client ──POST /──▶ Agate (:8080) ──forward──▶ agent (:8000/api/run)
+#                         │ inspect each SSE event (allow / deny / redact)
+#                         └──────────▶ Postgres transparency log
+#
+# Run:   docker compose up --build
+# Then:  (from this dir, with uv)  uv run protected-demo-client
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: agate
+      POSTGRES_PASSWORD: agate
+      POSTGRES_DB: agate
+    # The healthcheck lets Agate wait until Postgres can accept connections.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agate -d agate"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  agent:
+    # Builds the ag-ui-agent image. It runs the real autogen.beta (AG2) agent,
+    # so it needs an OpenAI key. Its firm system prompt drives the model to make
+    # a safe search call, attempt a dangerous delete_file call, and emit a fake
+    # "sk-..." token — giving Agate all three protections to demonstrate. (What
+    # the model actually does depends on the model; gpt-4o-mini is reliable.)
+    build:
+      context: ../ag-ui-agent
+    environment:
+      # Provide your key in the shell or an .env file before `docker compose up`.
+      AGENT__OPENAI_API_KEY: ${AGENT__OPENAI_API_KEY:?set AGENT__OPENAI_API_KEY in your env or .env}
+      AGENT__OPENAI_MODEL: ${AGENT__OPENAI_MODEL:-gpt-4o-mini}
+    # Not published to the host: only Agate should reach the agent, so all
+    # traffic is forced through the proxy. Expose it for debugging if you like.
+    expose:
+      - "8000"
+
+  agate:
+    image: ghcr.io/c3equalzz/agate:latest
+    depends_on:
+      db:
+        condition: service_healthy
+      agent:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./agate.toml:/etc/agate/agate.toml:ro
+    environment:
+      AGATE_CONFIG: /etc/agate/agate.toml
+      # Password supplied here, not in agate.toml.
+      AGATE__AUDIT__DATABASE_URL: "postgres://agate:agate@db:5432/agate"

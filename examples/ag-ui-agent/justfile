@@ -1,0 +1,49 @@
+set shell := ["bash", "-uc"]
+
+default:
+    @just --list
+
+# Sync dependencies (the real AG2 backend; needs an OpenAI key at runtime).
+install:
+    uv sync
+
+# Run the dev server with auto-reload. Requires AGENT__OPENAI_API_KEY.
+dev:
+    uv run uvicorn --factory ag_ui_agent.main.entrypoint:create_app --reload --port 8000
+
+# Run all tests (no OpenAI call: the chat route is driven by a fake streamer).
+test:
+    uv run pytest
+
+# Unit tests only.
+test-unit:
+    uv run pytest tests/unit
+
+# Lint imports against the .importlinter contracts.
+lint-imports:
+    uv run lint-imports
+
+# Ruff check + format check (strict: select = ALL).
+lint:
+    uv run ruff check src tests
+    uv run ruff format --check src tests
+
+# wemake-python-styleguide (WPS) via flake8 (strict; config in setup.cfg).
+lint-wps:
+    uv run flake8 src tests
+
+# Auto-fix lint issues and format.
+fmt:
+    uv run ruff check --fix src tests
+    uv run ruff format src tests
+
+# Type-check with mypy (maximum strictness).
+typecheck:
+    uv run mypy src tests
+
+# The full quality gate: ruff + WPS + import-linter + mypy + tests.
+gate: lint lint-wps lint-imports typecheck test
+
+# Build the agent container image.
+docker-build:
+    docker build -t ag-ui-agent:latest .
