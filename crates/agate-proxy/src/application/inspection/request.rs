@@ -78,6 +78,11 @@ fn is_blocked_v4(ip: Ipv4Addr) -> bool {
 }
 
 fn is_blocked_v6(ip: Ipv6Addr) -> bool {
+    // An IPv4-mapped literal (`::ffff:127.0.0.1`) reaches the same host as the
+    // bare IPv4, so classify it with the IPv4 rules — otherwise it bypasses them.
+    if let Some(mapped) = ip.to_ipv4_mapped() {
+        return is_blocked_v4(mapped);
+    }
     let first = ip.segments()[0];
     ip.is_loopback()
         || ip.is_unspecified()
@@ -103,6 +108,9 @@ mod tests {
         assert!(first_disallowed_url("grab http://10.0.0.5/secret").is_some());
         assert!(first_disallowed_url("http://169.254.169.254/latest/meta-data").is_some());
         assert!(first_disallowed_url("http://[::1]/x").is_some());
+        // IPv4-mapped IPv6 must not bypass the IPv4 rules.
+        assert!(first_disallowed_url("http://[::ffff:127.0.0.1]/x").is_some());
+        assert!(first_disallowed_url("http://[::ffff:10.0.0.5]/x").is_some());
     }
 
     #[test]
