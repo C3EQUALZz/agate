@@ -11,7 +11,7 @@ async-trait = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 jiff = { workspace = true }
 sqlx = { workspace = true }
-tokio = { version = "1", default-features = false, features = ["sync", "rt-multi-thread", "macros", "net"] }
+tokio = { version = "1", default-features = false, features = ["sync", "rt-multi-thread", "macros", "net", "time"] }
 froodi = { version = "1.0.0-beta.18", features = ["async", "axum"] }
 axum = { workspace = true }
 serde = { workspace = true }

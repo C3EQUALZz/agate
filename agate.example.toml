@@ -30,6 +30,16 @@ max_body_bytes = 1048576
 # Supply the password via the env override, not here:
 #   AGATE__AUDIT__DATABASE_URL=postgres://agate:<password>@postgres:5432/agate
 database_url = "postgres://agate@postgres:5432/agate"
+# --- Connection pool + startup resilience (all optional; defaults shown) ---
+# Maximum pooled database connections.
+max_connections = 10
+# How long to wait for a free pooled connection before erroring, in seconds.
+acquire_timeout_secs = 30
+# Initial-connect retries before giving up (0 = try once). Lets the process ride
+# out a database that is still starting up beside it (compose/Kubernetes).
+connect_max_retries = 10
+# Base backoff between connect attempts, in seconds (doubled each retry, capped).
+connect_backoff_secs = 1
 
 [policy.tools]
 # allow-all | allowlist | denylist
