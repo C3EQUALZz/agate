@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(config.policy_fail_mode(), FailMode::Closed);
         assert_eq!(
             config.policy_decision_timeout(),
-            std::time::Duration::from_millis(5000)
+            std::time::Duration::from_secs(5)
         );
     }
 
