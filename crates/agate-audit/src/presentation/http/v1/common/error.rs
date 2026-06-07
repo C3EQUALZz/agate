@@ -27,6 +27,7 @@ impl IntoResponse for HttpError {
             AuditError::LeafOutOfRange { .. } | AuditError::SizeOutOfRange { .. } => {
                 (StatusCode::BAD_REQUEST, "out_of_range")
             }
+            AuditError::KeyNotFound(_) => (StatusCode::INTERNAL_SERVER_ERROR, "key_not_found"),
             AuditError::Domain(_) => (StatusCode::BAD_REQUEST, "domain_error"),
             AuditError::Storage(_) => (StatusCode::INTERNAL_SERVER_ERROR, "storage_error"),
         };

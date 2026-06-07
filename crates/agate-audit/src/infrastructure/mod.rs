@@ -2,10 +2,14 @@
 //! ports (system clock, id generation, persistence, ...).
 
 pub mod audit_metrics;
+pub mod checkpoint_anchor;
 pub mod clock;
 pub mod id_generator;
+pub mod key_store;
 pub mod persistence;
 
 pub use audit_metrics::AuditMetricsRecorder;
+pub use checkpoint_anchor::LoggingCheckpointAnchor;
 pub use clock::SystemClock;
 pub use id_generator::UuidLogIdGenerator;
+pub use key_store::Ed25519KeyStore;

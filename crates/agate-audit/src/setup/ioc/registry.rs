@@ -10,6 +10,7 @@ use crate::application::usecases::get_consistency_proof::{
 use crate::application::usecases::get_inclusion_proof::{
     GetInclusionProof, GetInclusionProofHandler,
 };
+use crate::application::usecases::issue_checkpoint::{IssueCheckpoint, IssueCheckpointHandler};
 
 /// The routing table: which handler and behaviors each request type uses.
 /// Commands run inside the transaction behavior; read-only queries do not.
@@ -20,7 +21,9 @@ pub fn build_registry() -> Registry<Container> {
     registry.handler::<AppendRecord, AppendRecordHandler>();
     registry.handler::<GetInclusionProof, GetInclusionProofHandler>();
     registry.handler::<GetConsistencyProof, GetConsistencyProofHandler>();
+    registry.handler::<IssueCheckpoint, IssueCheckpointHandler>();
     registry.behavior::<CreateLog, TransactionBehavior>();
+    registry.behavior::<IssueCheckpoint, TransactionBehavior>();
     // MetricsBehavior is registered first so it is the outermost link on
     // AppendRecord: it records the outcome after TransactionBehavior has
     // committed or rolled back.

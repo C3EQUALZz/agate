@@ -13,19 +13,23 @@ use froodi::{
 
 use crate::application::common::behaviors::{MetricsBehavior, TransactionBehavior};
 use crate::application::common::ports::{
-    AuditMetrics, LogCommandGateway, LogQueryGateway, TransactionManager,
+    AuditMetrics, CheckpointAnchor, KeyStore, LogCommandGateway, LogQueryGateway,
+    TransactionManager,
 };
 use crate::application::usecases::append_record::AppendRecordHandler;
 use crate::application::usecases::create_log::CreateLogHandler;
 use crate::application::usecases::get_consistency_proof::GetConsistencyProofHandler;
 use crate::application::usecases::get_inclusion_proof::GetInclusionProofHandler;
+use crate::application::usecases::issue_checkpoint::IssueCheckpointHandler;
 use crate::domain::merkle::{LogId, TransparencyLogFactory};
 use crate::domain::ports::{Clock, IdGenerator};
 use crate::infrastructure::persistence::log::postgres::{
     PostgresLogCommandGateway, PostgresLogQueryGateway,
 };
 use crate::infrastructure::persistence::postgres::PgTransactionManager;
-use crate::infrastructure::{AuditMetricsRecorder, SystemClock, UuidLogIdGenerator};
+use crate::infrastructure::{
+    AuditMetricsRecorder, Ed25519KeyStore, LoggingCheckpointAnchor, SystemClock, UuidLogIdGenerator,
+};
 
 /// The use-case handlers and the transaction behavior, all Request-scoped.
 pub(crate) fn handler_providers() -> RegistryWithSync {
@@ -35,10 +39,24 @@ pub(crate) fn handler_providers() -> RegistryWithSync {
             provide(provide_metrics_behavior),
             provide(provide_create_log_handler),
             provide(provide_append_record_handler),
+            provide(provide_issue_checkpoint_handler),
             provide(provide_get_inclusion_proof_handler),
             provide(provide_get_consistency_proof_handler),
         ],
     }
+}
+
+async fn provide_issue_checkpoint_handler(
+    Inject(gateway): Inject<PostgresLogCommandGateway>,
+    Inject(keys): Inject<Ed25519KeyStore>,
+    Inject(anchor): Inject<LoggingCheckpointAnchor>,
+    Inject(clock): Inject<SystemClock>,
+) -> InstantiatorResult<IssueCheckpointHandler> {
+    let gateway: Arc<dyn LogCommandGateway> = gateway;
+    let keys: Arc<dyn KeyStore> = keys;
+    let anchor: Arc<dyn CheckpointAnchor> = anchor;
+    let clock: Arc<dyn Clock> = clock;
+    Ok(IssueCheckpointHandler::new(gateway, keys, anchor, clock))
 }
 
 async fn provide_transaction_behavior(

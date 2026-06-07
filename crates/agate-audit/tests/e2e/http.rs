@@ -56,6 +56,37 @@ async fn create_append_and_prove_over_http() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn checkpoint_without_a_signing_key_fails_cleanly() {
+    let app = spawn().await;
+    let client = reqwest::Client::new();
+
+    // A log to checkpoint.
+    let body: Value = client
+        .post(format!("{}/logs", app.base_url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let log_id = body["id"].as_str().unwrap().to_owned();
+
+    // No AUDIT_CHECKPOINT_SEED is configured in the test process, so signing is
+    // disabled: the route is wired and dispatches, but fails cleanly rather than
+    // signing under an ephemeral key.
+    let response = client
+        .post(format!("{}/logs/{log_id}/checkpoint", app.base_url))
+        .json(&json!({ "key_id": "checkpoint-ed25519" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 500);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["error"], "key_not_found");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn append_to_missing_log_is_not_found() {
     let app = spawn().await;
     let client = reqwest::Client::new();
