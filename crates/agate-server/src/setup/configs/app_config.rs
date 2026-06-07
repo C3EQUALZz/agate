@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 use agate_audit::setup::configs::PostgresConfig;
 use agate_policy::domain::common::errors::DomainError;
@@ -45,7 +46,17 @@ impl AppConfig {
 
     #[must_use]
     pub fn proxy_config(&self) -> ProxyConfig {
-        ProxyConfig::new(self.proxy.agent_endpoint.clone(), self.proxy.bind.clone())
+        ProxyConfig::new(self.proxy.agent_endpoint.clone(), self.proxy.bind.clone()).with_ingress(
+            Duration::from_secs(self.proxy.connect_timeout_secs),
+            Duration::from_secs(self.proxy.read_timeout_secs),
+            self.proxy.max_body_bytes,
+            // Treat an empty key as "no auth", so a blank TOML value disables it.
+            self.proxy
+                .api_key
+                .as_ref()
+                .map(|key| key.trim().to_owned())
+                .filter(|key| !key.is_empty()),
+        )
     }
 
     #[must_use]
@@ -79,6 +90,16 @@ pub struct ProxySection {
     pub agent_endpoint: String,
     /// Address the proxy listens on.
     pub bind: String,
+    /// Connect timeout to the upstream agent, in seconds (fail fast when
+    /// unreachable). Not an overall deadline — a healthy SSE stream runs on.
+    pub connect_timeout_secs: u64,
+    /// Idle read timeout between upstream response chunks, in seconds.
+    pub read_timeout_secs: u64,
+    /// Maximum accepted request body size, in bytes.
+    pub max_body_bytes: usize,
+    /// API key required on the `X-API-Key` header. Absent or blank disables
+    /// authentication (open proxy) — set it, or front the proxy with another guard.
+    pub api_key: Option<String>,
 }
 
 impl Default for ProxySection {
@@ -86,6 +107,10 @@ impl Default for ProxySection {
         Self {
             agent_endpoint: String::new(),
             bind: "0.0.0.0:8080".into(),
+            connect_timeout_secs: 5,
+            read_timeout_secs: 60,
+            max_body_bytes: 1 << 20,
+            api_key: None,
         }
     }
 }

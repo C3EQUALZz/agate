@@ -1,9 +1,14 @@
 use std::sync::Arc;
 
 use axum::Router;
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::routing::get;
 use sqlx::PgPool;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tracing::warn;
 
 use agate_audit::application::common::ports::AuditMetrics;
 use agate_audit::domain::merkle::LogId;
@@ -48,7 +53,7 @@ pub fn build_server(
     log: LogId,
     ruleset: PolicyRuleset,
 ) -> Server {
-    let container = build_container(pool);
+    let container = build_container(pool.clone());
     let registry = Arc::new(build_registry());
     let metrics: Arc<dyn AuditMetrics> = Arc::new(AuditMetricsRecorder);
 
@@ -57,7 +62,30 @@ pub fn build_server(
 
     let policy: Arc<dyn PolicyPort> = Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)));
     let audit: Arc<dyn AuditSink> = Arc::new(AuditLogSink::new(tx, metrics));
-    let app = build_app_with(proxy, policy, audit);
+    let app = build_app_with(proxy, policy, audit).merge(readiness_router(pool));
 
     Server { app, outbox }
+}
+
+/// A `/readyz` route that reports readiness from the database's health. Liveness
+/// (`/healthz`, served by the proxy) only says the process is up; readiness adds
+/// "can it reach its dependencies" so an orchestrator holds traffic until the
+/// transparency-log store is reachable.
+fn readiness_router(pool: PgPool) -> Router {
+    Router::new().route("/readyz", get(readyz)).with_state(pool)
+}
+
+/// 200 when a database connection can be acquired, 503 otherwise.
+async fn readyz(State(pool): State<PgPool>) -> Response {
+    match pool.acquire().await {
+        Ok(_connection) => (StatusCode::OK, "ready").into_response(),
+        Err(error) => {
+            warn!(%error, "readiness probe failed: database unavailable");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "not ready: database unavailable",
+            )
+                .into_response()
+        }
+    }
 }

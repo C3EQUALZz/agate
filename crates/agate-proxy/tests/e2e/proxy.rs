@@ -1,9 +1,13 @@
 //! Full HTTP end-to-end: a client run goes through the booted proxy to a stub
 //! agent and the inspected SSE response comes back.
 
+use std::time::Duration;
+
 use axum::http::header::CONTENT_TYPE;
 
-use crate::fixture::{spawn_proxy, stub_agent};
+use agate_proxy::setup::configs::ProxyConfig;
+
+use crate::fixture::{spawn_proxy, spawn_proxy_config, stub_agent};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proxies_and_inspects_a_run() {
@@ -41,4 +45,70 @@ async fn healthz_is_ok() {
 
     assert_eq!(response.status(), 200);
     assert_eq!(response.text().await.unwrap(), "ok");
+}
+
+/// Builds a config for `agent` with an API key and a 16-byte body limit.
+fn hardened(agent: String, api_key: Option<&str>, max_body_bytes: usize) -> ProxyConfig {
+    ProxyConfig::new(agent, "127.0.0.1:0".to_string()).with_ingress(
+        Duration::from_secs(5),
+        Duration::from_secs(60),
+        max_body_bytes,
+        api_key.map(str::to_owned),
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn api_key_gate_rejects_unauthenticated_runs_but_lets_probes_through() {
+    let agent = stub_agent().await;
+    let proxy = spawn_proxy_config(hardened(agent, Some("s3cret"), 1 << 20)).await;
+    let client = reqwest::Client::new();
+    let run_body = "{\"threadId\":\"t\",\"runId\":\"r\"}";
+
+    // No key → 401, before the run ever reaches the agent.
+    let missing = client
+        .post(format!("{proxy}/"))
+        .body(run_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 401);
+
+    // Wrong key → 401.
+    let wrong = client
+        .post(format!("{proxy}/"))
+        .header("X-API-Key", "nope")
+        .body(run_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(wrong.status(), 401);
+
+    // Correct key → forwarded (200).
+    let ok = client
+        .post(format!("{proxy}/"))
+        .header("X-API-Key", "s3cret")
+        .body(run_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200);
+
+    // The liveness probe bypasses authentication.
+    let probe = reqwest::get(format!("{proxy}/healthz")).await.unwrap();
+    assert_eq!(probe.status(), 200);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn body_size_limit_rejects_oversized_requests() {
+    let agent = stub_agent().await;
+    let proxy = spawn_proxy_config(hardened(agent, None, 16)).await;
+
+    let response = reqwest::Client::new()
+        .post(format!("{proxy}/"))
+        .body("x".repeat(1024))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 413);
 }

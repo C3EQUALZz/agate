@@ -34,6 +34,17 @@ aborts startup — fail fast on misconfiguration rather than running degraded.
 | --- | --- | --- | --- |
 | `agent_endpoint` | **yes** | — | URL of the upstream AG-UI agent that Agate forwards inspected traffic to. |
 | `bind` | no | `0.0.0.0:8080` | Address/port Agate listens on for incoming AG-UI traffic. |
+| `connect_timeout_secs` | no | `5` | Fail-fast connect timeout to the upstream agent. |
+| `read_timeout_secs` | no | `60` | Idle timeout between upstream SSE chunks. **Not** an overall deadline — a healthy stream runs on. |
+| `max_body_bytes` | no | `1048576` | Maximum accepted request body size (1 MiB). Oversized requests get `413`. |
+| `api_key` | no | — | If set, required on the `X-API-Key` header (else `401`). Blank/absent leaves the proxy open. Prefer `AGATE__PROXY__API_KEY` for the secret. |
+
+!!! note "Liveness vs readiness probes"
+    `/healthz` (liveness) returns `200` whenever the process is up. `/readyz`
+    (readiness) returns `200` only when the transparency-log database is
+    reachable, else `503` — point your orchestrator's readiness probe at it so
+    traffic is held until Agate can record. Both probes bypass the API-key and
+    body-size guards.
 
 ## `[audit]`
 
@@ -104,6 +115,10 @@ A ready-to-run Prometheus + Grafana stack with a pre-built dashboard lives in
 [proxy]
 agent_endpoint = "http://agent:8000/run"
 bind = "0.0.0.0:8080"
+connect_timeout_secs = 5
+read_timeout_secs = 60
+max_body_bytes = 1048576
+# api_key = "change-me"   # prefer AGATE__PROXY__API_KEY
 
 [audit]
 # Prefer AGATE__AUDIT__DATABASE_URL for the password.

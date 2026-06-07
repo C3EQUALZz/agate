@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{Body, Bytes};
+use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use froodi::Inject;
@@ -16,18 +18,69 @@ use crate::application::common::ports::{ProxyMetrics, RunRequest, UpstreamAgentC
 use crate::application::inspection::{InspectionContext, Inspector};
 use crate::domain::inspection::{Budgets, RunId, SessionId};
 use crate::infrastructure::{ProxyMetricsRecorder, ReqwestAgentClient};
+use crate::setup::configs::ProxyConfig;
 
 /// Hop-by-hop / framing headers the proxy must not forward verbatim.
 const SKIP_HEADERS: [&str; 4] = ["host", "content-length", "connection", "transfer-encoding"];
 
-pub fn router() -> Router {
-    Router::new()
+/// The header carrying the API key when authentication is enabled.
+const API_KEY_HEADER: &str = "x-api-key";
+
+/// Build the proxy router, applying the ingress guards from `config`:
+/// a request body-size limit and (optionally) an API-key check on the proxied
+/// route. The `/healthz` liveness probe is added *after* the layers, so probes
+/// are never body-limited or required to authenticate.
+pub fn router(config: &ProxyConfig) -> Router {
+    let mut run = Router::new()
         .route("/", post(proxy_run))
-        .route("/healthz", get(healthz))
+        .layer(DefaultBodyLimit::max(config.max_body_bytes));
+
+    if let Some(key) = &config.api_key {
+        let expected: Arc<str> = Arc::from(key.as_str());
+        run = run.layer(middleware::from_fn_with_state(expected, require_api_key));
+    }
+
+    run.route("/healthz", get(healthz))
 }
 
 async fn healthz() -> &'static str {
     "ok"
+}
+
+/// Reject requests whose `X-API-Key` header is missing or does not match the
+/// configured key. The comparison is constant-time to avoid leaking the key
+/// through response timing.
+async fn require_api_key(
+    State(expected): State<Arc<str>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let provided = request
+        .headers()
+        .get(API_KEY_HEADER)
+        .and_then(|value| value.to_str().ok());
+
+    match provided {
+        Some(key) if constant_time_eq(key.as_bytes(), expected.as_bytes()) => {
+            next.run(request).await
+        }
+        _ => {
+            warn!("rejected a request with a missing or invalid API key");
+            (StatusCode::UNAUTHORIZED, "missing or invalid API key").into_response()
+        }
+    }
+}
+
+/// Length-checked, branch-free byte comparison (the length itself is not secret).
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0_u8;
+    for (left, right) in a.iter().zip(b) {
+        diff |= left ^ right;
+    }
+    diff == 0
 }
 
 /// Reverse-proxy a run: forward the client's `RunAgentInput` to the agent, then
@@ -82,4 +135,18 @@ fn forwardable_headers(headers: &HeaderMap) -> Vec<(String, String)> {
                 .map(|value| (name.as_str().to_owned(), value.to_owned()))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::constant_time_eq;
+
+    #[test]
+    fn constant_time_eq_matches_equal_keys_only() {
+        assert!(constant_time_eq(b"s3cret", b"s3cret"));
+        assert!(!constant_time_eq(b"s3cret", b"s3creT"));
+        assert!(!constant_time_eq(b"s3cret", b"s3cret-longer"));
+        assert!(!constant_time_eq(b"", b"x"));
+        assert!(constant_time_eq(b"", b""));
+    }
 }

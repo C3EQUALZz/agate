@@ -12,8 +12,9 @@ use crate::setup::ioc::{build_container, build_container_with};
 /// no-op audit): the reverse-proxy routes and the `froodi` per-request scope
 /// layer that resolves the inspector and agent client.
 pub fn build_app(config: ProxyConfig) -> Router {
+    let router = http::router(&config);
     let container = build_container(config);
-    setup_async_default(http::router(), container)
+    setup_async_default(router, container)
 }
 
 /// Assemble the HTTP application with an explicit policy and audit sink — used
@@ -23,6 +24,7 @@ pub fn build_app_with(
     policy: Arc<dyn PolicyPort>,
     audit: Arc<dyn AuditSink>,
 ) -> Router {
+    let router = http::router(&config);
     let container = build_container_with(config, policy, audit);
-    setup_async_default(http::router(), container)
+    setup_async_default(router, container)
 }

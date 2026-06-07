@@ -12,6 +12,18 @@
 agent_endpoint = "http://agent:8000/run"
 # Address the proxy listens on.
 bind = "0.0.0.0:8080"
+# --- Ingress hardening (all optional; defaults shown) ---
+# Fail-fast connect timeout to the upstream agent, in seconds.
+connect_timeout_secs = 5
+# Idle timeout between upstream response chunks, in seconds. NOT an overall
+# deadline — a healthy SSE stream runs as long as it needs to.
+read_timeout_secs = 60
+# Maximum accepted request body size, in bytes (1 MiB).
+max_body_bytes = 1048576
+# Require this key on the `X-API-Key` header. Omit or leave blank to disable
+# authentication (only sensible behind another gateway). Prefer the env override
+# for the secret: AGATE__PROXY__API_KEY=...
+# api_key = "change-me"
 
 [audit]
 # PostgreSQL URL for the transparency log (required).

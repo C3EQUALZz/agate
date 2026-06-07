@@ -34,7 +34,15 @@ pub fn build_container_with(
             scope(App) [
                 provide(instance(config)),
                 provide(|Inject(config): Inject<ProxyConfig>| {
-                    Ok(ReqwestAgentClient::new(config.agent_endpoint.clone()))
+                    let client = reqwest::Client::builder()
+                        .connect_timeout(config.connect_timeout)
+                        .read_timeout(config.read_timeout)
+                        .build()
+                        .expect("build the upstream reqwest client");
+                    Ok(ReqwestAgentClient::with_client(
+                        client,
+                        config.agent_endpoint.clone(),
+                    ))
                 }),
                 provide(|| Ok(ProxyMetricsRecorder)),
                 provide(move || Ok(Inspector::new(policy.clone(), audit.clone()))),
