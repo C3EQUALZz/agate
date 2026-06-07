@@ -55,7 +55,7 @@ flowchart TD
 | --- | --- |
 | `domain` | Чистые сущности, объекты-значения и доменные сервисы (хеширование Меркла, агрегат `TransparencyLog`, доказательства). Без I/O. |
 | `application` | Сценарии CQRS (командные/запросные обработчики) над конвейером-медиатором; конвейерные **поведения** (`TransactionBehavior`, `MetricsBehavior`); исходящие порты (`KeyStore`, `CheckpointAnchor`, `EventOutbox`, `TransactionManager`, `AuditMetrics` и шлюзы журнала по CQRS). |
-| `infrastructure` | Конкретные адаптеры: `SystemClock`, `UuidLogIdGenerator`, `PostgresLog{Command,Query}Gateway`, управление транзакциями, миграции, `Ed25519KeyStore`, `LoggingCheckpointAnchor`. |
+| `infrastructure` | Конкретные адаптеры: `SystemClock`, `UuidLogIdGenerator`, `PostgresLog{Command,Query}Gateway`, управление транзакциями, миграции, `Ed25519KeyStore`, `PostgresCheckpointAnchor`. |
 | `presentation` | HTTP-обработчики (health, версионированные маршруты) и отображение `AuditError → HTTP`. |
 | `setup` | Корень композиции: типизированная конфигурация из окружения, IoC-контейнер `froodi`, бутстрап HTTP. |
 
@@ -78,8 +78,11 @@ hex).
 Без настроенного seed запросы checkpoint падают с понятной ошибкой, а не
 подписываются эфемерным ключом, которому никакой верификатор не сможет доверять
 между перезапусками. Порт `CheckpointAnchor` — это шов для **независимого
-свидетеля** (защита от split-view / двусмысленности); адаптер по умолчанию
-логирует head для внешнего сбора.
+свидетеля** (защита от split-view / двусмысленности). Адаптер по умолчанию
+(`PostgresCheckpointAnchor`) **долговечно сохраняет** каждый подписанный tree
+head в таблицу `audit_checkpoint` — на той же request-транзакции, что и выпуск,
+поэтому checkpoint и снимок коммитятся атомарно — и логирует его; клиент
+внешнего свидетеля позже подключается за тем же портом.
 
 ## Наблюдаемость
 

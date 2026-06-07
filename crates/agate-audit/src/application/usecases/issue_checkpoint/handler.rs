@@ -47,7 +47,7 @@ impl RequestHandler<IssueCheckpoint> for IssueCheckpointHandler {
         // Sign with the requested key, then publish externally before persisting.
         let signer = self.keys.signer(&request.key).await?;
         let sth = CheckpointSigner::sign(signer.as_ref(), &head);
-        self.anchor.anchor(&sth).await?;
+        self.anchor.anchor(request.log, &sth).await?;
 
         self.gateway.save(&log).await?;
         Ok(sth)

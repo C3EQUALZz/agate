@@ -21,12 +21,10 @@ use agate_crypto::{CryptoRegistry, HashAlgo, Hasher};
 use crate::application::common::ports::TransactionManager;
 use crate::domain::merkle::{MerkleHasher, TransparencyLogFactory};
 use crate::infrastructure::persistence::log::postgres::{
-    PostgresLogCommandGateway, PostgresLogQueryGateway,
+    PostgresCheckpointAnchor, PostgresLogCommandGateway, PostgresLogQueryGateway,
 };
 use crate::infrastructure::persistence::postgres::{PgTransactionManager, TxSlot};
-use crate::infrastructure::{
-    Ed25519KeyStore, LoggingCheckpointAnchor, SystemClock, UuidLogIdGenerator,
-};
+use crate::infrastructure::{Ed25519KeyStore, SystemClock, UuidLogIdGenerator};
 
 /// Adapters and the request transaction. `pool` becomes the App-scope singleton
 /// every request-scoped gateway/transaction borrows from.
@@ -37,6 +35,7 @@ pub(crate) fn infrastructure_providers(pool: PgPool) -> RegistryWithSync {
             provide(provide_transaction_manager, finalizer = rollback_open_transaction),
             provide(provide_command_gateway),
             provide(provide_query_gateway),
+            provide(provide_checkpoint_anchor),
         ],
         extend(registry! {
             scope(App) [
@@ -46,7 +45,6 @@ pub(crate) fn infrastructure_providers(pool: PgPool) -> RegistryWithSync {
                 provide(|| Ok(TransparencyLogFactory::new(default_hasher()))),
                 provide(|| Ok(MerkleHasher::new(default_hasher()))),
                 provide(|| Ok(Ed25519KeyStore::from_env())),
-                provide(|| Ok(LoggingCheckpointAnchor)),
             ]
         }),
     }
@@ -71,6 +69,14 @@ async fn provide_command_gateway(
     Inject(factory): Inject<TransparencyLogFactory>,
 ) -> InstantiatorResult<PostgresLogCommandGateway> {
     Ok(PostgresLogCommandGateway::new(slot, (*factory).clone()))
+}
+
+/// Durable checkpoint anchor: persists signed tree heads on the shared request
+/// transaction (atomic with the checkpoint's issue).
+async fn provide_checkpoint_anchor(
+    Inject(slot): Inject<TxSlot>,
+) -> InstantiatorResult<PostgresCheckpointAnchor> {
+    Ok(PostgresCheckpointAnchor::new(slot))
 }
 
 /// Read side: queries the pool directly and rebuilds proofs with the hasher.

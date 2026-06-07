@@ -26,11 +26,11 @@ use crate::application::usecases::issue_checkpoint::IssueCheckpointHandler;
 use crate::domain::merkle::{LogId, TransparencyLogFactory};
 use crate::domain::ports::{Clock, IdGenerator};
 use crate::infrastructure::persistence::log::postgres::{
-    PostgresLogCommandGateway, PostgresLogQueryGateway,
+    PostgresCheckpointAnchor, PostgresLogCommandGateway, PostgresLogQueryGateway,
 };
 use crate::infrastructure::persistence::postgres::PgTransactionManager;
 use crate::infrastructure::{
-    AuditMetricsRecorder, Ed25519KeyStore, LoggingCheckpointAnchor, SystemClock, UuidLogIdGenerator,
+    AuditMetricsRecorder, Ed25519KeyStore, SystemClock, UuidLogIdGenerator,
 };
 
 /// The use-case handlers and the transaction behavior, all Request-scoped.
@@ -52,7 +52,7 @@ pub(crate) fn handler_providers() -> RegistryWithSync {
 async fn provide_issue_checkpoint_handler(
     Inject(gateway): Inject<PostgresLogCommandGateway>,
     Inject(keys): Inject<Ed25519KeyStore>,
-    Inject(anchor): Inject<LoggingCheckpointAnchor>,
+    Inject(anchor): Inject<PostgresCheckpointAnchor>,
     Inject(clock): Inject<SystemClock>,
 ) -> InstantiatorResult<IssueCheckpointHandler> {
     let gateway: Arc<dyn LogCommandGateway> = gateway;

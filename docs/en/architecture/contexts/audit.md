@@ -52,7 +52,7 @@ the root and breaks every later head.
 | --- | --- |
 | `domain` | Pure entities, value objects, and domain services (Merkle hashing, the `TransparencyLog` aggregate, proofs). No I/O. |
 | `application` | CQRS use cases (command/query handlers) over a mediator pipeline; pipeline **behaviors** (`TransactionBehavior`, `MetricsBehavior`); outbound ports (`KeyStore`, `CheckpointAnchor`, `EventOutbox`, `TransactionManager`, `AuditMetrics`, and the CQRS log gateways). |
-| `infrastructure` | Concrete adapters: `SystemClock`, `UuidLogIdGenerator`, `PostgresLog{Command,Query}Gateway`, transaction management, migrations, `Ed25519KeyStore`, `LoggingCheckpointAnchor`. |
+| `infrastructure` | Concrete adapters: `SystemClock`, `UuidLogIdGenerator`, `PostgresLog{Command,Query}Gateway`, transaction management, migrations, `Ed25519KeyStore`, `PostgresCheckpointAnchor`. |
 | `presentation` | HTTP handlers (health, versioned routes) and `AuditError → HTTP` mapping. |
 | `setup` | Composition root: typed config from env, the `froodi` IoC container, HTTP bootstrap. |
 
@@ -74,8 +74,11 @@ The signing key is loaded from the environment — a 32-byte seed
 `checkpoint-ed25519`). With no seed configured, checkpoint requests fail with a
 clear error instead of signing under an ephemeral key no verifier could trust
 across restarts. The `CheckpointAnchor` port is the seam for an **independent
-witness** (the defense against split-view / equivocation); the default adapter
-logs the head for external collection.
+witness** (the defense against split-view / equivocation). The default adapter
+(`PostgresCheckpointAnchor`) **persists** each signed tree head durably to the
+`audit_checkpoint` table — on the same request transaction as the issue, so the
+checkpoint and the snapshot commit atomically — and logs it; an external witness
+client can later be layered behind the same port.
 
 ## Observability
 
