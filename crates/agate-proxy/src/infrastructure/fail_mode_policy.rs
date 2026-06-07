@@ -74,12 +74,13 @@ mod tests {
     use super::*;
     use crate::domain::inspection::{LifecyclePhase, RunId, SessionId};
 
-    /// A policy that never answers within a test's lifetime.
+    /// A policy that never answers within a test's lifetime (far longer than any
+    /// test timeout, so the timeout always fires first and drops this future).
     struct HangingPolicy;
     #[async_trait]
     impl PolicyPort for HangingPolicy {
         async fn decide(&self, _: &InspectionContext, _: &AgentEvent) -> Verdict<AgentEvent> {
-            tokio::time::sleep(Duration::from_secs(3600)).await;
+            tokio::time::sleep(Duration::from_secs(30)).await;
             Verdict::Allow
         }
     }
