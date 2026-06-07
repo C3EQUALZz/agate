@@ -41,6 +41,17 @@ impl AppConfig {
                     .into(),
             );
         }
+        // Zero is a footgun, not a sensible "disable": a 0-byte body limit
+        // rejects every request, and a 0s timeout fails the connection at once.
+        if self.proxy.max_body_bytes == 0 {
+            return Err("proxy.max_body_bytes must be greater than 0".into());
+        }
+        if self.proxy.connect_timeout_secs == 0 || self.proxy.read_timeout_secs == 0 {
+            return Err(
+                "proxy.connect_timeout_secs and proxy.read_timeout_secs must be greater than 0"
+                    .into(),
+            );
+        }
         Ok(())
     }
 
@@ -216,6 +227,25 @@ mod tests {
             ..AppConfig::default()
         };
         assert!(config.proxy_config().api_key.is_none());
+    }
+
+    #[test]
+    fn validate_rejects_zero_ingress_knobs() {
+        let mut config = AppConfig::default();
+        config.proxy.agent_endpoint = "http://agent/run".to_owned();
+        config.audit.database_url = "postgres://agate@db/agate".to_owned();
+        assert!(config.validate().is_ok(), "the sane defaults validate");
+
+        let mut zero_body = config.clone();
+        zero_body.proxy.max_body_bytes = 0;
+        assert!(
+            zero_body.validate().is_err(),
+            "a 0-byte body limit is rejected"
+        );
+
+        let mut zero_timeout = config.clone();
+        zero_timeout.proxy.connect_timeout_secs = 0;
+        assert!(zero_timeout.validate().is_err(), "a 0s timeout is rejected");
     }
 
     #[test]
