@@ -184,6 +184,41 @@ mod tests {
     }
 
     #[test]
+    fn proxy_config_maps_the_ingress_settings() {
+        let config = AppConfig {
+            proxy: ProxySection {
+                agent_endpoint: "http://agent/run".to_owned(),
+                bind: "0.0.0.0:9000".to_owned(),
+                connect_timeout_secs: 3,
+                read_timeout_secs: 120,
+                max_body_bytes: 2048,
+                api_key: Some("  k  ".to_owned()),
+            },
+            ..AppConfig::default()
+        };
+
+        let proxy = config.proxy_config();
+        assert_eq!(proxy.agent_endpoint, "http://agent/run");
+        assert_eq!(proxy.bind_addr, "0.0.0.0:9000");
+        assert_eq!(proxy.connect_timeout, std::time::Duration::from_secs(3));
+        assert_eq!(proxy.read_timeout, std::time::Duration::from_secs(120));
+        assert_eq!(proxy.max_body_bytes, 2048);
+        assert_eq!(proxy.api_key.as_deref(), Some("k")); // trimmed
+    }
+
+    #[test]
+    fn proxy_config_treats_a_blank_api_key_as_disabled() {
+        let config = AppConfig {
+            proxy: ProxySection {
+                api_key: Some("   ".to_owned()),
+                ..ProxySection::default()
+            },
+            ..AppConfig::default()
+        };
+        assert!(config.proxy_config().api_key.is_none());
+    }
+
+    #[test]
     fn allowlist_and_denylist_modes_build() {
         let allow = with_policy(ToolMode::Allowlist, &["search"], &[]);
         assert!(matches!(

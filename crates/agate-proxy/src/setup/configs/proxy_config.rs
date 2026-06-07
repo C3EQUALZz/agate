@@ -6,7 +6,7 @@ pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Idle timeout between chunks of the upstream SSE response. This is *not* an
 /// overall request deadline — a healthy stream can run indefinitely — only a
 /// guard against a stalled upstream.
-pub const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(60);
+pub const DEFAULT_READ_TIMEOUT: Duration = Duration::from_mins(1);
 /// Maximum accepted request body size (1 MiB) — a `RunAgentInput` is small.
 pub const DEFAULT_MAX_BODY_BYTES: usize = 1 << 20;
 

@@ -51,7 +51,7 @@ async fn healthz_is_ok() {
 fn hardened(agent: String, api_key: Option<&str>, max_body_bytes: usize) -> ProxyConfig {
     ProxyConfig::new(agent, "127.0.0.1:0".to_string()).with_ingress(
         Duration::from_secs(5),
-        Duration::from_secs(60),
+        Duration::from_mins(1),
         max_body_bytes,
         api_key.map(str::to_owned),
     )
