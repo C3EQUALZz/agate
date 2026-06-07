@@ -124,4 +124,18 @@ mod tests {
         let result = connect_pool("postgres://agate@127.0.0.1:1/agate", &config).await;
         assert!(result.is_err());
     }
+
+    // With a retry budget, the backoff branch runs (sleep + retry) before the
+    // final give-up — exercises the loop, not just the immediate-failure path.
+    #[tokio::test]
+    async fn connect_pool_retries_then_gives_up() {
+        let config = PoolConfig {
+            max_connections: 1,
+            acquire_timeout: Duration::from_millis(50),
+            connect_max_retries: 2,
+            connect_backoff: Duration::from_millis(1),
+        };
+        let result = connect_pool("postgres://agate@127.0.0.1:1/agate", &config).await;
+        assert!(result.is_err());
+    }
 }
