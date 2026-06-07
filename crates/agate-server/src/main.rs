@@ -56,7 +56,14 @@ async fn main() {
 
     let log = resolve_log(&pool, pinned_log_id).await;
     info!(log = %log.0, "recording to transparency log");
-    let server = build_server(proxy, pool, log, ruleset);
+    let server = build_server(
+        proxy,
+        pool,
+        log,
+        ruleset,
+        config.policy_fail_mode(),
+        config.policy_decision_timeout(),
+    );
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await

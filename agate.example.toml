@@ -40,6 +40,11 @@ names = ["search", "fetch"]
 [policy]
 # Literal markers redacted from emitted assistant text (case-insensitive).
 redact = ["sk-", "AKIA"]
+# On a policy-decision timeout: "open" (forward) or "closed" (block). Defaults to
+# the secure "closed".
+fail_mode = "closed"
+# Deadline for a single policy decision, in milliseconds (must be > 0).
+decision_timeout_ms = 5000
 
 [observability.logging]
 # Set false to silence logs entirely.
