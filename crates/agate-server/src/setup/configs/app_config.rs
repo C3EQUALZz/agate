@@ -54,6 +54,9 @@ impl AppConfig {
                     .into(),
             );
         }
+        if self.proxy.max_concurrent_requests == 0 {
+            return Err("proxy.max_concurrent_requests must be greater than 0".into());
+        }
         if self.policy.decision_timeout_ms == 0 {
             return Err("policy.decision_timeout_ms must be greater than 0".into());
         }
@@ -72,17 +75,19 @@ impl AppConfig {
 
     #[must_use]
     pub fn proxy_config(&self) -> ProxyConfig {
-        ProxyConfig::new(self.proxy.agent_endpoint.clone(), self.proxy.bind.clone()).with_ingress(
-            Duration::from_secs(self.proxy.connect_timeout_secs),
-            Duration::from_secs(self.proxy.read_timeout_secs),
-            self.proxy.max_body_bytes,
-            // Treat an empty key as "no auth", so a blank TOML value disables it.
-            self.proxy
-                .api_key
-                .as_ref()
-                .map(|key| key.trim().to_owned())
-                .filter(|key| !key.is_empty()),
-        )
+        ProxyConfig::new(self.proxy.agent_endpoint.clone(), self.proxy.bind.clone())
+            .with_ingress(
+                Duration::from_secs(self.proxy.connect_timeout_secs),
+                Duration::from_secs(self.proxy.read_timeout_secs),
+                self.proxy.max_body_bytes,
+                // Treat an empty key as "no auth", so a blank TOML value disables it.
+                self.proxy
+                    .api_key
+                    .as_ref()
+                    .map(|key| key.trim().to_owned())
+                    .filter(|key| !key.is_empty()),
+            )
+            .with_concurrency_limit(self.proxy.max_concurrent_requests)
     }
 
     #[must_use]
@@ -146,6 +151,8 @@ pub struct ProxySection {
     /// API key required on the `X-API-Key` header. Absent or blank disables
     /// authentication (open proxy) — set it, or front the proxy with another guard.
     pub api_key: Option<String>,
+    /// Maximum concurrently in-flight proxied runs; excess is shed with `503`.
+    pub max_concurrent_requests: usize,
 }
 
 impl Default for ProxySection {
@@ -157,6 +164,7 @@ impl Default for ProxySection {
             read_timeout_secs: 60,
             max_body_bytes: 1 << 20,
             api_key: None,
+            max_concurrent_requests: 256,
         }
     }
 }
@@ -287,6 +295,7 @@ mod tests {
                 read_timeout_secs: 120,
                 max_body_bytes: 2048,
                 api_key: Some("  k  ".to_owned()),
+                max_concurrent_requests: 64,
             },
             ..AppConfig::default()
         };
@@ -298,6 +307,7 @@ mod tests {
         assert_eq!(proxy.read_timeout, std::time::Duration::from_mins(2));
         assert_eq!(proxy.max_body_bytes, 2048);
         assert_eq!(proxy.api_key.as_deref(), Some("k")); // trimmed
+        assert_eq!(proxy.max_concurrent_requests, 64);
     }
 
     #[test]

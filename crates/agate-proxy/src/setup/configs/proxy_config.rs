@@ -9,6 +9,10 @@ pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 pub const DEFAULT_READ_TIMEOUT: Duration = Duration::from_mins(1);
 /// Maximum accepted request body size (1 MiB) — a `RunAgentInput` is small.
 pub const DEFAULT_MAX_BODY_BYTES: usize = 1 << 20;
+/// Maximum concurrently in-flight proxied runs. Each holds an upstream
+/// connection for its full stream, so this bounds memory/connection pressure;
+/// requests over the cap are shed with `503` rather than queued unboundedly.
+pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 256;
 
 /// Proxy configuration.
 #[derive(Clone, Debug)]
@@ -26,6 +30,8 @@ pub struct ProxyConfig {
     /// Optional API key required on the `X-API-Key` header. `None` disables
     /// authentication (the proxy is open) — only sensible behind another guard.
     pub api_key: Option<String>,
+    /// Maximum concurrently in-flight proxied runs; excess is shed with `503`.
+    pub max_concurrent_requests: usize,
 }
 
 impl ProxyConfig {
@@ -39,7 +45,15 @@ impl ProxyConfig {
             read_timeout: DEFAULT_READ_TIMEOUT,
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
             api_key: None,
+            max_concurrent_requests: DEFAULT_MAX_CONCURRENT_REQUESTS,
         }
+    }
+
+    /// Override the maximum number of concurrently in-flight proxied runs.
+    #[must_use]
+    pub fn with_concurrency_limit(mut self, max_concurrent_requests: usize) -> Self {
+        self.max_concurrent_requests = max_concurrent_requests;
+        self
     }
 
     /// Override the ingress-hardening knobs (timeouts, body limit, API key),
