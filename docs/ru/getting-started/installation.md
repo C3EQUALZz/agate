@@ -24,6 +24,10 @@ docker pull ghcr.io/c3equalzz/agate:latest
 Доступные теги: `latest` (ветка по умолчанию), `vX.Y.Z` / `vX.Y` (теги релизов) и
 `sha-<commit>` (каждая сборка — для закрепления точного коммита).
 
+Публикуемые образы **мультиархитектурные** (`linux/amd64` и `linux/arm64`),
+поэтому один и тот же тег запускается нативно на x86-64 и ARM64 (Apple Silicon,
+AWS Graviton, …) — Docker сам подтягивает нужный вариант.
+
 !!! note "Сборка из исходников"
     Если предпочитаете собрать локально:
     `docker build -t agate -f crates/agate-server/Dockerfile .`
