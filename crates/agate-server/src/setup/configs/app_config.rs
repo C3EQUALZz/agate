@@ -4,6 +4,7 @@ use std::time::Duration;
 use agate_audit::setup::configs::PostgresConfig;
 use agate_policy::domain::common::errors::DomainError;
 use agate_policy::domain::decision::{PolicyRuleset, SecretPattern, ToolName, ToolPolicy};
+use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +53,9 @@ impl AppConfig {
                     .into(),
             );
         }
+        if self.policy.decision_timeout_ms == 0 {
+            return Err("policy.decision_timeout_ms must be greater than 0".into());
+        }
         Ok(())
     }
 
@@ -90,6 +94,21 @@ impl AppConfig {
             .map(|pattern| SecretPattern::new(pattern.clone()))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(PolicyRuleset::new(tools, secrets))
+    }
+
+    /// The proxy's fail mode for a policy-decision timeout.
+    #[must_use]
+    pub fn policy_fail_mode(&self) -> FailMode {
+        match self.policy.fail_mode {
+            PolicyFailMode::Open => FailMode::Open,
+            PolicyFailMode::Closed => FailMode::Closed,
+        }
+    }
+
+    /// The deadline for a single policy decision.
+    #[must_use]
+    pub fn policy_decision_timeout(&self) -> Duration {
+        Duration::from_millis(self.policy.decision_timeout_ms)
     }
 }
 
@@ -135,12 +154,39 @@ pub struct AuditSection {
 }
 
 /// `[policy]` — content/authorization rules.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PolicySection {
     pub tools: ToolsSection,
     /// Literal markers redacted from emitted text.
     pub redact: Vec<String>,
+    /// What to do when a policy decision cannot be made in time: `open`
+    /// (forward) or `closed` (block). Defaults to the secure `closed`.
+    pub fail_mode: PolicyFailMode,
+    /// Deadline for a single policy decision, in milliseconds.
+    pub decision_timeout_ms: u64,
+}
+
+impl Default for PolicySection {
+    fn default() -> Self {
+        Self {
+            tools: ToolsSection::default(),
+            redact: Vec::new(),
+            fail_mode: PolicyFailMode::default(),
+            decision_timeout_ms: 5000,
+        }
+    }
+}
+
+/// Behavior when a policy decision times out — the fail-open / fail-closed knob.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PolicyFailMode {
+    /// Forward the event (availability over safety).
+    Open,
+    /// Block the run (safety over availability) — the secure default.
+    #[default]
+    Closed,
 }
 
 /// `[policy.tools]` — tool-call authorization.
@@ -173,7 +219,7 @@ fn tool_set(names: &[String]) -> Result<BTreeSet<ToolName>, DomainError> {
 mod tests {
     use agate_policy::domain::decision::ToolPolicy;
 
-    use super::{AppConfig, PolicySection, ProxySection, ToolMode, ToolsSection};
+    use super::{AppConfig, FailMode, PolicySection, ProxySection, ToolMode, ToolsSection};
 
     fn with_policy(mode: ToolMode, names: &[&str], redact: &[&str]) -> AppConfig {
         AppConfig {
@@ -183,6 +229,7 @@ mod tests {
                     names: names.iter().map(|s| (*s).to_owned()).collect(),
                 },
                 redact: redact.iter().map(|s| (*s).to_owned()).collect(),
+                ..PolicySection::default()
             },
             ..AppConfig::default()
         }
@@ -246,6 +293,23 @@ mod tests {
         let mut zero_timeout = config.clone();
         zero_timeout.proxy.connect_timeout_secs = 0;
         assert!(zero_timeout.validate().is_err(), "a 0s timeout is rejected");
+
+        let mut zero_decision = config.clone();
+        zero_decision.policy.decision_timeout_ms = 0;
+        assert!(
+            zero_decision.validate().is_err(),
+            "a 0ms policy decision timeout is rejected"
+        );
+    }
+
+    #[test]
+    fn policy_fail_mode_defaults_to_closed() {
+        let config = AppConfig::default();
+        assert_eq!(config.policy_fail_mode(), FailMode::Closed);
+        assert_eq!(
+            config.policy_decision_timeout(),
+            std::time::Duration::from_secs(5)
+        );
     }
 
     #[test]

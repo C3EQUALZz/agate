@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::State;
@@ -17,6 +18,7 @@ use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::PolicyRuleset;
 use agate_proxy::application::common::ports::{AuditSink, PolicyPort};
+use agate_proxy::infrastructure::{FailMode, FailModePolicy};
 use agate_proxy::setup::bootstrap::build_app_with;
 use agate_proxy::setup::configs::ProxyConfig;
 
@@ -52,6 +54,8 @@ pub fn build_server(
     pool: PgPool,
     log: LogId,
     ruleset: PolicyRuleset,
+    fail_mode: FailMode,
+    decision_timeout: Duration,
 ) -> Server {
     let container = build_container(pool.clone());
     let registry = Arc::new(build_registry());
@@ -60,7 +64,15 @@ pub fn build_server(
     let (tx, rx) = mpsc::channel::<Vec<u8>>(OUTBOX_CAPACITY);
     let outbox = tokio::spawn(AuditOutbox::new(container, registry, log, metrics.clone()).run(rx));
 
-    let policy: Arc<dyn PolicyPort> = Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)));
+    // The real policy, wrapped so a slow/hung decision falls back to the
+    // configured fail mode (fail-closed by default) instead of hanging the run.
+    let real_policy: Arc<dyn PolicyPort> =
+        Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)));
+    let policy: Arc<dyn PolicyPort> = Arc::new(FailModePolicy::new(
+        real_policy,
+        fail_mode,
+        decision_timeout,
+    ));
     let audit: Arc<dyn AuditSink> = Arc::new(AuditLogSink::new(tx, metrics));
     let app = build_app_with(proxy, policy, audit).merge(readiness_router(pool));
 

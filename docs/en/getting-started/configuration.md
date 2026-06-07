@@ -66,6 +66,8 @@ nothing is redacted**.
 | `[policy.tools].mode` | `allow-all` \| `allowlist` \| `denylist` | How tool calls are authorized. Default `allow-all`. |
 | `[policy.tools].names` | array of tool names | Tools governed by `mode` (ignored when `allow-all`). |
 | `[policy].redact` | array of literal markers | Substrings masked (case-insensitive) in emitted text before it reaches the client. |
+| `[policy].fail_mode` | `open` \| `closed` | What to do if a policy decision times out: forward (`open`) or block (`closed`). Default `closed` (safety over availability). |
+| `[policy].decision_timeout_ms` | integer (ms) | Deadline for one policy decision. Default `5000`; must be > 0. |
 
 !!! warning "Invalid policy aborts startup"
     A blank or invalid tool name, or an empty redaction pattern, **aborts
@@ -130,6 +132,8 @@ names = ["search", "fetch"]
 
 [policy]
 redact = ["sk-", "AKIA"]
+fail_mode = "closed"
+decision_timeout_ms = 5000
 
 [observability.logging]
 enabled = true

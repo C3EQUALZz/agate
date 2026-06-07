@@ -27,6 +27,7 @@ use agate_audit::domain::merkle::{LeafIndex, LogId};
 use agate_audit::infrastructure::persistence::postgres::run_migrations;
 use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_policy::domain::decision::PolicyRuleset;
+use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
 use agate_server::setup::bootstrap::{Server, build_server};
 use froodi::async_impl::Container;
@@ -71,7 +72,14 @@ pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer
     let proxy = ProxyConfig::new(agent_endpoint, "127.0.0.1:0".to_string());
     // The outbox task is detached: it lives as long as the served app (and the
     // audit sink inside it) keeps the channel open.
-    let Server { app, .. } = build_server(proxy, pool.clone(), log, ruleset);
+    let Server { app, .. } = build_server(
+        proxy,
+        pool.clone(),
+        log,
+        ruleset,
+        FailMode::Closed,
+        Duration::from_secs(5),
+    );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
