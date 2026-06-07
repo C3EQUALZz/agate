@@ -28,7 +28,8 @@ async fn main() {
     config
         .validate()
         .unwrap_or_else(|error| panic!("invalid configuration: {error}"));
-    init_logging(&config.observability.logging);
+    let tracer_provider =
+        init_logging(&config.observability.logging, &config.observability.tracing);
     if init_metrics(&config.observability.metrics) {
         info!(bind = %config.observability.metrics.bind, "Prometheus metrics endpoint serving /metrics");
     }
@@ -80,6 +81,13 @@ async fn main() {
     // drain the queued records before the process exits.
     info!("draining the audit outbox");
     server.outbox.await.expect("audit outbox task");
+
+    // Flush any spans still buffered in the OTLP batch exporter before exit.
+    if let Some(provider) = tracer_provider
+        && let Err(error) = provider.shutdown()
+    {
+        tracing::warn!(%error, "failed to flush the OTLP tracer on shutdown");
+    }
     info!("shutdown complete");
 }
 

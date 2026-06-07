@@ -11,5 +11,5 @@ pub mod observability;
 pub use app_config::{AppConfig, ToolMode};
 pub use loader::load;
 pub use observability::{
-    LogFormat, LoggingConfig, MetricsConfig, MetricsExporter, ObservabilityConfig,
+    LogFormat, LoggingConfig, MetricsConfig, MetricsExporter, ObservabilityConfig, TracingConfig,
 };

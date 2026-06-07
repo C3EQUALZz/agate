@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use tracing::instrument;
 
 use agate_crypto::{Digest, HashAlgo};
 
@@ -28,6 +29,7 @@ impl PostgresLogCommandGateway {
 
 #[async_trait]
 impl LogCommandGateway for PostgresLogCommandGateway {
+    #[instrument(name = "db.log.load", skip_all, fields(log = %id.0))]
     async fn load(&self, id: LogId) -> Result<Option<TransparencyLog>, AuditError> {
         let mut slot = self.transaction.lock().await;
         let connection = slot
@@ -69,6 +71,7 @@ impl LogCommandGateway for PostgresLogCommandGateway {
         Ok(Some(self.factory.reconstitute(id, timestamps, leaves)))
     }
 
+    #[instrument(name = "db.log.save", skip_all, fields(log = %log.id().0))]
     async fn save(&self, log: &TransparencyLog) -> Result<(), AuditError> {
         let id = log.id().0;
 

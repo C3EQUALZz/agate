@@ -1,6 +1,8 @@
 use froodi::async_impl::Container;
 
-use crate::application::common::behaviors::{MetricsBehavior, TransactionBehavior};
+use crate::application::common::behaviors::{
+    MetricsBehavior, TracingBehavior, TransactionBehavior,
+};
 use crate::application::common::messaging::Registry;
 use crate::application::usecases::append_record::{AppendRecord, AppendRecordHandler};
 use crate::application::usecases::create_log::{CreateLog, CreateLogHandler};
@@ -22,11 +24,19 @@ pub fn build_registry() -> Registry<Container> {
     registry.handler::<GetInclusionProof, GetInclusionProofHandler>();
     registry.handler::<GetConsistencyProof, GetConsistencyProofHandler>();
     registry.handler::<IssueCheckpoint, IssueCheckpointHandler>();
+    // TracingBehavior is registered first on every request type, so its
+    // `audit.request` span is the outermost link — it encloses the metrics and
+    // transaction behaviors and any spans the handler/gateways open inside.
+    registry.behavior::<CreateLog, TracingBehavior>();
+    registry.behavior::<AppendRecord, TracingBehavior>();
+    registry.behavior::<GetInclusionProof, TracingBehavior>();
+    registry.behavior::<GetConsistencyProof, TracingBehavior>();
+    registry.behavior::<IssueCheckpoint, TracingBehavior>();
     registry.behavior::<CreateLog, TransactionBehavior>();
     registry.behavior::<IssueCheckpoint, TransactionBehavior>();
-    // MetricsBehavior is registered first so it is the outermost link on
-    // AppendRecord: it records the outcome after TransactionBehavior has
-    // committed or rolled back.
+    // MetricsBehavior is registered before TransactionBehavior so it is the
+    // outer of the two on AppendRecord: it records the outcome after the
+    // transaction behavior has committed or rolled back.
     registry.behavior::<AppendRecord, MetricsBehavior>();
     registry.behavior::<AppendRecord, TransactionBehavior>();
     registry

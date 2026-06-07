@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use sqlx::PgPool;
+use tracing::instrument;
 
 use agate_crypto::Digest;
 
@@ -51,6 +52,7 @@ impl PostgresLogQueryGateway {
 
 #[async_trait]
 impl LogQueryGateway for PostgresLogQueryGateway {
+    #[instrument(name = "db.proof.inclusion", skip_all, fields(log = %id.0, index = index.value()))]
     async fn inclusion_proof(
         &self,
         id: LogId,
@@ -74,6 +76,7 @@ impl LogQueryGateway for PostgresLogQueryGateway {
         })
     }
 
+    #[instrument(name = "db.proof.consistency", skip_all, fields(log = %id.0, first = first.value()))]
     async fn consistency_proof(
         &self,
         id: LogId,
