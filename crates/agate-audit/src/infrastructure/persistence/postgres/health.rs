@@ -13,6 +13,7 @@ pub struct PgHealthCheck {
 }
 
 impl PgHealthCheck {
+    /// Probe the store through `pool`; healthy when a connection can be acquired.
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
