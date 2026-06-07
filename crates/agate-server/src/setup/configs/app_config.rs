@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use agate_audit::infrastructure::persistence::postgres::PoolConfig;
 use agate_audit::setup::configs::PostgresConfig;
 use agate_policy::domain::common::errors::DomainError;
 use agate_policy::domain::decision::{PolicyRuleset, SecretPattern, ToolName, ToolPolicy};
@@ -56,6 +57,16 @@ impl AppConfig {
         if self.policy.decision_timeout_ms == 0 {
             return Err("policy.decision_timeout_ms must be greater than 0".into());
         }
+        if self.audit.max_connections == 0 {
+            return Err("audit.max_connections must be greater than 0".into());
+        }
+        if self.audit.acquire_timeout_secs == 0 {
+            return Err("audit.acquire_timeout_secs must be greater than 0".into());
+        }
+        // A zero backoff would busy-loop the connect retries; require a real pause.
+        if self.audit.connect_backoff_secs == 0 {
+            return Err("audit.connect_backoff_secs must be greater than 0".into());
+        }
         Ok(())
     }
 
@@ -76,7 +87,12 @@ impl AppConfig {
 
     #[must_use]
     pub fn postgres_config(&self) -> PostgresConfig {
-        PostgresConfig::new(self.audit.database_url.clone())
+        PostgresConfig::new(self.audit.database_url.clone()).with_pool(PoolConfig {
+            max_connections: self.audit.max_connections,
+            acquire_timeout: Duration::from_secs(self.audit.acquire_timeout_secs),
+            connect_max_retries: self.audit.connect_max_retries,
+            connect_backoff: Duration::from_secs(self.audit.connect_backoff_secs),
+        })
     }
 
     /// Build the policy ruleset, failing on any invalid tool name or pattern.
@@ -146,11 +162,31 @@ impl Default for ProxySection {
 }
 
 /// `[audit]` — the transparency-log store.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AuditSection {
     /// PostgreSQL connection URL (required; prefer the env override for secrets).
     pub database_url: String,
+    /// Maximum pooled database connections.
+    pub max_connections: u32,
+    /// How long to wait for a free pooled connection before erroring, in seconds.
+    pub acquire_timeout_secs: u64,
+    /// Initial-connect retries before giving up (`0` = try once, no retry).
+    pub connect_max_retries: u32,
+    /// Base backoff between connect attempts, in seconds (doubled each retry).
+    pub connect_backoff_secs: u64,
+}
+
+impl Default for AuditSection {
+    fn default() -> Self {
+        Self {
+            database_url: String::new(),
+            max_connections: 10,
+            acquire_timeout_secs: 30,
+            connect_max_retries: 10,
+            connect_backoff_secs: 1,
+        }
+    }
 }
 
 /// `[policy]` — content/authorization rules.

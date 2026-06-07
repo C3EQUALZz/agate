@@ -1,9 +1,7 @@
 //! Runs the audit HTTP service. Configure with `DATABASE_URL` (required) and
 //! `BIND_ADDR` (default `0.0.0.0:8080`).
 
-use sqlx::postgres::PgPoolOptions;
-
-use agate_audit::infrastructure::persistence::postgres::run_migrations;
+use agate_audit::infrastructure::persistence::postgres::{connect_pool, run_migrations};
 use agate_audit::setup::bootstrap::build_app;
 use agate_audit::setup::configs::AppConfig;
 
@@ -11,8 +9,7 @@ use agate_audit::setup::configs::AppConfig;
 async fn main() {
     let config = AppConfig::from_env();
 
-    let pool = PgPoolOptions::new()
-        .connect(config.postgres.url())
+    let pool = connect_pool(config.postgres.url(), config.postgres.pool())
         .await
         .expect("connect to Postgres");
     run_migrations(&pool).await.expect("run migrations");

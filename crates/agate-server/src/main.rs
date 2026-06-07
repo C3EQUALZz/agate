@@ -9,13 +9,12 @@
 use std::sync::Arc;
 
 use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 use agate_audit::application::common::messaging::Dispatcher;
 use agate_audit::application::usecases::create_log::CreateLog;
 use agate_audit::domain::merkle::LogId;
-use agate_audit::infrastructure::persistence::postgres::run_migrations;
+use agate_audit::infrastructure::persistence::postgres::{connect_pool, run_migrations};
 use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_server::setup::bootstrap::build_server;
 use agate_server::setup::configs::load;
@@ -48,8 +47,7 @@ async fn main() {
 
     info!("configuration loaded; starting agate-server");
 
-    let pool = PgPoolOptions::new()
-        .connect(postgres.url())
+    let pool = connect_pool(postgres.url(), postgres.pool())
         .await
         .expect("connect to Postgres");
     run_migrations(&pool).await.expect("run migrations");
