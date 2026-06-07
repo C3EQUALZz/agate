@@ -72,6 +72,27 @@ on the ports; the concrete policy and audit adapters are injected at the
 | `presentation` | HTTP/SSE handlers (axum/hyper), TLS termination, request/response wiring. |
 | `setup` | Composition root: `ProxyConfig` (`AGENT_ENDPOINT`, `BIND_ADDR`), assembly. |
 
+## Request-leg inspection
+
+Before a run is forwarded, the proxy inspects the incoming `RunAgentInput`
+(preventive — the agent never runs on rejected input):
+
+- **Validation** — a body that is not valid `RunAgentInput` JSON is rejected with
+  `400`; its size is already bounded (see
+  [Configuration](../../getting-started/configuration.md)).
+- **Tool authorization** — each tool the client *offers* is judged by the same
+  `PolicyPort` as the response leg (projected onto an `AgentEvent`); an offered
+  tool the policy denies rejects the run with `403`.
+- **Secret markers** — a user message carrying a configured redaction marker is
+  treated as a policy hit and rejected with `403`.
+- **SSRF guard** — user message text is scanned for URLs; a non-`http(s)` scheme
+  or a loopback / private / link-local host (covering the cloud metadata
+  address) rejects the run with `403`. Best-effort and literal-host only — it
+  does not resolve DNS, so DNS-rebinding is out of scope.
+
+Each rejection is recorded to the audit sink, so request-leg denials sit in the
+transparency log alongside response-leg decisions.
+
 ## Observability
 
 Data-plane metrics go **through a `ProxyMetrics` port**, never `counter!` from

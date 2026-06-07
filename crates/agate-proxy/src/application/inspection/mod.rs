@@ -4,7 +4,9 @@
 pub mod action;
 pub mod context;
 pub mod inspector;
+pub mod request;
 
 pub use action::InspectionAction;
 pub use context::InspectionContext;
 pub use inspector::Inspector;
+pub use request::{RequestContent, RequestDecision};
