@@ -20,6 +20,9 @@ connect_timeout_secs = 5
 read_timeout_secs = 60
 # Maximum accepted request body size, in bytes (1 MiB).
 max_body_bytes = 1048576
+# Maximum concurrently in-flight proxied runs. Each holds an upstream connection
+# for its full stream; requests over the cap are shed with 503 (not queued).
+max_concurrent_requests = 256
 # Require this key on the `X-API-Key` header. Omit or leave blank to disable
 # authentication (only sensible behind another gateway). Prefer the env override
 # for the secret: AGATE__PROXY__API_KEY=...

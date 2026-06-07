@@ -37,6 +37,7 @@ aborts startup — fail fast on misconfiguration rather than running degraded.
 | `connect_timeout_secs` | no | `5` | Fail-fast connect timeout to the upstream agent. |
 | `read_timeout_secs` | no | `60` | Idle timeout between upstream SSE chunks. **Not** an overall deadline — a healthy stream runs on. |
 | `max_body_bytes` | no | `1048576` | Maximum accepted request body size (1 MiB). Oversized requests get `413`. |
+| `max_concurrent_requests` | no | `256` | Maximum concurrently in-flight proxied runs. Each holds an upstream connection for its full stream; requests over the cap are shed with `503` (not queued), so a flood cannot exhaust memory/connections. |
 | `api_key` | no | — | If set, required on the `X-API-Key` header (else `401`). Blank/absent leaves the proxy open. Prefer `AGATE__PROXY__API_KEY` for the secret. |
 
 !!! note "Liveness vs readiness probes"
@@ -149,6 +150,7 @@ bind = "0.0.0.0:8080"
 connect_timeout_secs = 5
 read_timeout_secs = 60
 max_body_bytes = 1048576
+max_concurrent_requests = 256
 # api_key = "change-me"   # prefer AGATE__PROXY__API_KEY
 
 [audit]
