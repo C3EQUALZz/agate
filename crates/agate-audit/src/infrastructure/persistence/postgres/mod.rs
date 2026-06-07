@@ -12,8 +12,10 @@ use tokio::sync::Mutex;
 
 use crate::application::errors::AuditError;
 
+pub mod health;
 pub mod transaction_manager;
 
+pub use health::PgHealthCheck;
 pub use transaction_manager::PgTransactionManager;
 
 /// The slot a request scope's transaction lives in: `None` until `begin`,
