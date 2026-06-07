@@ -133,6 +133,8 @@ names = ["search", "fetch"]
 
 [policy]
 redact = ["sk-", "AKIA"]
+fail_mode = "closed"
+decision_timeout_ms = 5000
 
 [observability.logging]
 enabled = true

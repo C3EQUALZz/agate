@@ -108,7 +108,8 @@ installs a Prometheus recorder).
 A real policy may consult external services and could hang. **`FailModePolicy`**
 decorates the `PolicyPort`, bounding each decision by `[policy].decision_timeout_ms`
 and applying the configured mode when it is exceeded: **fail-open** forwards the
-event, **fail-closed** terminates the run. The default is **closed** (safety over
-availability). The decorator wraps any policy by composition, so policy
+event, **fail-closed** stops it. The default is **closed** (safety over
+availability). On the response leg a fail-closed timeout terminates the stream;
+on the request leg it rejects the run before forwarding. The decorator wraps any policy by composition, so policy
 implementations never learn about timeouts — see
 [Configuration](../../getting-started/configuration.md).
