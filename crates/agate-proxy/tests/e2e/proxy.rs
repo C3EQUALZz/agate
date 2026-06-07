@@ -53,7 +53,7 @@ fn hardened(agent: String, api_key: Option<&str>, max_body_bytes: usize) -> Prox
         Duration::from_secs(5),
         Duration::from_mins(1),
         max_body_bytes,
-        api_key.map(str::to_owned),
+        api_key.map(str::to_owned).into_iter().collect(),
     )
 }
 

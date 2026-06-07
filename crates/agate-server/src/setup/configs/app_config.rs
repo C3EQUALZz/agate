@@ -96,14 +96,21 @@ impl AppConfig {
                 Duration::from_secs(self.proxy.connect_timeout_secs),
                 Duration::from_secs(self.proxy.read_timeout_secs),
                 self.proxy.max_body_bytes,
-                // Treat an empty key as "no auth", so a blank TOML value disables it.
-                self.proxy
-                    .api_key
-                    .as_ref()
-                    .map(|key| key.trim().to_owned())
-                    .filter(|key| !key.is_empty()),
+                self.accepted_api_keys(),
             )
             .with_concurrency_limit(self.proxy.max_concurrent_requests)
+    }
+
+    /// The set of accepted API keys: the `api_keys` array plus the single
+    /// `api_key` shorthand, trimmed and de-blanked. Empty means auth is off.
+    fn accepted_api_keys(&self) -> Vec<String> {
+        self.proxy
+            .api_key
+            .iter()
+            .chain(self.proxy.api_keys.iter())
+            .map(|key| key.trim().to_owned())
+            .filter(|key| !key.is_empty())
+            .collect()
     }
 
     #[must_use]
@@ -164,9 +171,13 @@ pub struct ProxySection {
     pub read_timeout_secs: u64,
     /// Maximum accepted request body size, in bytes.
     pub max_body_bytes: usize,
-    /// API key required on the `X-API-Key` header. Absent or blank disables
-    /// authentication (open proxy) — set it, or front the proxy with another guard.
+    /// Single API key required on the `X-API-Key` header — a shorthand for one
+    /// key. Merged with `api_keys`. Absent/blank (and `api_keys` empty) disables
+    /// authentication (open proxy) — set one, or front the proxy with a guard.
     pub api_key: Option<String>,
+    /// Accepted API keys: a request matching **any** is authenticated. Holding
+    /// several at once is how rotation works (add the new, migrate, drop the old).
+    pub api_keys: Vec<String>,
     /// Maximum concurrently in-flight proxied runs; excess is shed with `503`.
     pub max_concurrent_requests: usize,
 }
@@ -180,6 +191,7 @@ impl Default for ProxySection {
             read_timeout_secs: 60,
             max_body_bytes: 1 << 20,
             api_key: None,
+            api_keys: Vec::new(),
             max_concurrent_requests: 256,
         }
     }
@@ -311,6 +323,7 @@ mod tests {
                 read_timeout_secs: 120,
                 max_body_bytes: 2048,
                 api_key: Some("  k  ".to_owned()),
+                api_keys: vec!["k2".to_owned(), "  ".to_owned()],
                 max_concurrent_requests: 64,
             },
             ..AppConfig::default()
@@ -322,20 +335,25 @@ mod tests {
         assert_eq!(proxy.connect_timeout, std::time::Duration::from_secs(3));
         assert_eq!(proxy.read_timeout, std::time::Duration::from_mins(2));
         assert_eq!(proxy.max_body_bytes, 2048);
-        assert_eq!(proxy.api_key.as_deref(), Some("k")); // trimmed
+        // `api_key` shorthand + `api_keys` array merged, trimmed, blanks dropped.
+        assert_eq!(proxy.api_keys, vec!["k".to_owned(), "k2".to_owned()]);
         assert_eq!(proxy.max_concurrent_requests, 64);
     }
 
     #[test]
-    fn proxy_config_treats_a_blank_api_key_as_disabled() {
+    fn proxy_config_treats_blank_api_keys_as_disabled() {
         let config = AppConfig {
             proxy: ProxySection {
                 api_key: Some("   ".to_owned()),
+                api_keys: vec![String::new(), "  ".to_owned()],
                 ..ProxySection::default()
             },
             ..AppConfig::default()
         };
-        assert!(config.proxy_config().api_key.is_none());
+        assert!(
+            config.proxy_config().api_keys.is_empty(),
+            "all-blank keys leave auth disabled"
+        );
     }
 
     #[test]
