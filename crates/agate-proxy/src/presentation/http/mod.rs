@@ -36,7 +36,7 @@ pub fn router(config: &ProxyConfig) -> Router {
         .route("/", post(proxy_run))
         .layer(DefaultBodyLimit::max(config.max_body_bytes));
 
-    run = middlewares::api_key::apply(run, config.api_key.as_deref());
+    run = middlewares::api_key::apply(run, &config.api_keys);
     // Outermost guard: shed over-capacity requests before any per-request work.
     run = middlewares::concurrency::apply(run, config.max_concurrent_requests);
 

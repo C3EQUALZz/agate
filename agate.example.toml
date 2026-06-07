@@ -23,10 +23,17 @@ max_body_bytes = 1048576
 # Maximum concurrently in-flight proxied runs. Each holds an upstream connection
 # for its full stream; requests over the cap are shed with 503 (not queued).
 max_concurrent_requests = 256
-# Require this key on the `X-API-Key` header. Omit or leave blank to disable
-# authentication (only sensible behind another gateway). Prefer the env override
-# for the secret: AGATE__PROXY__API_KEY=...
+# API-key authentication on the `X-API-Key` header. A request is accepted if it
+# matches ANY accepted key; with none set the proxy is open (only sensible
+# behind another gateway).
+#
+# Single key (shorthand) — can come from the env override for the secret:
+#   AGATE__PROXY__API_KEY=...
 # api_key = "change-me"
+#
+# Multiple keys enable zero-downtime rotation: add the new key, migrate clients,
+# then drop the old. Set them here (merged with api_key above).
+# api_keys = ["current-key", "next-key"]
 
 [audit]
 # PostgreSQL URL for the transparency log (required).

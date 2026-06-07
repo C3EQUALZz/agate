@@ -27,9 +27,11 @@ pub struct ProxyConfig {
     pub read_timeout: Duration,
     /// Maximum accepted request body size, in bytes.
     pub max_body_bytes: usize,
-    /// Optional API key required on the `X-API-Key` header. `None` disables
-    /// authentication (the proxy is open) — only sensible behind another guard.
-    pub api_key: Option<String>,
+    /// Accepted API keys: a request is authenticated if its `X-API-Key` header
+    /// matches **any** of these. Empty disables authentication (the proxy is
+    /// open) — only sensible behind another guard. Holding more than one key at
+    /// once is how rotation works: add the new key, migrate clients, drop the old.
+    pub api_keys: Vec<String>,
     /// Maximum concurrently in-flight proxied runs; excess is shed with `503`.
     pub max_concurrent_requests: usize,
 }
@@ -44,7 +46,7 @@ impl ProxyConfig {
             connect_timeout: DEFAULT_CONNECT_TIMEOUT,
             read_timeout: DEFAULT_READ_TIMEOUT,
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
-            api_key: None,
+            api_keys: Vec::new(),
             max_concurrent_requests: DEFAULT_MAX_CONCURRENT_REQUESTS,
         }
     }
@@ -65,12 +67,12 @@ impl ProxyConfig {
         connect_timeout: Duration,
         read_timeout: Duration,
         max_body_bytes: usize,
-        api_key: Option<String>,
+        api_keys: Vec<String>,
     ) -> Self {
         self.connect_timeout = connect_timeout;
         self.read_timeout = read_timeout;
         self.max_body_bytes = max_body_bytes;
-        self.api_key = api_key;
+        self.api_keys = api_keys;
         self
     }
 
