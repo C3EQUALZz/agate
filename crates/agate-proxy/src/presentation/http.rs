@@ -15,8 +15,9 @@ use uuid::Uuid;
 
 use super::inspect_stream;
 use crate::application::common::ports::{ProxyMetrics, RunRequest, UpstreamAgentClient};
-use crate::application::inspection::{InspectionContext, Inspector};
+use crate::application::inspection::{InspectionContext, Inspector, RequestDecision};
 use crate::domain::inspection::{Budgets, RunId, SessionId};
+use crate::infrastructure::ag_ui::parse_request;
 use crate::infrastructure::{ProxyMetricsRecorder, ReqwestAgentClient};
 use crate::setup::configs::ProxyConfig;
 
@@ -100,6 +101,21 @@ async fn proxy_run(
         "run received; forwarding to upstream agent"
     );
     metrics.record_run();
+
+    // Request leg (preventive): validate the body and inspect it before the
+    // agent ever runs — reject malformed input, denied tools, secret markers, or
+    // SSRF URLs without forwarding.
+    let inbound = match parse_request(&body) {
+        Ok(inbound) => inbound,
+        Err(error) => {
+            warn!(run = %context.run.0, %error, "rejecting a malformed request body");
+            return (StatusCode::BAD_REQUEST, format!("invalid request: {error}")).into_response();
+        }
+    };
+    if let RequestDecision::Reject(reason) = inspector.inspect_request(&context, &inbound).await {
+        info!(run = %context.run.0, reason = reason.as_str(), "request denied on the request leg");
+        return (StatusCode::FORBIDDEN, reason.as_str().to_owned()).into_response();
+    }
 
     let request = RunRequest {
         body,

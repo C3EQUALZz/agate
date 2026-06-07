@@ -63,3 +63,19 @@ async fn policy_redacts_secrets_and_denies_unlisted_tools() {
         "all four Ready events recorded (lifecycle x2 + redacted message + denied tool)"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn request_offering_a_denied_tool_is_rejected_before_forwarding() {
+    let app = spawn(ruleset(), SSE).await;
+
+    // The ruleset allows only `search`; offering `rm_rf` is denied on the
+    // request leg, so the run is rejected (403) and never reaches the agent.
+    let response = fixture::client()
+        .post(&app.base_url)
+        .body(r#"{"threadId":"t","runId":"r","tools":[{"name":"rm_rf"}]}"#)
+        .send()
+        .await
+        .expect("proxy responds");
+
+    assert_eq!(response.status(), 403);
+}

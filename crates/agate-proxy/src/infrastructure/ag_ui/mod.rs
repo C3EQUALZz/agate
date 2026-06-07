@@ -7,6 +7,8 @@
 pub mod error;
 pub mod event_type;
 pub mod mapper;
+pub mod request;
 
 pub use error::AgUiError;
 pub use mapper::{to_event, to_fragment};
+pub use request::parse_request;

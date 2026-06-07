@@ -112,3 +112,34 @@ async fn body_size_limit_rejects_oversized_requests() {
 
     assert_eq!(response.status(), 413);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn malformed_request_body_is_rejected_before_forwarding() {
+    let proxy = spawn_proxy(stub_agent().await).await;
+
+    let response = reqwest::Client::new()
+        .post(format!("{proxy}/"))
+        .body("this is not json")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn request_with_an_ssrf_url_is_denied() {
+    let proxy = spawn_proxy(stub_agent().await).await;
+
+    // A user message embedding a loopback URL — denied by the request-leg SSRF
+    // guard before the agent ever runs, even under the default allow-all policy.
+    let body = r#"{"threadId":"t","runId":"r","messages":[{"id":"m","role":"user","content":"fetch http://127.0.0.1/secret"}]}"#;
+    let response = reqwest::Client::new()
+        .post(format!("{proxy}/"))
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 403);
+}

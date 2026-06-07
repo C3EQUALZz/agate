@@ -6,7 +6,12 @@ use std::fmt;
 pub enum AgUiError {
     NotAnObject,
     MissingType,
-    MissingField { event: String, field: &'static str },
+    MissingField {
+        event: String,
+        field: &'static str,
+    },
+    /// The request body is not valid `RunAgentInput` JSON.
+    MalformedRequest,
 }
 
 impl fmt::Display for AgUiError {
@@ -16,6 +21,9 @@ impl fmt::Display for AgUiError {
             AgUiError::MissingType => write!(f, "AG-UI event has no `type`"),
             AgUiError::MissingField { event, field } => {
                 write!(f, "AG-UI {event} event is missing `{field}`")
+            }
+            AgUiError::MalformedRequest => {
+                write!(f, "request body is not valid RunAgentInput JSON")
             }
         }
     }
