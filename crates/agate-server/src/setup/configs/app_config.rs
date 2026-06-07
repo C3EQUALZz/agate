@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 use agate_audit::setup::configs::PostgresConfig;
 use agate_policy::domain::common::errors::DomainError;
@@ -40,12 +41,33 @@ impl AppConfig {
                     .into(),
             );
         }
+        // Zero is a footgun, not a sensible "disable": a 0-byte body limit
+        // rejects every request, and a 0s timeout fails the connection at once.
+        if self.proxy.max_body_bytes == 0 {
+            return Err("proxy.max_body_bytes must be greater than 0".into());
+        }
+        if self.proxy.connect_timeout_secs == 0 || self.proxy.read_timeout_secs == 0 {
+            return Err(
+                "proxy.connect_timeout_secs and proxy.read_timeout_secs must be greater than 0"
+                    .into(),
+            );
+        }
         Ok(())
     }
 
     #[must_use]
     pub fn proxy_config(&self) -> ProxyConfig {
-        ProxyConfig::new(self.proxy.agent_endpoint.clone(), self.proxy.bind.clone())
+        ProxyConfig::new(self.proxy.agent_endpoint.clone(), self.proxy.bind.clone()).with_ingress(
+            Duration::from_secs(self.proxy.connect_timeout_secs),
+            Duration::from_secs(self.proxy.read_timeout_secs),
+            self.proxy.max_body_bytes,
+            // Treat an empty key as "no auth", so a blank TOML value disables it.
+            self.proxy
+                .api_key
+                .as_ref()
+                .map(|key| key.trim().to_owned())
+                .filter(|key| !key.is_empty()),
+        )
     }
 
     #[must_use]
@@ -79,6 +101,16 @@ pub struct ProxySection {
     pub agent_endpoint: String,
     /// Address the proxy listens on.
     pub bind: String,
+    /// Connect timeout to the upstream agent, in seconds (fail fast when
+    /// unreachable). Not an overall deadline — a healthy SSE stream runs on.
+    pub connect_timeout_secs: u64,
+    /// Idle read timeout between upstream response chunks, in seconds.
+    pub read_timeout_secs: u64,
+    /// Maximum accepted request body size, in bytes.
+    pub max_body_bytes: usize,
+    /// API key required on the `X-API-Key` header. Absent or blank disables
+    /// authentication (open proxy) — set it, or front the proxy with another guard.
+    pub api_key: Option<String>,
 }
 
 impl Default for ProxySection {
@@ -86,6 +118,10 @@ impl Default for ProxySection {
         Self {
             agent_endpoint: String::new(),
             bind: "0.0.0.0:8080".into(),
+            connect_timeout_secs: 5,
+            read_timeout_secs: 60,
+            max_body_bytes: 1 << 20,
+            api_key: None,
         }
     }
 }
@@ -156,6 +192,60 @@ mod tests {
     fn allow_all_is_the_default_tool_policy() {
         let ruleset = AppConfig::default().policy_ruleset().expect("valid");
         assert_eq!(*ruleset.tools(), ToolPolicy::AllowAll);
+    }
+
+    #[test]
+    fn proxy_config_maps_the_ingress_settings() {
+        let config = AppConfig {
+            proxy: ProxySection {
+                agent_endpoint: "http://agent/run".to_owned(),
+                bind: "0.0.0.0:9000".to_owned(),
+                connect_timeout_secs: 3,
+                read_timeout_secs: 120,
+                max_body_bytes: 2048,
+                api_key: Some("  k  ".to_owned()),
+            },
+            ..AppConfig::default()
+        };
+
+        let proxy = config.proxy_config();
+        assert_eq!(proxy.agent_endpoint, "http://agent/run");
+        assert_eq!(proxy.bind_addr, "0.0.0.0:9000");
+        assert_eq!(proxy.connect_timeout, std::time::Duration::from_secs(3));
+        assert_eq!(proxy.read_timeout, std::time::Duration::from_mins(2));
+        assert_eq!(proxy.max_body_bytes, 2048);
+        assert_eq!(proxy.api_key.as_deref(), Some("k")); // trimmed
+    }
+
+    #[test]
+    fn proxy_config_treats_a_blank_api_key_as_disabled() {
+        let config = AppConfig {
+            proxy: ProxySection {
+                api_key: Some("   ".to_owned()),
+                ..ProxySection::default()
+            },
+            ..AppConfig::default()
+        };
+        assert!(config.proxy_config().api_key.is_none());
+    }
+
+    #[test]
+    fn validate_rejects_zero_ingress_knobs() {
+        let mut config = AppConfig::default();
+        config.proxy.agent_endpoint = "http://agent/run".to_owned();
+        config.audit.database_url = "postgres://agate@db/agate".to_owned();
+        assert!(config.validate().is_ok(), "the sane defaults validate");
+
+        let mut zero_body = config.clone();
+        zero_body.proxy.max_body_bytes = 0;
+        assert!(
+            zero_body.validate().is_err(),
+            "a 0-byte body limit is rejected"
+        );
+
+        let mut zero_timeout = config.clone();
+        zero_timeout.proxy.connect_timeout_secs = 0;
+        assert!(zero_timeout.validate().is_err(), "a 0s timeout is rejected");
     }
 
     #[test]

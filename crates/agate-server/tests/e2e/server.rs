@@ -30,3 +30,17 @@ async fn proxied_run_is_recorded_to_the_transparency_log() {
         "the three inspected events were recorded to the log"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn readyz_reports_ready_when_the_database_is_reachable() {
+    let app = spawn(PolicyRuleset::allow_all(), fixture::SSE_BODY).await;
+
+    let response = fixture::client()
+        .get(format!("{}/readyz", app.base_url))
+        .send()
+        .await
+        .expect("readiness probe responds");
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.expect("read body"), "ready");
+}

@@ -29,9 +29,16 @@ pub async fn stub_agent() -> String {
     format!("http://{addr}/run")
 }
 
-/// Boot the proxy in front of `agent_endpoint`; return its base URL.
+/// Boot the proxy in front of `agent_endpoint` with the default config; return
+/// its base URL.
 pub async fn spawn_proxy(agent_endpoint: String) -> String {
-    let app = build_app(ProxyConfig::new(agent_endpoint, "127.0.0.1:0".to_string()));
+    spawn_proxy_config(ProxyConfig::new(agent_endpoint, "127.0.0.1:0".to_string())).await
+}
+
+/// Boot the proxy with an explicit [`ProxyConfig`] (to exercise the ingress
+/// guards: API key, body limit, timeouts); return its base URL.
+pub async fn spawn_proxy_config(config: ProxyConfig) -> String {
+    let app = build_app(config);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
