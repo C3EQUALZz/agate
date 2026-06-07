@@ -53,4 +53,17 @@ mod tests {
         };
         assert!(build_tracer_provider(&config).is_none());
     }
+
+    // The exporter connects lazily, so building a provider against an
+    // unreachable endpoint succeeds without contacting it; shut it down so the
+    // batch exporter's background task does not outlive the test.
+    #[tokio::test]
+    async fn enabled_tracing_builds_a_provider() {
+        let config = TracingConfig {
+            enabled: true,
+            ..TracingConfig::default()
+        };
+        let provider = build_tracer_provider(&config).expect("a provider when enabled");
+        provider.shutdown().expect("shut the provider down");
+    }
 }

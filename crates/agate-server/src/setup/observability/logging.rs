@@ -36,11 +36,60 @@ pub fn init_logging(
         .as_ref()
         .map(|provider| tracing_opentelemetry::layer().with_tracer(provider.tracer(TRACER_NAME)));
 
-    tracing_subscriber::registry()
+    // `try_init` (not `init`) so the install is idempotent: a second call — only
+    // reachable from tests sharing a process — is a no-op rather than a panic.
+    let _ = tracing_subscriber::registry()
         .with(filter)
         .with(fmt_layer)
         .with(otel_layer)
-        .init();
+        .try_init();
 
     provider
+}
+
+#[cfg(test)]
+mod tests {
+    use super::init_logging;
+    use crate::setup::configs::{LogFormat, LoggingConfig, TracingConfig};
+
+    #[test]
+    fn disabled_logging_installs_nothing() {
+        let logging = LoggingConfig {
+            enabled: false,
+            ..LoggingConfig::default()
+        };
+        assert!(init_logging(&logging, &TracingConfig::default()).is_none());
+    }
+
+    #[test]
+    fn enabled_logging_without_tracing_returns_no_provider() {
+        let logging = LoggingConfig {
+            enabled: true,
+            format: LogFormat::Pretty,
+            ..LoggingConfig::default()
+        };
+        let tracing_config = TracingConfig {
+            enabled: false,
+            ..TracingConfig::default()
+        };
+        assert!(init_logging(&logging, &tracing_config).is_none());
+    }
+
+    // JSON format + tracing on, so the JSON arm and the OTLP layer are built;
+    // `init_logging` is idempotent (`try_init`), so running alongside the other
+    // tests is fine. Shut the returned provider down to stop its export task.
+    #[tokio::test]
+    async fn enabled_logging_with_tracing_returns_a_provider() {
+        let logging = LoggingConfig {
+            enabled: true,
+            format: LogFormat::Json,
+            ..LoggingConfig::default()
+        };
+        let tracing_config = TracingConfig {
+            enabled: true,
+            ..TracingConfig::default()
+        };
+        let provider = init_logging(&logging, &tracing_config).expect("a provider when enabled");
+        provider.shutdown().expect("shut the provider down");
+    }
 }
