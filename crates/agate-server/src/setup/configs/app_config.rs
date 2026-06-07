@@ -201,7 +201,7 @@ mod tests {
         assert_eq!(proxy.agent_endpoint, "http://agent/run");
         assert_eq!(proxy.bind_addr, "0.0.0.0:9000");
         assert_eq!(proxy.connect_timeout, std::time::Duration::from_secs(3));
-        assert_eq!(proxy.read_timeout, std::time::Duration::from_secs(120));
+        assert_eq!(proxy.read_timeout, std::time::Duration::from_mins(2));
         assert_eq!(proxy.max_body_bytes, 2048);
         assert_eq!(proxy.api_key.as_deref(), Some("k")); // trimmed
     }
