@@ -3,11 +3,13 @@
 use std::sync::Arc;
 
 use axum::Router;
+use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use tokio::sync::Semaphore;
+use futures::StreamExt;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::warn;
 
 /// Cap the number of concurrently in-flight requests on `router`. A shared
@@ -19,17 +21,31 @@ pub fn apply(router: Router, max_concurrent: usize) -> Router {
     router.layer(middleware::from_fn_with_state(permits, limit))
 }
 
-/// Hold a permit for the whole request (released when the response — including
-/// the streamed body — completes); shed with `503` when none is available.
+/// Admit the request if a permit is free, else shed it with `503`. The permit is
+/// tied to the response **body**, not just the handler, so it is held for the
+/// whole (possibly streaming) response and released only when the stream ends or
+/// the client disconnects — bounding concurrent active streams, not just request
+/// setup (a streaming handler returns its `Response` long before the body ends).
 async fn limit(State(permits): State<Arc<Semaphore>>, request: Request, next: Next) -> Response {
-    // The permit is held for the whole request (released on drop when the
-    // response — including the streamed body — completes).
-    if let Ok(_permit) = Arc::clone(&permits).try_acquire_owned() {
-        next.run(request).await
-    } else {
+    let Ok(permit) = Arc::clone(&permits).try_acquire_owned() else {
         warn!("shedding a request: concurrency limit reached");
-        (StatusCode::SERVICE_UNAVAILABLE, "service at capacity").into_response()
-    }
+        return (StatusCode::SERVICE_UNAVAILABLE, "service at capacity").into_response();
+    };
+
+    let (parts, body) = next.run(request).await.into_parts();
+    Response::from_parts(parts, hold_permit(body, permit))
+}
+
+/// Re-stream `body`, keeping `permit` alive until the stream is exhausted or the
+/// body is dropped (the generator owns the permit and drops it with itself).
+fn hold_permit(body: Body, permit: OwnedSemaphorePermit) -> Body {
+    let mut data = body.into_data_stream();
+    Body::from_stream(async_stream::stream! {
+        let _permit = permit;
+        while let Some(chunk) = data.next().await {
+            yield chunk;
+        }
+    })
 }
 
 #[cfg(test)]
@@ -42,6 +58,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use axum::routing::get;
+    use futures::stream;
     use tokio::sync::Notify;
     use tower::ServiceExt;
 
@@ -59,7 +76,7 @@ mod tests {
         let (handler_entered, handler_release) = (entered.clone(), release.clone());
 
         // A handler that parks once it holds the one permit, so the slot stays
-        // occupied until the test releases it.
+        // occupied (while `next.run` is pending) until the test releases it.
         let app = apply(
             Router::new().route(
                 "/",
@@ -75,22 +92,47 @@ mod tests {
             1,
         );
 
-        // Occupy the slot and wait until the handler is actually running.
         let busy = app.clone();
         let first = tokio::spawn(async move { busy.oneshot(get_root()).await });
         entered.notified().await;
 
-        // With the slot taken, the next request is shed (try_acquire fails) — it
-        // returns immediately rather than queuing.
         let response = app.clone().oneshot(get_root()).await.expect("a response");
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
-        // Release the first and confirm it succeeded (permit was held, not lost).
         release.notify_one();
         let first = first
             .await
             .expect("the first task joins")
             .expect("a response");
         assert_eq!(first.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn permit_is_held_until_the_response_body_is_dropped() {
+        // The handler returns immediately with a streaming body. The permit must
+        // stay held while that body is alive (the stream is still in flight),
+        // not be released the moment the handler returned.
+        let app = apply(
+            Router::new().route(
+                "/",
+                get(|| async {
+                    Body::from_stream(stream::once(async { Ok::<_, std::io::Error>("data") }))
+                }),
+            ),
+            1,
+        );
+
+        // First response holds the permit inside its (undrained) body.
+        let first = app.clone().oneshot(get_root()).await.expect("a response");
+        assert_eq!(first.status(), StatusCode::OK);
+
+        // While that body is alive, a second request is shed.
+        let second = app.clone().oneshot(get_root()).await.expect("a response");
+        assert_eq!(second.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        // Dropping the first response releases the permit, so the next succeeds.
+        drop(first);
+        let third = app.clone().oneshot(get_root()).await.expect("a response");
+        assert_eq!(third.status(), StatusCode::OK);
     }
 }
