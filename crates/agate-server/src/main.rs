@@ -47,6 +47,15 @@ async fn main() {
     let pinned_log_id = std::env::var("AUDIT_LOG_ID")
         .ok()
         .map(|raw| LogId(raw.parse::<Uuid>().expect("AUDIT_LOG_ID must be a UUID")));
+    let addr: SocketAddr = bind_addr
+        .parse()
+        .unwrap_or_else(|_| panic!("proxy.bind must be a host:port address, got {bind_addr}"));
+    // Load the TLS cert/key now (local file I/O) so a bad listener config aborts
+    // startup before we connect to Postgres or create a log.
+    let tls_acceptor = match config.tls_config() {
+        Some(tls) => Some(load_tls(tls).await),
+        None => None,
+    };
 
     info!("configuration loaded; starting agate-server");
 
@@ -67,10 +76,6 @@ async fn main() {
         config.policy_decision_timeout(),
     );
 
-    let addr: SocketAddr = bind_addr
-        .parse()
-        .unwrap_or_else(|_| panic!("proxy.bind must be a host:port address, got {bind_addr}"));
-
     // Drive graceful shutdown through an axum-server Handle: on SIGINT/SIGTERM
     // stop accepting and wait (no deadline) for in-flight runs to finish.
     let handle = Handle::new();
@@ -83,8 +88,7 @@ async fn main() {
     });
 
     let make_service = server.app.into_make_service();
-    if let Some(tls) = config.tls_config() {
-        let rustls = load_tls(tls).await;
+    if let Some(rustls) = tls_acceptor {
         info!(%bind_addr, "agate-server listening (TLS)");
         axum_server::bind_rustls(addr, rustls)
             .handle(handle)

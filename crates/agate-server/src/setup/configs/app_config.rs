@@ -25,6 +25,7 @@ pub struct AppConfig {
     pub audit: AuditSection,
     pub policy: PolicySection,
     pub observability: ObservabilityConfig,
+    /// Optional TLS termination at the listener (off by default).
     pub tls: TlsConfig,
 }
 
