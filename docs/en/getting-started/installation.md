@@ -24,6 +24,10 @@ docker pull ghcr.io/c3equalzz/agate:latest
 Available tags: `latest` (default branch), `vX.Y.Z` / `vX.Y` (release tags), and
 `sha-<commit>` (every build, for pinning an exact commit).
 
+Published images are **multi-arch** (`linux/amd64` and `linux/arm64`), so the
+same tag runs natively on x86-64 and ARM64 (Apple Silicon, AWS Graviton, ...) —
+Docker pulls the matching variant automatically.
+
 !!! note "Building from source"
     If you prefer to build locally:
     `docker build -t agate -f crates/agate-server/Dockerfile .`
