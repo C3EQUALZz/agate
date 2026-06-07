@@ -41,10 +41,11 @@ aborts startup — fail fast on misconfiguration rather than running degraded.
 
 !!! note "Liveness vs readiness probes"
     `/healthz` (liveness) returns `200` whenever the process is up. `/readyz`
-    (readiness) returns `200` only when the transparency-log database is
+    (readiness) returns `200` only when the transparency-log store is
     reachable, else `503` — point your orchestrator's readiness probe at it so
-    traffic is held until Agate can record. Both probes bypass the API-key and
-    body-size guards.
+    traffic is held until Agate can record. The reachability check is behind a
+    `HealthCheck` port, so it stays correct if the store backend changes. Both
+    probes bypass the API-key and body-size guards.
 
 ## `[audit]`
 

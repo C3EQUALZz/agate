@@ -12,4 +12,5 @@
 //! composes two bounded contexts behind their public ports.
 
 pub mod infrastructure;
+pub mod presentation;
 pub mod setup;

@@ -2,18 +2,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use axum::routing::get;
 use sqlx::PgPool;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::warn;
 
-use agate_audit::application::common::ports::AuditMetrics;
+use agate_audit::application::common::ports::{AuditMetrics, HealthCheck};
 use agate_audit::domain::merkle::LogId;
 use agate_audit::infrastructure::AuditMetricsRecorder;
+use agate_audit::infrastructure::persistence::postgres::PgHealthCheck;
 use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::PolicyRuleset;
@@ -24,6 +20,7 @@ use agate_proxy::setup::configs::ProxyConfig;
 
 use crate::infrastructure::audit::{AuditLogSink, AuditOutbox};
 use crate::infrastructure::policy::PolicyAdapter;
+use crate::presentation::http::readiness;
 
 /// How many inspected records may queue before the forwarding path feels
 /// backpressure from the audit write. Bounded so a slow database cannot grow
@@ -74,30 +71,12 @@ pub fn build_server(
         decision_timeout,
     ));
     let audit: Arc<dyn AuditSink> = Arc::new(AuditLogSink::new(tx, metrics));
-    let app = build_app_with(proxy, policy, audit).merge(readiness_router(pool));
+
+    // Readiness is reported through the store's HealthCheck port, so swapping
+    // the persistence backend never touches the probe route. The composition
+    // root is the one place that names the concrete (Postgres) adapter.
+    let health: Arc<dyn HealthCheck> = Arc::new(PgHealthCheck::new(pool));
+    let app = build_app_with(proxy, policy, audit).merge(readiness::router(health));
 
     Server { app, outbox }
-}
-
-/// A `/readyz` route that reports readiness from the database's health. Liveness
-/// (`/healthz`, served by the proxy) only says the process is up; readiness adds
-/// "can it reach its dependencies" so an orchestrator holds traffic until the
-/// transparency-log store is reachable.
-fn readiness_router(pool: PgPool) -> Router {
-    Router::new().route("/readyz", get(readyz)).with_state(pool)
-}
-
-/// 200 when a database connection can be acquired, 503 otherwise.
-async fn readyz(State(pool): State<PgPool>) -> Response {
-    match pool.acquire().await {
-        Ok(_connection) => (StatusCode::OK, "ready").into_response(),
-        Err(error) => {
-            warn!(%error, "readiness probe failed: database unavailable");
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "not ready: database unavailable",
-            )
-                .into_response()
-        }
-    }
 }
