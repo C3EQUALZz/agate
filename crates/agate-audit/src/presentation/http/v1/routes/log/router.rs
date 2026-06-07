@@ -1,6 +1,6 @@
 use axum::Router;
 
-use super::{append_record, consistency_proof, create, inclusion_proof};
+use super::{append_record, consistency_proof, create, inclusion_proof, issue_checkpoint};
 
 /// Aggregate the transparency-log operation routes (each owns its full path).
 pub fn router() -> Router {
@@ -9,4 +9,5 @@ pub fn router() -> Router {
         .merge(append_record::router())
         .merge(inclusion_proof::router())
         .merge(consistency_proof::router())
+        .merge(issue_checkpoint::router())
 }

@@ -52,13 +52,30 @@ the root and breaks every later head.
 | --- | --- |
 | `domain` | Pure entities, value objects, and domain services (Merkle hashing, the `TransparencyLog` aggregate, proofs). No I/O. |
 | `application` | CQRS use cases (command/query handlers) over a mediator pipeline; pipeline **behaviors** (`TransactionBehavior`, `MetricsBehavior`); outbound ports (`KeyStore`, `CheckpointAnchor`, `EventOutbox`, `TransactionManager`, `AuditMetrics`, and the CQRS log gateways). |
-| `infrastructure` | Concrete adapters: `SystemClock`, `UuidLogIdGenerator`, `PostgresLog{Command,Query}Gateway`, transaction management, migrations. |
+| `infrastructure` | Concrete adapters: `SystemClock`, `UuidLogIdGenerator`, `PostgresLog{Command,Query}Gateway`, transaction management, migrations, `Ed25519KeyStore`, `LoggingCheckpointAnchor`. |
 | `presentation` | HTTP handlers (health, versioned routes) and `AuditError → HTTP` mapping. |
 | `setup` | Composition root: typed config from env, the `froodi` IoC container, HTTP bootstrap. |
 
 Persistence is **CQRS-split**: a command gateway loads/saves the aggregate
 (write side); a query gateway returns read models/DTOs (read side). The crate
 depends inward on [`agate-crypto`](crypto.md) for hashing and signing.
+
+## Checkpoints (signed tree heads)
+
+A **checkpoint** is a *signed tree head* — the Merkle root and size at an
+instant, signed so anyone can verify the log's state and detect tampering.
+`POST /logs/{id}/checkpoint` with `{"key_id": "…"}` runs the `IssueCheckpoint`
+command: it snapshots the head, signs it with the configured Ed25519 key,
+**anchors** it, persists the aggregate, and returns the signed tree head (size,
+root, timestamp, key id, algorithm, signature — hex-encoded where binary).
+
+The signing key is loaded from the environment — a 32-byte seed
+`AUDIT_CHECKPOINT_SEED` (64 hex chars) under `AUDIT_CHECKPOINT_KEY_ID` (default
+`checkpoint-ed25519`). With no seed configured, checkpoint requests fail with a
+clear error instead of signing under an ephemeral key no verifier could trust
+across restarts. The `CheckpointAnchor` port is the seam for an **independent
+witness** (the defense against split-view / equivocation); the default adapter
+logs the head for external collection.
 
 ## Observability
 

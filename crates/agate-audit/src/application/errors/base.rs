@@ -1,5 +1,7 @@
 use std::fmt;
 
+use agate_crypto::KeyId;
+
 use crate::domain::common::errors::DomainError;
 use crate::domain::merkle::{LeafIndex, LogId};
 
@@ -7,8 +9,16 @@ use crate::domain::merkle::{LeafIndex, LogId};
 #[derive(Debug)]
 pub enum AuditError {
     LogNotFound(LogId),
-    LeafOutOfRange { index: LeafIndex, size: u64 },
-    SizeOutOfRange { requested: u64, current: u64 },
+    LeafOutOfRange {
+        index: LeafIndex,
+        size: u64,
+    },
+    SizeOutOfRange {
+        requested: u64,
+        current: u64,
+    },
+    /// The requested signing key is unknown or not configured.
+    KeyNotFound(KeyId),
     Domain(DomainError),
     Storage(String),
 }
@@ -25,6 +35,9 @@ impl fmt::Display for AuditError {
                     f,
                     "size {requested} is out of range (current size {current})"
                 )
+            }
+            AuditError::KeyNotFound(key) => {
+                write!(f, "signing key not configured or unknown: {}", key.0)
             }
             AuditError::Domain(err) => write!(f, "domain error: {err}"),
             AuditError::Storage(msg) => write!(f, "storage error: {msg}"),

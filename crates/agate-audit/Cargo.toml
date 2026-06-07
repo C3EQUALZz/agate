@@ -6,7 +6,7 @@ license.workspace = true
 description = "Audit bounded context: append-only transparency log (RFC 6962-style Merkle tree)."
 
 [dependencies]
-agate-crypto = { workspace = true }
+agate-crypto = { workspace = true, features = ["ed25519"] }
 async-trait = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 jiff = { workspace = true }

@@ -4,6 +4,7 @@ pub mod append_record;
 pub mod consistency_proof;
 pub mod create;
 pub mod inclusion_proof;
+pub mod issue_checkpoint;
 pub mod router;
 
 pub use router::router;

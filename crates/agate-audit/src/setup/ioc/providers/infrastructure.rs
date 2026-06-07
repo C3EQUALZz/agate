@@ -24,7 +24,9 @@ use crate::infrastructure::persistence::log::postgres::{
     PostgresLogCommandGateway, PostgresLogQueryGateway,
 };
 use crate::infrastructure::persistence::postgres::{PgTransactionManager, TxSlot};
-use crate::infrastructure::{SystemClock, UuidLogIdGenerator};
+use crate::infrastructure::{
+    Ed25519KeyStore, LoggingCheckpointAnchor, SystemClock, UuidLogIdGenerator,
+};
 
 /// Adapters and the request transaction. `pool` becomes the App-scope singleton
 /// every request-scoped gateway/transaction borrows from.
@@ -43,6 +45,8 @@ pub(crate) fn infrastructure_providers(pool: PgPool) -> RegistryWithSync {
                 provide(|| Ok(SystemClock)),
                 provide(|| Ok(TransparencyLogFactory::new(default_hasher()))),
                 provide(|| Ok(MerkleHasher::new(default_hasher()))),
+                provide(|| Ok(Ed25519KeyStore::from_env())),
+                provide(|| Ok(LoggingCheckpointAnchor)),
             ]
         }),
     }
