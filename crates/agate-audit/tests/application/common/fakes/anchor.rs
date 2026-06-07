@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use agate_audit::application::common::ports::CheckpointAnchor;
 use agate_audit::application::errors::AuditError;
-use agate_audit::domain::merkle::SignedTreeHead;
+use agate_audit::domain::merkle::{LogId, SignedTreeHead};
 
 /// Records anchored checkpoints instead of publishing them externally.
 pub struct RecordingAnchor {
@@ -27,7 +27,7 @@ impl Default for RecordingAnchor {
 
 #[async_trait]
 impl CheckpointAnchor for RecordingAnchor {
-    async fn anchor(&self, sth: &SignedTreeHead) -> Result<(), AuditError> {
+    async fn anchor(&self, _log: LogId, sth: &SignedTreeHead) -> Result<(), AuditError> {
         self.anchored.lock().unwrap().push(sth.clone());
         Ok(())
     }

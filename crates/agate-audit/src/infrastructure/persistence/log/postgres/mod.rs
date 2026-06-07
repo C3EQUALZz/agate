@@ -4,8 +4,10 @@
 //! transaction from [`crate::infrastructure::persistence::postgres`]; the read
 //! side ([`PostgresLogQueryGateway`]) reads through the pool directly.
 
+pub mod checkpoint_anchor;
 pub mod command_gateway;
 pub mod query_gateway;
 
+pub use checkpoint_anchor::PostgresCheckpointAnchor;
 pub use command_gateway::PostgresLogCommandGateway;
 pub use query_gateway::PostgresLogQueryGateway;
