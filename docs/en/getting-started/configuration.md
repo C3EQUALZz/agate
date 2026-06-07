@@ -110,7 +110,9 @@ A ready-to-run Prometheus + Grafana stack with a pre-built dashboard lives in
 ## `[observability.tracing]`
 
 OTLP trace export — the third observability pillar beside logs and metrics. When
-off, spans are still created (and shown in logs) but not exported.
+tracing is off, spans are still created but not exported; they are visible in
+logs only when `[observability.logging].enabled = true` (the subscriber that
+both renders spans to logs and exports them is installed only then).
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -128,8 +130,10 @@ Spans cover the request path end to end:
 - `db.log.load` / `db.log.save` / `db.proof.inclusion` / `db.proof.consistency`
   — one per SQL statement, nested under the `audit.request` span that issued it.
 
-Spans are flushed on graceful shutdown. Point `endpoint` at an OpenTelemetry
-Collector (or any OTLP/gRPC backend) to collect per-run traces.
+When tracing is enabled (and `[observability.logging].enabled = true`, so the
+subscriber is installed), spans are flushed on graceful shutdown. Point
+`endpoint` at an OpenTelemetry Collector (or any OTLP/gRPC backend) to collect
+per-run traces.
 
 ## Full example
 

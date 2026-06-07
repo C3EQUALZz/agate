@@ -22,11 +22,27 @@ pub fn build_tracer_provider(config: &TracingConfig) -> Option<SdkTracerProvider
         return None;
     }
 
-    let exporter = opentelemetry_otlp::SpanExporter::builder()
+    // Build failures here are configuration/endpoint-validity errors, not
+    // connectivity — the exporter dials lazily on first export. So a build error
+    // means tracing can never work; log it and continue without export rather
+    // than crashing the whole server. `eprintln!` because this runs before the
+    // tracing subscriber is installed (see `init_logging`), so a `warn!` would
+    // be dropped.
+    let exporter = match opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .with_endpoint(config.endpoint.clone())
         .build()
-        .expect("build the OTLP span exporter");
+    {
+        Ok(exporter) => exporter,
+        Err(error) => {
+            eprintln!(
+                "failed to build the OTLP span exporter for {} ({error}); \
+                 continuing without trace export",
+                config.endpoint
+            );
+            return None;
+        }
+    };
 
     let resource = Resource::builder()
         .with_service_name(config.service_name.clone())
