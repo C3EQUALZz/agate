@@ -60,3 +60,46 @@ impl CheckpointAnchor for PostgresCheckpointAnchor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use agate_crypto::{Digest, HashAlgo, KeyId, SignAlgo, Signature};
+    use uuid::Uuid;
+
+    use super::PostgresCheckpointAnchor;
+    use crate::application::common::ports::CheckpointAnchor;
+    use crate::application::errors::AuditError;
+    use crate::domain::common::values::Timestamp;
+    use crate::domain::merkle::{LogId, SignedTreeHead, TreeHead, TreeSize};
+    use crate::infrastructure::persistence::postgres::TxSlot;
+
+    fn sample_sth() -> SignedTreeHead {
+        SignedTreeHead {
+            head: TreeHead {
+                size: TreeSize(1),
+                root: Digest {
+                    algo: HashAlgo::Sha256,
+                    bytes: vec![0xab],
+                },
+                at: Timestamp::from_millis(0).expect("valid timestamp"),
+            },
+            signature: Signature {
+                algo: SignAlgo::Ed25519,
+                key_id: KeyId("k".to_owned()),
+                bytes: vec![0; 64],
+            },
+        }
+    }
+
+    // The persistence/happy path is covered by the integration suite (a real
+    // transaction). Here, with no active transaction in the slot, anchoring
+    // surfaces a storage error rather than panicking.
+    #[tokio::test]
+    async fn anchoring_without_an_active_transaction_errors() {
+        let anchor = PostgresCheckpointAnchor::new(Arc::new(TxSlot::new(None)));
+        let result = anchor.anchor(LogId(Uuid::new_v4()), &sample_sth()).await;
+        assert!(matches!(result, Err(AuditError::Storage(_))));
+    }
+}
