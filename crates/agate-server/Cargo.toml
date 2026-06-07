@@ -26,6 +26,10 @@ opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
 tracing-opentelemetry = "0.33"
 figment = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+# Pin the ring provider explicitly (reqwest already pulls rustls+ring) so the
+# process default CryptoProvider is unambiguous.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [dev-dependencies]
 figment = { workspace = true, features = ["test"] }
@@ -35,6 +39,8 @@ testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 axum = { workspace = true }
 agate-crypto = { workspace = true, features = ["ed25519"] }
+rcgen = "0.13"
+tempfile = "3"
 
 [[test]]
 name = "e2e"

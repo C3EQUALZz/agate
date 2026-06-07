@@ -6,8 +6,10 @@
 //! overrides — see `agate.example.toml`. `AUDIT_LOG_ID` (a UUID) optionally
 //! pins the transparency log; when unset a fresh log is created on startup.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum_server::Handle;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -19,6 +21,7 @@ use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_server::setup::bootstrap::build_server;
 use agate_server::setup::configs::load;
 use agate_server::setup::observability::{init_logging, init_metrics};
+use agate_server::setup::tls::load_tls;
 use tracing::info;
 
 #[tokio::main]
@@ -64,17 +67,40 @@ async fn main() {
         config.policy_decision_timeout(),
     );
 
-    let listener = tokio::net::TcpListener::bind(&bind_addr)
-        .await
-        .expect("bind listener");
-    info!(%bind_addr, "agate-server listening");
+    let addr: SocketAddr = bind_addr
+        .parse()
+        .unwrap_or_else(|_| panic!("proxy.bind must be a host:port address, got {bind_addr}"));
 
-    axum::serve(listener, server.app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .expect("serve");
+    // Drive graceful shutdown through an axum-server Handle: on SIGINT/SIGTERM
+    // stop accepting and wait (no deadline) for in-flight runs to finish.
+    let handle = Handle::new();
+    tokio::spawn({
+        let handle = handle.clone();
+        async move {
+            shutdown_signal().await;
+            handle.graceful_shutdown(None);
+        }
+    });
 
-    // axum::serve has returned, so the served app — and the audit sink inside it —
+    let make_service = server.app.into_make_service();
+    if let Some(tls) = config.tls_config() {
+        let rustls = load_tls(tls).await;
+        info!(%bind_addr, "agate-server listening (TLS)");
+        axum_server::bind_rustls(addr, rustls)
+            .handle(handle)
+            .serve(make_service)
+            .await
+            .expect("serve TLS");
+    } else {
+        info!(%bind_addr, "agate-server listening");
+        axum_server::bind(addr)
+            .handle(handle)
+            .serve(make_service)
+            .await
+            .expect("serve");
+    }
+
+    // `serve` has returned, so the served app — and the audit sink inside it —
     // is dropped, closing the outbox channel. Awaiting the outbox task lets it
     // drain the queued records before the process exits.
     info!("draining the audit outbox");

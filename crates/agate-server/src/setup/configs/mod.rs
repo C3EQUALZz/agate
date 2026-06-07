@@ -7,9 +7,11 @@
 pub mod app_config;
 pub mod loader;
 pub mod observability;
+pub mod tls;
 
 pub use app_config::{AppConfig, ToolMode};
 pub use loader::load;
 pub use observability::{
     LogFormat, LoggingConfig, MetricsConfig, MetricsExporter, ObservabilityConfig, TracingConfig,
 };
+pub use tls::TlsConfig;

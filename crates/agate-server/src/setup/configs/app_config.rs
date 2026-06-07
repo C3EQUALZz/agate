@@ -10,6 +10,7 @@ use agate_proxy::setup::configs::ProxyConfig;
 use serde::{Deserialize, Serialize};
 
 use super::observability::ObservabilityConfig;
+use super::tls::TlsConfig;
 
 /// The full application configuration.
 ///
@@ -24,6 +25,7 @@ pub struct AppConfig {
     pub audit: AuditSection,
     pub policy: PolicySection,
     pub observability: ObservabilityConfig,
+    pub tls: TlsConfig,
 }
 
 impl AppConfig {
@@ -70,7 +72,20 @@ impl AppConfig {
         if self.audit.connect_backoff_secs == 0 {
             return Err("audit.connect_backoff_secs must be greater than 0".into());
         }
+        if self.tls.enabled && (self.tls.cert.trim().is_empty() || self.tls.key.trim().is_empty()) {
+            return Err(
+                "tls.cert and tls.key are required when tls.enabled (paths to the PEM \
+                 certificate chain and private key)"
+                    .into(),
+            );
+        }
         Ok(())
+    }
+
+    /// The TLS config when enabled, else `None` (serve plain HTTP).
+    #[must_use]
+    pub fn tls_config(&self) -> Option<&TlsConfig> {
+        self.tls.enabled.then_some(&self.tls)
     }
 
     #[must_use]
