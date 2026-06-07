@@ -10,6 +10,7 @@ use agate_proxy::setup::configs::ProxyConfig;
 use serde::{Deserialize, Serialize};
 
 use super::observability::ObservabilityConfig;
+use super::tls::TlsConfig;
 
 /// The full application configuration.
 ///
@@ -24,6 +25,8 @@ pub struct AppConfig {
     pub audit: AuditSection,
     pub policy: PolicySection,
     pub observability: ObservabilityConfig,
+    /// Optional TLS termination at the listener (off by default).
+    pub tls: TlsConfig,
 }
 
 impl AppConfig {
@@ -70,7 +73,20 @@ impl AppConfig {
         if self.audit.connect_backoff_secs == 0 {
             return Err("audit.connect_backoff_secs must be greater than 0".into());
         }
+        if self.tls.enabled && (self.tls.cert.trim().is_empty() || self.tls.key.trim().is_empty()) {
+            return Err(
+                "tls.cert and tls.key are required when tls.enabled (paths to the PEM \
+                 certificate chain and private key)"
+                    .into(),
+            );
+        }
         Ok(())
+    }
+
+    /// The TLS config when enabled, else `None` (serve plain HTTP).
+    #[must_use]
+    pub fn tls_config(&self) -> Option<&TlsConfig> {
+        self.tls.enabled.then_some(&self.tls)
     }
 
     #[must_use]
@@ -346,6 +362,33 @@ mod tests {
             zero_decision.validate().is_err(),
             "a 0ms policy decision timeout is rejected"
         );
+    }
+
+    #[test]
+    fn tls_is_off_by_default_and_validated_when_enabled() {
+        let mut config = AppConfig::default();
+        config.proxy.agent_endpoint = "http://agent/run".to_owned();
+        config.audit.database_url = "postgres://agate@db/agate".to_owned();
+
+        // Off by default: no TLS config, validates fine.
+        assert!(config.tls_config().is_none());
+        assert!(config.validate().is_ok());
+
+        // Enabled but missing cert/key → rejected.
+        let mut missing = config.clone();
+        missing.tls.enabled = true;
+        assert!(
+            missing.validate().is_err(),
+            "enabling TLS without cert/key is rejected"
+        );
+
+        // Enabled with both paths → validates, and tls_config() exposes it.
+        config.tls.enabled = true;
+        config.tls.cert = "/etc/agate/tls/cert.pem".to_owned();
+        config.tls.key = "/etc/agate/tls/key.pem".to_owned();
+        assert!(config.validate().is_ok());
+        let tls = config.tls_config().expect("TLS is enabled");
+        assert_eq!(tls.cert, "/etc/agate/tls/cert.pem");
     }
 
     #[test]

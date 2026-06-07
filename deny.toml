@@ -1,6 +1,13 @@
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    # rustls-pemfile is unmaintained (its PEM parsing moved into rustls-pki-types).
+    # It reaches us only transitively through axum-server's TLS listener; it is an
+    # "unmaintained" advisory, not a vulnerability. Drop this once axum-server
+    # stops depending on it.
+    "RUSTSEC-2025-0134",
+]
 
 [bans]
 multiple-versions = "warn"

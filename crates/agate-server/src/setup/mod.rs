@@ -4,3 +4,4 @@
 pub mod bootstrap;
 pub mod configs;
 pub mod observability;
+pub mod tls;

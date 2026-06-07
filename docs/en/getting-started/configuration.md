@@ -141,6 +141,23 @@ subscriber is installed), spans are flushed on graceful shutdown. Point
 `endpoint` at an OpenTelemetry Collector (or any OTLP/gRPC backend) to collect
 per-run traces.
 
+## `[tls]`
+
+Terminate TLS at Agate's own listener. Off by default — Agate then serves plain
+HTTP, which is only sensible behind a TLS-terminating gateway (an ingress, load
+balancer, or service mesh). Enable it to serve HTTPS directly (e.g. for a
+zero-trust deployment with no separate terminator).
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `false` | Serve HTTPS instead of plain HTTP. When `false`, `cert`/`key` are ignored. |
+| `cert` | — | Path to the PEM certificate chain (leaf certificate first). Required when enabled. |
+| `key` | — | Path to the PEM private key for `cert`. Required when enabled. |
+
+When enabled, a missing or invalid `cert`/`key` **aborts startup** (fail fast on
+a misconfigured listener). Both probes and the data plane are then served over
+the same TLS listener on `proxy.bind`.
+
 ## Full example
 
 ```toml
@@ -184,4 +201,9 @@ bind = "0.0.0.0:9090"
 enabled = false
 endpoint = "http://localhost:4317"
 service_name = "agate-server"
+
+[tls]
+enabled = false
+cert = "/etc/agate/tls/cert.pem"
+key = "/etc/agate/tls/key.pem"
 ```

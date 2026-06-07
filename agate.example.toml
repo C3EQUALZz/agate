@@ -83,3 +83,12 @@ enabled = false
 endpoint = "http://localhost:4317"
 # service.name reported on exported spans.
 service_name = "agate-server"
+
+[tls]
+# Serve HTTPS directly (off by default — plain HTTP, sensible only behind a
+# TLS-terminating gateway). When enabled, cert + key are required.
+enabled = false
+# Path to the PEM certificate chain (leaf certificate first).
+cert = "/etc/agate/tls/cert.pem"
+# Path to the PEM private key for the certificate.
+key = "/etc/agate/tls/key.pem"
