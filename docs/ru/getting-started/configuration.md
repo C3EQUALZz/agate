@@ -108,9 +108,30 @@ docker run --rm \
 Готовый стек Prometheus + Grafana с преднастроенным дашбордом — в
 [`deploy/observability/`](https://github.com/C3EQUALZz/agate/tree/main/deploy/observability).
 
-!!! info "Распределённый трейсинг"
-    Трейсинг OpenTelemetry (OTLP) подключается в той же секции `[observability]`
-    и будет описан здесь по мере появления.
+## `[observability.tracing]`
+
+Экспорт трейсов по OTLP — третий столп наблюдаемости наряду с логами и метриками.
+Когда выключено, спаны всё равно создаются (и видны в логах), но не экспортируются.
+
+| Ключ | По умолчанию | Значение |
+| --- | --- | --- |
+| `enabled` | `false` | Экспортировать спаны в OTLP-коллектор по gRPC. |
+| `endpoint` | `http://localhost:4317` | OTLP gRPC-эндпоинт коллектора. |
+| `service_name` | `agate-server` | `service.name` в экспортируемых спанах. |
+
+Спаны покрывают путь запроса от края до края:
+
+- `proxy_run` — по одному на каждый проксированный прогон на data-plane.
+- `audit.request` — по одному на каждую отправленную команду/запрос аудита.
+  `TracingBehavior` оборачивает весь конвейер медиатора (самым внешним звеном,
+  поверх behaviour'ов метрик и транзакции), поэтому каждый use case трассируется
+  единообразно — новые use case'ы получают спан автоматически.
+- `db.log.load` / `db.log.save` / `db.proof.inclusion` / `db.proof.consistency`
+  — по одному на каждый SQL-оператор, вложенному в спан `audit.request`,
+  который его инициировал.
+
+Спаны сбрасываются при graceful shutdown. Укажите `endpoint` на OpenTelemetry
+Collector (или любой OTLP/gRPC-бэкенд), чтобы собирать трейсы по каждому прогону.
 
 ## Полный пример
 
@@ -145,4 +166,9 @@ level = "info"
 enabled = true
 exporter = "prometheus"
 bind = "0.0.0.0:9090"
+
+[observability.tracing]
+enabled = false
+endpoint = "http://localhost:4317"
+service_name = "agate-server"
 ```

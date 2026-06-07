@@ -107,9 +107,29 @@ Exposed metrics:
 A ready-to-run Prometheus + Grafana stack with a pre-built dashboard lives in
 [`deploy/observability/`](https://github.com/C3EQUALZz/agate/tree/main/deploy/observability).
 
-!!! info "Distributed tracing"
-    OpenTelemetry (OTLP) tracing plugs into the same `[observability]` section
-    and is documented here as it lands.
+## `[observability.tracing]`
+
+OTLP trace export — the third observability pillar beside logs and metrics. When
+off, spans are still created (and shown in logs) but not exported.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `false` | Export spans to an OTLP collector over gRPC. |
+| `endpoint` | `http://localhost:4317` | OTLP gRPC endpoint of the collector. |
+| `service_name` | `agate-server` | `service.name` reported on exported spans. |
+
+Spans cover the request path end to end:
+
+- `proxy_run` — one per proxied run on the data plane.
+- `audit.request` — one per dispatched audit command/query. A `TracingBehavior`
+  wraps the whole mediator pipeline (outermost, enclosing the metrics and
+  transaction behaviors), so every use case is traced uniformly — new use cases
+  get a span for free.
+- `db.log.load` / `db.log.save` / `db.proof.inclusion` / `db.proof.consistency`
+  — one per SQL statement, nested under the `audit.request` span that issued it.
+
+Spans are flushed on graceful shutdown. Point `endpoint` at an OpenTelemetry
+Collector (or any OTLP/gRPC backend) to collect per-run traces.
 
 ## Full example
 
@@ -144,4 +164,9 @@ level = "info"
 enabled = true
 exporter = "prometheus"
 bind = "0.0.0.0:9090"
+
+[observability.tracing]
+enabled = false
+endpoint = "http://localhost:4317"
+service_name = "agate-server"
 ```

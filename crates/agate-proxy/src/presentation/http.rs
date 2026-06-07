@@ -86,6 +86,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// Reverse-proxy a run: forward the client's `RunAgentInput` to the agent, then
 /// stream the agent's SSE response back through inspection.
+#[tracing::instrument(skip_all)]
 async fn proxy_run(
     Inject(inspector): Inject<Inspector>,
     Inject(client): Inject<ReqwestAgentClient>,

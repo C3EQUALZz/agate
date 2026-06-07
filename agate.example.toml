@@ -62,3 +62,11 @@ exporter = "prometheus"
 # Its own port — scraped by Prometheus inside the network, NOT the public
 # data-plane port. Map/expose it only where your scraper can reach it.
 bind = "0.0.0.0:9090"
+
+[observability.tracing]
+# Export spans to an OTLP collector (off by default; spans stay log-only).
+enabled = false
+# OTLP gRPC endpoint of the collector (e.g. an OpenTelemetry Collector).
+endpoint = "http://localhost:4317"
+# service.name reported on exported spans.
+service_name = "agate-server"

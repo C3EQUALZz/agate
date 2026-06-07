@@ -1,11 +1,36 @@
 use serde::{Deserialize, Serialize};
 
-/// `[observability]` — logging and metrics connectors (tracing lands here next).
+/// `[observability]` — logging, metrics, and tracing connectors.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ObservabilityConfig {
     pub logging: LoggingConfig,
     pub metrics: MetricsConfig,
+    pub tracing: TracingConfig,
+}
+
+/// `[observability.tracing]` — OTLP trace export (the third observability pillar,
+/// beside logs and metrics).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TracingConfig {
+    /// Export spans via OTLP at all. `false` leaves tracing as log spans only
+    /// (no exporter installed).
+    pub enabled: bool,
+    /// OTLP gRPC endpoint of the collector (e.g. an OpenTelemetry Collector).
+    pub endpoint: String,
+    /// `service.name` reported on exported spans.
+    pub service_name: String,
+}
+
+impl Default for TracingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: "http://localhost:4317".into(),
+            service_name: "agate-server".into(),
+        }
+    }
 }
 
 /// `[observability.logging]` — the console/structured log output.

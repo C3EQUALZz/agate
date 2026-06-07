@@ -11,7 +11,9 @@ use froodi::{
     DefaultScope::Request, Inject, InstantiatorResult, async_impl::RegistryWithSync, async_registry,
 };
 
-use crate::application::common::behaviors::{MetricsBehavior, TransactionBehavior};
+use crate::application::common::behaviors::{
+    MetricsBehavior, TracingBehavior, TransactionBehavior,
+};
 use crate::application::common::ports::{
     AuditMetrics, CheckpointAnchor, KeyStore, LogCommandGateway, LogQueryGateway,
     TransactionManager,
@@ -35,6 +37,7 @@ use crate::infrastructure::{
 pub(crate) fn handler_providers() -> RegistryWithSync {
     async_registry! {
         scope(Request) [
+            provide(provide_tracing_behavior),
             provide(provide_transaction_behavior),
             provide(provide_metrics_behavior),
             provide(provide_create_log_handler),
@@ -64,6 +67,10 @@ async fn provide_transaction_behavior(
 ) -> InstantiatorResult<TransactionBehavior> {
     let manager: Arc<dyn TransactionManager> = manager;
     Ok(TransactionBehavior::new(manager))
+}
+
+async fn provide_tracing_behavior() -> InstantiatorResult<TracingBehavior> {
+    Ok(TracingBehavior)
 }
 
 async fn provide_metrics_behavior() -> InstantiatorResult<MetricsBehavior> {
