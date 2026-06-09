@@ -86,8 +86,8 @@ async fn proxy_run(
 
     let upstream = client.run(request).await.map_err(|error| {
         warn!(run = %context.run.0, %error, "upstream agent request failed");
-        metrics.record_upstream_error();
-        ProxyError::Upstream(error.to_string())
+        metrics.record_upstream_error(&error);
+        ProxyError::Upstream(error)
     })?;
 
     let inspected = inspect_stream(upstream, inspector, context, Budgets::default(), metrics)

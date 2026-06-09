@@ -109,7 +109,7 @@ Exposed metrics:
 
 - `agate_runs_total` — runs proxied.
 - `agate_events_inspected_total{outcome="forward|buffer|transform|deny|terminate"}` — inspected events by outcome (the verdict breakdown).
-- `agate_upstream_errors_total` — upstream agent request/stream failures.
+- `agate_upstream_errors_total{kind="connect|timeout|status|stream"}` — upstream agent request/stream failures by kind.
 - `agate_audit_records_appended_total` / `agate_audit_records_dropped_total` — transparency-log writes vs. drops (a non-zero drop rate means audit is falling behind — alert on it).
 
 A ready-to-run Prometheus + Grafana stack with a pre-built dashboard lives in

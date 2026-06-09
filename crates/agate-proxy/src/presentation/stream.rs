@@ -37,7 +37,7 @@ pub fn inspect_stream(
                 Ok(chunk) => chunk,
                 Err(error) => {
                     warn!(run = %context.run.0, %error, "upstream stream error; ending run with RUN_ERROR");
-                    metrics.record_upstream_error();
+                    metrics.record_upstream_error(&error);
                     yield Bytes::from(run_error(&error.to_string()));
                     return;
                 }
@@ -183,7 +183,7 @@ mod tests {
 
     impl ProxyMetrics for CountingMetrics {
         fn record_run(&self) {}
-        fn record_upstream_error(&self) {
+        fn record_upstream_error(&self, _: &UpstreamError) {
             self.upstream_errors
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
@@ -278,7 +278,7 @@ mod tests {
 
     #[tokio::test]
     async fn upstream_error_ends_with_a_run_error() {
-        let upstream = stream::iter(vec![Err(UpstreamError("boom".to_string()))]).boxed();
+        let upstream = stream::iter(vec![Err(UpstreamError::Stream("boom".to_string()))]).boxed();
         let stream = inspect_stream(
             upstream,
             inspector(Arc::new(AllowAllPolicy)),

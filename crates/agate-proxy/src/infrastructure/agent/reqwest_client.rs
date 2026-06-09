@@ -41,13 +41,37 @@ impl UpstreamAgentClient for ReqwestAgentClient {
         let response = builder
             .send()
             .await
-            .map_err(|error| UpstreamError(error.to_string()))?
+            .map_err(|error| request_error(&error))?;
+        let response = response
             .error_for_status()
-            .map_err(|error| UpstreamError(error.to_string()))?;
+            .map_err(|error| match error.status() {
+                Some(status) => UpstreamError::Status(status.as_u16()),
+                None => UpstreamError::Stream(error.to_string()),
+            })?;
 
         let stream = response
             .bytes_stream()
-            .map(|chunk| chunk.map_err(|error| UpstreamError(error.to_string())));
+            .map(|chunk| chunk.map_err(|error| chunk_error(&error)));
         Ok(stream.boxed())
+    }
+}
+
+/// Classify a failure of the request leg (before any response arrived).
+fn request_error(error: &reqwest::Error) -> UpstreamError {
+    if error.is_timeout() {
+        UpstreamError::Timeout
+    } else if error.is_connect() {
+        UpstreamError::Connect(error.to_string())
+    } else {
+        UpstreamError::Stream(error.to_string())
+    }
+}
+
+/// Classify a failure between response chunks (the stream already started).
+fn chunk_error(error: &reqwest::Error) -> UpstreamError {
+    if error.is_timeout() {
+        UpstreamError::Timeout
+    } else {
+        UpstreamError::Stream(error.to_string())
     }
 }

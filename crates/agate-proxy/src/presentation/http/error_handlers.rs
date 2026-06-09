@@ -5,6 +5,8 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+use crate::application::common::ports::UpstreamError;
+
 /// A failure handling a proxied run *before* the response stream begins. Each
 /// variant carries an operator-facing message and maps to a fixed HTTP status.
 #[derive(Debug)]
@@ -13,8 +15,9 @@ pub enum ProxyError {
     MalformedRequest(String),
     /// Policy denied the request on the request leg → `403 Forbidden`.
     Denied(String),
-    /// The upstream agent could not be reached or failed → `502 Bad Gateway`.
-    Upstream(String),
+    /// The upstream agent failed: a timeout → `504 Gateway Timeout`, anything
+    /// else → `502 Bad Gateway`.
+    Upstream(UpstreamError),
 }
 
 impl IntoResponse for ProxyError {
@@ -24,7 +27,11 @@ impl IntoResponse for ProxyError {
                 (StatusCode::BAD_REQUEST, format!("invalid request: {error}"))
             }
             Self::Denied(reason) => (StatusCode::FORBIDDEN, reason),
-            Self::Upstream(error) => (StatusCode::BAD_GATEWAY, error),
+            Self::Upstream(UpstreamError::Timeout) => (
+                StatusCode::GATEWAY_TIMEOUT,
+                UpstreamError::Timeout.to_string(),
+            ),
+            Self::Upstream(error) => (StatusCode::BAD_GATEWAY, error.to_string()),
         };
         (status, body).into_response()
     }
@@ -32,7 +39,7 @@ impl IntoResponse for ProxyError {
 
 #[cfg(test)]
 mod tests {
-    use super::ProxyError;
+    use super::{ProxyError, UpstreamError};
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
 
@@ -51,10 +58,26 @@ mod tests {
             StatusCode::FORBIDDEN,
         );
         assert_eq!(
-            ProxyError::Upstream("down".to_owned())
+            ProxyError::Upstream(UpstreamError::Connect("down".to_owned()))
                 .into_response()
                 .status(),
             StatusCode::BAD_GATEWAY,
+        );
+        assert_eq!(
+            ProxyError::Upstream(UpstreamError::Status(500))
+                .into_response()
+                .status(),
+            StatusCode::BAD_GATEWAY,
+        );
+    }
+
+    #[test]
+    fn an_upstream_timeout_is_a_gateway_timeout() {
+        assert_eq!(
+            ProxyError::Upstream(UpstreamError::Timeout)
+                .into_response()
+                .status(),
+            StatusCode::GATEWAY_TIMEOUT,
         );
     }
 }

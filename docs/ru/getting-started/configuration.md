@@ -110,7 +110,7 @@ docker run --rm \
 
 - `agate_runs_total` — проксированных прогонов.
 - `agate_events_inspected_total{outcome="forward|buffer|transform|deny|terminate"}` — проинспектированные события по исходу (разбивка по вердиктам).
-- `agate_upstream_errors_total` — ошибки запроса/потока к вышестоящему агенту.
+- `agate_upstream_errors_total{kind="connect|timeout|status|stream"}` — ошибки запроса/потока к вышестоящему агенту по видам.
 - `agate_audit_records_appended_total` / `agate_audit_records_dropped_total` — записи в журнал прозрачности против дропов (ненулевой drop-rate = аудит не успевает, ставьте алерт).
 
 Готовый стек Prometheus + Grafana с преднастроенным дашбордом — в
