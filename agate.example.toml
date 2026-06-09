@@ -36,7 +36,9 @@ max_concurrent_requests = 256
 # api_keys = ["current-key", "next-key"]
 
 [audit]
-# PostgreSQL URL for the transparency log (required).
+# Which persistence backend assembles at startup.
+backend = "postgres"
+# PostgreSQL URL for the transparency log (required for backend = "postgres").
 # Supply the password via the env override, not here:
 #   AGATE__AUDIT__DATABASE_URL=postgres://agate:<password>@postgres:5432/agate
 database_url = "postgres://agate@postgres:5432/agate"

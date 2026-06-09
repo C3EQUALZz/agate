@@ -17,6 +17,7 @@ use agate_audit::infrastructure::persistence::postgres::{
     PoolConfig, connect_pool, run_migrations,
 };
 use agate_audit::setup::bootstrap::build_app;
+use agate_audit::setup::storage::Storage;
 
 /// A running application: the HTTP server (background task), its base URL, and a
 /// pool to inspect the database directly. Holds the container alive (RAII).
@@ -39,7 +40,7 @@ pub async fn spawn() -> TestApp {
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let app = build_app(pool.clone());
+    let app = build_app(&Storage::postgres(pool.clone()));
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });

@@ -14,10 +14,7 @@ use froodi::{
 use crate::application::common::behaviors::{
     MetricsBehavior, TracingBehavior, TransactionBehavior,
 };
-use crate::application::common::ports::{
-    AuditMetrics, CheckpointAnchor, KeyStore, LogCommandGateway, LogQueryGateway,
-    TransactionManager,
-};
+use crate::application::common::ports::{AuditMetrics, KeyStore};
 use crate::application::usecases::append_record::AppendRecordHandler;
 use crate::application::usecases::create_log::CreateLogHandler;
 use crate::application::usecases::get_consistency_proof::GetConsistencyProofHandler;
@@ -25,12 +22,12 @@ use crate::application::usecases::get_inclusion_proof::GetInclusionProofHandler;
 use crate::application::usecases::issue_checkpoint::IssueCheckpointHandler;
 use crate::domain::merkle::{LogId, TransparencyLogFactory};
 use crate::domain::ports::{Clock, IdGenerator};
-use crate::infrastructure::persistence::log::postgres::{
-    PostgresCheckpointAnchor, PostgresLogCommandGateway, PostgresLogQueryGateway,
-};
-use crate::infrastructure::persistence::postgres::PgTransactionManager;
 use crate::infrastructure::{
     AuditMetricsRecorder, Ed25519KeyStore, SystemClock, UuidLogIdGenerator,
+};
+use crate::setup::ioc::handles::{
+    CheckpointAnchorHandle, LogCommandGatewayHandle, LogQueryGatewayHandle,
+    TransactionManagerHandle,
 };
 
 /// The use-case handlers and the transaction behavior, all Request-scoped.
@@ -50,23 +47,25 @@ pub(crate) fn handler_providers() -> RegistryWithSync {
 }
 
 async fn provide_issue_checkpoint_handler(
-    Inject(gateway): Inject<PostgresLogCommandGateway>,
+    Inject(gateway): Inject<LogCommandGatewayHandle>,
     Inject(keys): Inject<Ed25519KeyStore>,
-    Inject(anchor): Inject<PostgresCheckpointAnchor>,
+    Inject(anchor): Inject<CheckpointAnchorHandle>,
     Inject(clock): Inject<SystemClock>,
 ) -> InstantiatorResult<IssueCheckpointHandler> {
-    let gateway: Arc<dyn LogCommandGateway> = gateway;
     let keys: Arc<dyn KeyStore> = keys;
-    let anchor: Arc<dyn CheckpointAnchor> = anchor;
     let clock: Arc<dyn Clock> = clock;
-    Ok(IssueCheckpointHandler::new(gateway, keys, anchor, clock))
+    Ok(IssueCheckpointHandler::new(
+        gateway.0.clone(),
+        keys,
+        anchor.0.clone(),
+        clock,
+    ))
 }
 
 async fn provide_transaction_behavior(
-    Inject(manager): Inject<PgTransactionManager>,
+    Inject(manager): Inject<TransactionManagerHandle>,
 ) -> InstantiatorResult<TransactionBehavior> {
-    let manager: Arc<dyn TransactionManager> = manager;
-    Ok(TransactionBehavior::new(manager))
+    Ok(TransactionBehavior::new(manager.0.clone()))
 }
 
 async fn provide_tracing_behavior() -> InstantiatorResult<TracingBehavior> {
@@ -82,36 +81,32 @@ async fn provide_create_log_handler(
     Inject(factory): Inject<TransparencyLogFactory>,
     Inject(ids): Inject<UuidLogIdGenerator>,
     Inject(clock): Inject<SystemClock>,
-    Inject(gateway): Inject<PostgresLogCommandGateway>,
+    Inject(gateway): Inject<LogCommandGatewayHandle>,
 ) -> InstantiatorResult<CreateLogHandler> {
     let ids: Arc<dyn IdGenerator<LogId>> = ids;
     let clock: Arc<dyn Clock> = clock;
-    let gateway: Arc<dyn LogCommandGateway> = gateway;
     Ok(CreateLogHandler::new(
         (*factory).clone(),
         ids,
         clock,
-        gateway,
+        gateway.0.clone(),
     ))
 }
 
 async fn provide_append_record_handler(
-    Inject(gateway): Inject<PostgresLogCommandGateway>,
+    Inject(gateway): Inject<LogCommandGatewayHandle>,
 ) -> InstantiatorResult<AppendRecordHandler> {
-    let gateway: Arc<dyn LogCommandGateway> = gateway;
-    Ok(AppendRecordHandler::new(gateway))
+    Ok(AppendRecordHandler::new(gateway.0.clone()))
 }
 
 async fn provide_get_inclusion_proof_handler(
-    Inject(gateway): Inject<PostgresLogQueryGateway>,
+    Inject(gateway): Inject<LogQueryGatewayHandle>,
 ) -> InstantiatorResult<GetInclusionProofHandler> {
-    let gateway: Arc<dyn LogQueryGateway> = gateway;
-    Ok(GetInclusionProofHandler::new(gateway))
+    Ok(GetInclusionProofHandler::new(gateway.0.clone()))
 }
 
 async fn provide_get_consistency_proof_handler(
-    Inject(gateway): Inject<PostgresLogQueryGateway>,
+    Inject(gateway): Inject<LogQueryGatewayHandle>,
 ) -> InstantiatorResult<GetConsistencyProofHandler> {
-    let gateway: Arc<dyn LogQueryGateway> = gateway;
-    Ok(GetConsistencyProofHandler::new(gateway))
+    Ok(GetConsistencyProofHandler::new(gateway.0.clone()))
 }

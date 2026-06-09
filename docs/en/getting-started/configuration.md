@@ -53,7 +53,8 @@ aborts startup — fail fast on misconfiguration rather than running degraded.
 
 | Key | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `database_url` | **yes** | — | PostgreSQL connection string for the Merkle transparency log. Migrations run on startup. Prefer `AGATE__AUDIT__DATABASE_URL` for the password. |
+| `backend` | no | `postgres` | Which persistence backend assembles at startup. `postgres` today; further backends land behind Cargo features. |
+| `database_url` | **yes** | — | PostgreSQL connection string for the Merkle transparency log (for `backend = "postgres"`). Migrations run on startup. Prefer `AGATE__AUDIT__DATABASE_URL` for the password. |
 | `max_connections` | no | `10` | Maximum pooled database connections. |
 | `acquire_timeout_secs` | no | `30` | How long to wait for a free pooled connection before erroring. |
 | `connect_max_retries` | no | `10` | Initial-connect retries before startup gives up (`0` = try once). Rides out a database still starting beside Agate (compose/Kubernetes) instead of crashing on the first failed connect. |
@@ -173,6 +174,7 @@ max_concurrent_requests = 256
 # api_keys = ["current", "next"] # multiple keys for zero-downtime rotation
 
 [audit]
+backend = "postgres"
 # Prefer AGATE__AUDIT__DATABASE_URL for the password.
 database_url = "postgres://agate@postgres:5432/agate"
 max_connections = 10

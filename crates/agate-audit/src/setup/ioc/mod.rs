@@ -7,6 +7,7 @@
 //! them through the [`Resolve`] bridge implemented here for the container.
 
 pub mod container;
+pub mod handles;
 pub mod providers;
 pub mod registry;
 
