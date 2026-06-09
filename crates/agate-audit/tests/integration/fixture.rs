@@ -17,10 +17,11 @@ use agate_audit::infrastructure::persistence::postgres::{
 };
 
 /// A running PostgreSQL container with migrations applied; holds the container
-/// alive (RAII) and exposes a connected pool.
+/// alive (RAII) and exposes a connected pool and its connection URL.
 pub struct Db {
     pub container: ContainerAsync<Postgres>,
     pub pool: PgPool,
+    pub url: String,
 }
 
 pub async fn start() -> Db {
@@ -33,5 +34,9 @@ pub async fn start() -> Db {
     let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
     let pool = connect_pool(&url, &PoolConfig::default()).await.unwrap();
     run_migrations(&pool).await.unwrap();
-    Db { container, pool }
+    Db {
+        container,
+        pool,
+        url,
+    }
 }

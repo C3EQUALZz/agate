@@ -6,3 +6,4 @@ mod checkpoint;
 mod dispatcher;
 mod fixture;
 mod gateway;
+mod storage;
