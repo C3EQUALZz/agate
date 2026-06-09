@@ -209,9 +209,12 @@ convention is `pub(crate)` construction for aggregates.
 - `RunId` / `SessionId`: private field; `new(Uuid)` (infallible — any UUID is
   valid) + `value(&self) -> Uuid`; implement `Display` so logging becomes
   `%context.run` instead of `%context.run.0`.
-- `Run::new` → `pub(crate)` (all construction is inside the crate:
-  `inspect_stream` / tests). No factory — `Run` is transient per-request state,
-  not a persisted aggregate; a factory would be ceremony.
+- `Run::new` stays `pub` (adjusted during implementation): the crate's
+  black-box suites (`tests/run_inspection.rs`, `tests/application/`) construct
+  `Run` directly, and an integration-test binary is an *external* crate —
+  `pub(crate)` would force those tests in-file. No factory either — `Run` is
+  transient per-request state, not a persisted aggregate; a factory would be
+  ceremony.
 - Sweep `.0` accesses across `agate-proxy` and `agate-server`
   (`rg "\.run\.0|\.session\.0|ToolCallId\(|MessageId\(" crates`) and migrate.
 

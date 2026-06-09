@@ -31,22 +31,22 @@ pub fn to_fragment(value: &Value) -> Result<Option<Fragment>, AgUiError> {
             value, kind, "stepName",
         )?)),
         et::TEXT_MESSAGE_CONTENT => Fragment::MessageChunk {
-            message: MessageId(string(value, kind, "messageId")?),
+            message: message_id(value, kind)?,
             text: string(value, kind, "delta")?,
         },
         et::TOOL_CALL_START => Fragment::ToolCallStarted {
-            id: ToolCallId(string(value, kind, "toolCallId")?),
+            id: tool_call_id(value, kind)?,
             name: string(value, kind, "toolCallName")?,
         },
         et::TOOL_CALL_ARGS => Fragment::ToolCallArgs {
-            id: ToolCallId(string(value, kind, "toolCallId")?),
+            id: tool_call_id(value, kind)?,
             delta: string(value, kind, "delta")?,
         },
         et::TOOL_CALL_END => Fragment::ToolCallEnded {
-            id: ToolCallId(string(value, kind, "toolCallId")?),
+            id: tool_call_id(value, kind)?,
         },
         et::TOOL_CALL_RESULT => Fragment::ToolResult {
-            id: ToolCallId(string(value, kind, "toolCallId")?),
+            id: tool_call_id(value, kind)?,
             content: string(value, kind, "content")?,
         },
         et::STATE_SNAPSHOT => {
@@ -84,12 +84,12 @@ pub fn to_event(event: &AgentEvent) -> Option<Value> {
     match event {
         AgentEvent::MessageChunk { message, text } => Some(json!({
             "type": et::TEXT_MESSAGE_CONTENT,
-            "messageId": message.0,
+            "messageId": message.as_str(),
             "delta": text,
         })),
         AgentEvent::ToolResult { id, content } => Some(json!({
             "type": et::TOOL_CALL_RESULT,
-            "toolCallId": id.0,
+            "toolCallId": id.as_str(),
             "content": content,
         })),
         AgentEvent::ToolCall { .. }
@@ -107,8 +107,25 @@ fn string(value: &Value, kind: &str, field: &'static str) -> Result<String, AgUi
         .ok_or_else(|| missing(kind, field))
 }
 
+/// Extract a validated `messageId` — present and non-blank.
+fn message_id(value: &Value, kind: &str) -> Result<MessageId, AgUiError> {
+    MessageId::new(string(value, kind, "messageId")?).map_err(|_| blank(kind, "messageId"))
+}
+
+/// Extract a validated `toolCallId` — present and non-blank.
+fn tool_call_id(value: &Value, kind: &str) -> Result<ToolCallId, AgUiError> {
+    ToolCallId::new(string(value, kind, "toolCallId")?).map_err(|_| blank(kind, "toolCallId"))
+}
+
 fn missing(kind: &str, field: &'static str) -> AgUiError {
     AgUiError::MissingField {
+        event: kind.to_owned(),
+        field,
+    }
+}
+
+fn blank(kind: &str, field: &'static str) -> AgUiError {
+    AgUiError::BlankField {
         event: kind.to_owned(),
         field,
     }
@@ -146,7 +163,7 @@ mod tests {
         assert_eq!(
             fragment,
             Some(Fragment::MessageChunk {
-                message: MessageId("m1".to_string()),
+                message: MessageId::new("m1").expect("valid id"),
                 text: "hello".to_string(),
             })
         );
@@ -160,7 +177,7 @@ mod tests {
             )
             .unwrap(),
             Some(Fragment::ToolCallStarted {
-                id: ToolCallId("c1".to_string()),
+                id: ToolCallId::new("c1").expect("valid id"),
                 name: "search".to_string(),
             })
         );
@@ -170,14 +187,14 @@ mod tests {
             )
             .unwrap(),
             Some(Fragment::ToolCallArgs {
-                id: ToolCallId("c1".to_string()),
+                id: ToolCallId::new("c1").expect("valid id"),
                 delta: "{\"q\":".to_string(),
             })
         );
         assert_eq!(
             to_fragment(&json!({ "type": "TOOL_CALL_END", "toolCallId": "c1" })).unwrap(),
             Some(Fragment::ToolCallEnded {
-                id: ToolCallId("c1".to_string()),
+                id: ToolCallId::new("c1").expect("valid id"),
             })
         );
     }
@@ -247,7 +264,7 @@ mod tests {
     #[test]
     fn re_encodes_a_transformed_message_chunk() {
         let event = AgentEvent::MessageChunk {
-            message: MessageId("m1".to_string()),
+            message: MessageId::new("m1").expect("valid id"),
             text: "[redacted]".to_string(),
         };
         assert_eq!(

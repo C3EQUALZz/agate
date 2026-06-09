@@ -42,7 +42,7 @@ impl AuditSink for AuditLogSink {
             tracing::error!("audit outbox closed; dropping inspected record");
             self.metrics.record_dropped();
         } else {
-            tracing::debug!(run = %context.run.0, "enqueued inspected event to the audit outbox");
+            tracing::debug!(run = %context.run, "enqueued inspected event to the audit outbox");
         }
     }
 }
@@ -72,7 +72,7 @@ mod tests {
     }
 
     fn context() -> InspectionContext {
-        InspectionContext::new(SessionId(Uuid::nil()), RunId(Uuid::nil()))
+        InspectionContext::new(SessionId::new(Uuid::nil()), RunId::new(Uuid::nil()))
     }
 
     #[tokio::test]

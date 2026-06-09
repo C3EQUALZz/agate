@@ -58,10 +58,11 @@ async fn proxy_run(
 ) -> Result<Response, ProxyError> {
     let client = client.0.clone();
     let metrics = metrics.0.clone();
-    let context = InspectionContext::new(SessionId(Uuid::new_v4()), RunId(Uuid::new_v4()));
+    let context =
+        InspectionContext::new(SessionId::new(Uuid::new_v4()), RunId::new(Uuid::new_v4()));
     info!(
-        session = %context.session.0,
-        run = %context.run.0,
+        session = %context.session,
+        run = %context.run,
         "run received; forwarding to upstream agent"
     );
     metrics.record_run();
@@ -71,11 +72,11 @@ async fn proxy_run(
     // SSRF URLs without forwarding. The status for each failure is decided in
     // `error_handlers`; here we only attach context and log.
     let inbound = parse_request(&body).map_err(|error| {
-        warn!(run = %context.run.0, %error, "rejecting a malformed request body");
+        warn!(run = %context.run, %error, "rejecting a malformed request body");
         ProxyError::MalformedRequest(error.to_string())
     })?;
     if let RequestDecision::Reject(reason) = inspector.inspect_request(&context, &inbound).await {
-        info!(run = %context.run.0, reason = reason.as_str(), "request denied on the request leg");
+        info!(run = %context.run, reason = reason.as_str(), "request denied on the request leg");
         return Err(ProxyError::Denied(reason.as_str().to_owned()));
     }
 
@@ -85,7 +86,7 @@ async fn proxy_run(
     };
 
     let upstream = client.run(request).await.map_err(|error| {
-        warn!(run = %context.run.0, %error, "upstream agent request failed");
+        warn!(run = %context.run, %error, "upstream agent request failed");
         metrics.record_upstream_error(&error);
         ProxyError::Upstream(error)
     })?;

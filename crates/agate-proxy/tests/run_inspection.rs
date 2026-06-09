@@ -9,7 +9,7 @@ use agate_proxy::domain::inspection::{Run, RunId};
 use uuid::Uuid;
 
 fn run() -> Run {
-    Run::new(RunId(Uuid::nil()), Budgets::default())
+    Run::new(RunId::new(Uuid::nil()), Budgets::default())
 }
 
 fn started_run() -> Run {
@@ -23,7 +23,7 @@ fn started_run() -> Run {
 }
 
 fn tool(id: &str) -> ToolCallId {
-    ToolCallId(id.to_string())
+    ToolCallId::new(id).expect("valid id")
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn rejects_arguments_for_an_unknown_tool_call() {
 
 #[test]
 fn enforces_the_tool_argument_budget() {
-    let mut run = Run::new(RunId(Uuid::nil()), Budgets::new(8, 1024, 4));
+    let mut run = Run::new(RunId::new(Uuid::nil()), Budgets::new(8, 1024, 4));
     run.inspect(Fragment::Lifecycle(LifecyclePhase::RunStarted));
     run.inspect(Fragment::ToolCallStarted {
         id: tool("t1"),
@@ -111,7 +111,7 @@ fn enforces_the_tool_argument_budget() {
 
 #[test]
 fn enforces_the_state_mutation_budget() {
-    let mut run = Run::new(RunId(Uuid::nil()), Budgets::new(1024, 4, 4));
+    let mut run = Run::new(RunId::new(Uuid::nil()), Budgets::new(1024, 4, 4));
     run.inspect(Fragment::Lifecycle(LifecyclePhase::RunStarted));
     let outcome = run.inspect(Fragment::StateMutation(StateMutation::Snapshot {
         byte_size: 16,

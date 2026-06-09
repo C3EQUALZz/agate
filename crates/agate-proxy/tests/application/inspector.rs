@@ -15,11 +15,11 @@ use agate_proxy::domain::inspection::{
 use crate::common::fakes::{CountingAudit, FixedPolicy};
 
 fn context() -> InspectionContext {
-    InspectionContext::new(SessionId(Uuid::nil()), RunId(Uuid::nil()))
+    InspectionContext::new(SessionId::new(Uuid::nil()), RunId::new(Uuid::nil()))
 }
 
 fn run() -> Run {
-    Run::new(RunId(Uuid::nil()), Budgets::default())
+    Run::new(RunId::new(Uuid::nil()), Budgets::default())
 }
 
 /// Build an inspector over a fixed-verdict policy, returning the audit double so
@@ -64,7 +64,7 @@ async fn buffers_a_tool_call_without_consulting_policy_or_audit() {
             &mut run,
             &context(),
             Fragment::ToolCallStarted {
-                id: ToolCallId("t1".to_string()),
+                id: ToolCallId::new("t1").expect("valid id"),
                 name: "search".to_string(),
             },
         )
@@ -94,7 +94,7 @@ async fn denies_to_drop_and_records() {
 #[tokio::test]
 async fn transforms_to_forward_transformed() {
     let replacement = AgentEvent::MessageChunk {
-        message: MessageId("m".to_string()),
+        message: MessageId::new("m").expect("valid id"),
         text: "[redacted]".to_string(),
     };
     let (inspector, _audit) = inspector(Verdict::Transform(replacement.clone()));
