@@ -1,5 +1,4 @@
 use std::convert::Infallible;
-use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{Body, Bytes};
@@ -14,12 +13,12 @@ use uuid::Uuid;
 
 use self::error_handlers::ProxyError;
 use super::inspect_stream;
-use crate::application::common::ports::{ProxyMetrics, RunRequest, UpstreamAgentClient};
+use crate::application::common::ports::RunRequest;
 use crate::application::inspection::{InspectionContext, Inspector, RequestDecision};
 use crate::domain::inspection::{Budgets, RunId, SessionId};
 use crate::infrastructure::ag_ui::parse_request;
-use crate::infrastructure::{ProxyMetricsRecorder, ReqwestAgentClient};
 use crate::setup::configs::ProxyConfig;
+use crate::setup::ioc::{ProxyMetricsHandle, UpstreamAgentClientHandle};
 
 pub mod error_handlers;
 pub mod middlewares;
@@ -52,12 +51,13 @@ async fn healthz() -> &'static str {
 #[tracing::instrument(skip_all)]
 async fn proxy_run(
     Inject(inspector): Inject<Inspector>,
-    Inject(client): Inject<ReqwestAgentClient>,
-    Inject(metrics): Inject<ProxyMetricsRecorder>,
+    Inject(client): Inject<UpstreamAgentClientHandle>,
+    Inject(metrics): Inject<ProxyMetricsHandle>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ProxyError> {
-    let metrics: Arc<dyn ProxyMetrics> = metrics;
+    let client = client.0.clone();
+    let metrics = metrics.0.clone();
     let context = InspectionContext::new(SessionId(Uuid::new_v4()), RunId(Uuid::new_v4()));
     info!(
         session = %context.session.0,
