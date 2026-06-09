@@ -30,57 +30,13 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    /// Fail fast on missing required values (no sensible default exists for them).
+    /// Fail fast on missing required values (no sensible default exists for
+    /// them). Each section owns its invariants; this only composes them.
     pub fn validate(&self) -> Result<(), String> {
-        if self.proxy.agent_endpoint.trim().is_empty() {
-            return Err(
-                "proxy.agent_endpoint is required (set [proxy].agent_endpoint or \
-                 AGATE__PROXY__AGENT_ENDPOINT)"
-                    .into(),
-            );
-        }
-        if self.audit.database_url.trim().is_empty() {
-            return Err(
-                "audit.database_url is required (set [audit].database_url or \
-                 AGATE__AUDIT__DATABASE_URL)"
-                    .into(),
-            );
-        }
-        // Zero is a footgun, not a sensible "disable": a 0-byte body limit
-        // rejects every request, and a 0s timeout fails the connection at once.
-        if self.proxy.max_body_bytes == 0 {
-            return Err("proxy.max_body_bytes must be greater than 0".into());
-        }
-        if self.proxy.connect_timeout_secs == 0 || self.proxy.read_timeout_secs == 0 {
-            return Err(
-                "proxy.connect_timeout_secs and proxy.read_timeout_secs must be greater than 0"
-                    .into(),
-            );
-        }
-        if self.proxy.max_concurrent_requests == 0 {
-            return Err("proxy.max_concurrent_requests must be greater than 0".into());
-        }
-        if self.policy.decision_timeout_ms == 0 {
-            return Err("policy.decision_timeout_ms must be greater than 0".into());
-        }
-        if self.audit.max_connections == 0 {
-            return Err("audit.max_connections must be greater than 0".into());
-        }
-        if self.audit.acquire_timeout_secs == 0 {
-            return Err("audit.acquire_timeout_secs must be greater than 0".into());
-        }
-        // A zero backoff would busy-loop the connect retries; require a real pause.
-        if self.audit.connect_backoff_secs == 0 {
-            return Err("audit.connect_backoff_secs must be greater than 0".into());
-        }
-        if self.tls.enabled && (self.tls.cert.trim().is_empty() || self.tls.key.trim().is_empty()) {
-            return Err(
-                "tls.cert and tls.key are required when tls.enabled (paths to the PEM \
-                 certificate chain and private key)"
-                    .into(),
-            );
-        }
-        Ok(())
+        self.proxy.validate()?;
+        self.audit.validate()?;
+        self.policy.validate()?;
+        self.tls.validate()
     }
 
     /// The TLS config when enabled, else `None` (serve plain HTTP).
@@ -190,6 +146,34 @@ pub struct ProxySection {
     pub max_concurrent_requests: usize,
 }
 
+impl ProxySection {
+    /// Fail fast on a missing endpoint or zeroed ingress knobs.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.agent_endpoint.trim().is_empty() {
+            return Err(
+                "proxy.agent_endpoint is required (set [proxy].agent_endpoint or \
+                 AGATE__PROXY__AGENT_ENDPOINT)"
+                    .into(),
+            );
+        }
+        // Zero is a footgun, not a sensible "disable": a 0-byte body limit
+        // rejects every request, and a 0s timeout fails the connection at once.
+        if self.max_body_bytes == 0 {
+            return Err("proxy.max_body_bytes must be greater than 0".into());
+        }
+        if self.connect_timeout_secs == 0 || self.read_timeout_secs == 0 {
+            return Err(
+                "proxy.connect_timeout_secs and proxy.read_timeout_secs must be greater than 0"
+                    .into(),
+            );
+        }
+        if self.max_concurrent_requests == 0 {
+            return Err("proxy.max_concurrent_requests must be greater than 0".into());
+        }
+        Ok(())
+    }
+}
+
 impl Default for ProxySection {
     fn default() -> Self {
         Self {
@@ -221,6 +205,39 @@ pub struct AuditSection {
     pub connect_max_retries: u32,
     /// Base backoff between connect attempts, in seconds (doubled each retry).
     pub connect_backoff_secs: u64,
+}
+
+impl AuditSection {
+    /// Fail fast on missing or zeroed store settings. The checks are keyed to
+    /// the configured backend: `database_url` and the pool knobs are Postgres
+    /// requirements, not generic audit ones — a future backend validates its
+    /// own variant here.
+    pub fn validate(&self) -> Result<(), String> {
+        match self.backend {
+            AuditBackend::Postgres => self.validate_postgres(),
+        }
+    }
+
+    fn validate_postgres(&self) -> Result<(), String> {
+        if self.database_url.trim().is_empty() {
+            return Err(
+                "audit.database_url is required (set [audit].database_url or \
+                 AGATE__AUDIT__DATABASE_URL)"
+                    .into(),
+            );
+        }
+        if self.max_connections == 0 {
+            return Err("audit.max_connections must be greater than 0".into());
+        }
+        if self.acquire_timeout_secs == 0 {
+            return Err("audit.acquire_timeout_secs must be greater than 0".into());
+        }
+        // A zero backoff would busy-loop the connect retries; require a real pause.
+        if self.connect_backoff_secs == 0 {
+            return Err("audit.connect_backoff_secs must be greater than 0".into());
+        }
+        Ok(())
+    }
 }
 
 impl Default for AuditSection {
@@ -256,6 +273,16 @@ pub struct PolicySection {
     pub fail_mode: PolicyFailMode,
     /// Deadline for a single policy decision, in milliseconds.
     pub decision_timeout_ms: u64,
+}
+
+impl PolicySection {
+    /// Fail fast on a zeroed decision deadline.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.decision_timeout_ms == 0 {
+            return Err("policy.decision_timeout_ms must be greater than 0".into());
+        }
+        Ok(())
+    }
 }
 
 impl Default for PolicySection {
@@ -474,6 +501,22 @@ mod tests {
 
         config.audit.database_url = "postgres://db".into();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn the_database_url_requirement_is_keyed_to_the_postgres_backend() {
+        // Pins the multi-backend seam: `database_url` (and the pool knobs) are
+        // Postgres rules — a future backend must validate its own variant, not
+        // inherit these.
+        let section = super::AuditSection::default();
+        assert_eq!(section.backend, super::AuditBackend::Postgres);
+        assert!(
+            section
+                .validate()
+                .err()
+                .is_some_and(|message| { message.contains("audit.database_url is required") }),
+            "the Postgres arm owns the database_url requirement"
+        );
     }
 
     #[test]

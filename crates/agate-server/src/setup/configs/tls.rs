@@ -15,3 +15,17 @@ pub struct TlsConfig {
     /// Path to the PEM private key for `cert`.
     pub key: String,
 }
+
+impl TlsConfig {
+    /// Fail fast on enabling TLS without the certificate material.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.enabled && (self.cert.trim().is_empty() || self.key.trim().is_empty()) {
+            return Err(
+                "tls.cert and tls.key are required when tls.enabled (paths to the PEM \
+                 certificate chain and private key)"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+}
