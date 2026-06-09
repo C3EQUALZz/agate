@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use agate_audit::infrastructure::persistence::postgres::PoolConfig;
-use agate_audit::setup::configs::PostgresConfig;
+use agate_audit::setup::configs::{PostgresConfig, StorageConfig};
 use agate_policy::domain::common::errors::DomainError;
 use agate_policy::domain::decision::{PolicyRuleset, SecretPattern, ToolName, ToolPolicy};
 use agate_proxy::infrastructure::FailMode;
@@ -113,6 +113,14 @@ impl AppConfig {
             .collect()
     }
 
+    /// The connected-store descriptor for the configured backend (Postgres).
+    #[must_use]
+    pub fn storage_config(&self) -> StorageConfig {
+        match self.audit.backend {
+            AuditBackend::Postgres => StorageConfig::Postgres(self.postgres_config()),
+        }
+    }
+
     #[must_use]
     pub fn postgres_config(&self) -> PostgresConfig {
         PostgresConfig::new(self.audit.database_url.clone()).with_pool(PoolConfig {
@@ -201,6 +209,8 @@ impl Default for ProxySection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AuditSection {
+    /// Which persistence backend to assemble at startup.
+    pub backend: AuditBackend,
     /// PostgreSQL connection URL (required; prefer the env override for secrets).
     pub database_url: String,
     /// Maximum pooled database connections.
@@ -216,6 +226,7 @@ pub struct AuditSection {
 impl Default for AuditSection {
     fn default() -> Self {
         Self {
+            backend: AuditBackend::Postgres,
             database_url: String::new(),
             max_connections: 10,
             acquire_timeout_secs: 30,
@@ -223,6 +234,14 @@ impl Default for AuditSection {
             connect_backoff_secs: 1,
         }
     }
+}
+
+/// Which persistence backend the transparency log uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AuditBackend {
+    #[default]
+    Postgres,
 }
 
 /// `[policy]` — content/authorization rules.

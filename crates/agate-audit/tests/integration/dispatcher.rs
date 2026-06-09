@@ -15,6 +15,7 @@ use agate_audit::application::usecases::get_consistency_proof::GetConsistencyPro
 use agate_audit::application::usecases::get_inclusion_proof::GetInclusionProof;
 use agate_audit::domain::merkle::{LeafIndex, LogId, MerkleHasher, MerkleProofs, TreeSize};
 use agate_audit::setup::ioc::{build_container, build_registry};
+use agate_audit::setup::storage::Storage;
 use agate_crypto::{CryptoRegistry, HashAlgo};
 
 use crate::fixture::{Db, start};
@@ -30,7 +31,7 @@ struct App {
 impl App {
     async fn new() -> Self {
         let db = start().await;
-        let container = build_container(db.pool.clone());
+        let container = build_container(&Storage::postgres(db.pool.clone()));
         Self {
             _db: db,
             container,

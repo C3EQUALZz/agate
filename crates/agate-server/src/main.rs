@@ -10,14 +10,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum_server::Handle;
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use agate_audit::application::common::messaging::Dispatcher;
 use agate_audit::application::usecases::create_log::CreateLog;
 use agate_audit::domain::merkle::LogId;
-use agate_audit::infrastructure::persistence::postgres::{connect_pool, run_migrations};
 use agate_audit::setup::ioc::{build_container, build_registry};
+use agate_audit::setup::storage::Storage;
 use agate_server::setup::bootstrap::build_server;
 use agate_server::setup::configs::load;
 use agate_server::setup::observability::{init_logging, init_metrics};
@@ -43,7 +42,7 @@ async fn main() {
     let ruleset = config
         .policy_ruleset()
         .expect("invalid policy configuration");
-    let postgres = config.postgres_config();
+    let storage_config = config.storage_config();
     let pinned_log_id = std::env::var("AUDIT_LOG_ID")
         .ok()
         .map(|raw| LogId(raw.parse::<Uuid>().expect("AUDIT_LOG_ID must be a UUID")));
@@ -59,17 +58,16 @@ async fn main() {
 
     info!("configuration loaded; starting agate-server");
 
-    let pool = connect_pool(postgres.url(), postgres.pool())
+    let storage = Storage::connect(&storage_config)
         .await
-        .expect("connect to Postgres");
-    run_migrations(&pool).await.expect("run migrations");
-    info!("connected to Postgres and applied migrations");
+        .expect("connect to the transparency-log store");
+    info!("connected to the store and applied migrations");
 
-    let log = resolve_log(&pool, pinned_log_id).await;
+    let log = resolve_log(&storage, pinned_log_id).await;
     info!(log = %log.0, "recording to transparency log");
     let server = build_server(
         proxy,
-        pool,
+        &storage,
         log,
         ruleset,
         config.policy_fail_mode(),
@@ -148,12 +146,12 @@ async fn shutdown_signal() {
 /// The transparency log to record into: `AUDIT_LOG_ID` if set, else a freshly
 /// created log (so a first run is self-contained; set the env var to keep
 /// appending to the same log across restarts).
-async fn resolve_log(pool: &PgPool, pinned: Option<LogId>) -> LogId {
+async fn resolve_log(storage: &Storage, pinned: Option<LogId>) -> LogId {
     if let Some(id) = pinned {
         return id;
     }
 
-    let container = build_container(pool.clone());
+    let container = build_container(storage);
     let registry = Arc::new(build_registry());
     let scope = Arc::new(container.enter_build().expect("open request scope"));
     let dispatcher = Dispatcher::new(scope.clone(), registry);

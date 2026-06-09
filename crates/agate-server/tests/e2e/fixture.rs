@@ -26,6 +26,7 @@ use agate_audit::application::usecases::get_inclusion_proof::GetInclusionProof;
 use agate_audit::domain::merkle::{LeafIndex, LogId};
 use agate_audit::infrastructure::persistence::postgres::run_migrations;
 use agate_audit::setup::ioc::{build_container, build_registry};
+use agate_audit::setup::storage::Storage;
 use agate_policy::domain::decision::PolicyRuleset;
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
@@ -72,9 +73,10 @@ pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer
     let proxy = ProxyConfig::new(agent_endpoint, "127.0.0.1:0".to_string());
     // The outbox task is detached: it lives as long as the served app (and the
     // audit sink inside it) keeps the channel open.
+    let storage = Storage::postgres(pool.clone());
     let Server { app, .. } = build_server(
         proxy,
-        pool.clone(),
+        &storage,
         log,
         ruleset,
         FailMode::Closed,
@@ -113,7 +115,7 @@ async fn stub_agent(body: &'static str) -> String {
 /// directly in assertions (separate from the server's own container).
 #[must_use]
 pub fn audit_container(pool: PgPool) -> Container {
-    build_container(pool)
+    build_container(&Storage::postgres(pool))
 }
 
 #[must_use]

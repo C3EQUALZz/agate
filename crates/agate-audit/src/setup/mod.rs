@@ -4,3 +4,4 @@
 pub mod bootstrap;
 pub mod configs;
 pub mod ioc;
+pub mod storage;

@@ -17,13 +17,22 @@ use agate_audit::infrastructure::persistence::postgres::{
 };
 
 /// A running PostgreSQL container with migrations applied; holds the container
-/// alive (RAII) and exposes a connected pool.
+/// alive (RAII) and exposes a connected pool and its connection URL.
 pub struct Db {
     pub container: ContainerAsync<Postgres>,
     pub pool: PgPool,
+    pub url: String,
 }
 
 pub async fn start() -> Db {
+    let db = start_without_migrations().await;
+    run_migrations(&db.pool).await.unwrap();
+    db
+}
+
+/// A fresh database with **no** migrations applied — for tests that exercise the
+/// migration step itself (e.g. `Storage::connect`).
+pub async fn start_without_migrations() -> Db {
     let container = Postgres::default()
         .with_tag(POSTGRES_IMAGE_TAG)
         .start()
@@ -32,6 +41,9 @@ pub async fn start() -> Db {
     let port = container.get_host_port_ipv4(5432).await.unwrap();
     let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
     let pool = connect_pool(&url, &PoolConfig::default()).await.unwrap();
-    run_migrations(&pool).await.unwrap();
-    Db { container, pool }
+    Db {
+        container,
+        pool,
+        url,
+    }
 }

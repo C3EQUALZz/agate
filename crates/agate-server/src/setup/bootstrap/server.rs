@@ -2,15 +2,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use sqlx::PgPool;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use agate_audit::application::common::ports::{AuditMetrics, HealthCheck};
+use agate_audit::application::common::ports::AuditMetrics;
 use agate_audit::domain::merkle::LogId;
 use agate_audit::infrastructure::AuditMetricsRecorder;
-use agate_audit::infrastructure::persistence::postgres::PgHealthCheck;
 use agate_audit::setup::ioc::{build_container, build_registry};
+use agate_audit::setup::storage::Storage;
 use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::PolicyRuleset;
 use agate_proxy::application::common::ports::{AuditSink, PolicyPort};
@@ -48,13 +47,13 @@ pub struct Server {
 #[must_use]
 pub fn build_server(
     proxy: ProxyConfig,
-    pool: PgPool,
+    storage: &Storage,
     log: LogId,
     ruleset: PolicyRuleset,
     fail_mode: FailMode,
     decision_timeout: Duration,
 ) -> Server {
-    let container = build_container(pool.clone());
+    let container = build_container(storage);
     let registry = Arc::new(build_registry());
     let metrics: Arc<dyn AuditMetrics> = Arc::new(AuditMetricsRecorder);
 
@@ -72,10 +71,10 @@ pub fn build_server(
     ));
     let audit: Arc<dyn AuditSink> = Arc::new(AuditLogSink::new(tx, metrics));
 
-    // Readiness is reported through the store's HealthCheck port, so swapping
-    // the persistence backend never touches the probe route. The composition
-    // root is the one place that names the concrete (Postgres) adapter.
-    let health: Arc<dyn HealthCheck> = Arc::new(PgHealthCheck::new(pool));
+    // Readiness is reported through the store's HealthCheck port, supplied by
+    // the connected backend — so swapping the store touches neither this nor the
+    // probe route.
+    let health = storage.health_check();
     let app = build_app_with(proxy, policy, audit).merge(readiness::router(health));
 
     Server { app, outbox }
