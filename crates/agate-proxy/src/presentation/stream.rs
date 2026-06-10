@@ -7,7 +7,7 @@ use tracing::{debug, info, warn};
 
 use crate::application::common::ports::{AgentResponseStream, InspectionOutcome, ProxyMetrics};
 use crate::application::inspection::{
-    InspectionAction, InspectionContext, Inspector, MalformedEventMode,
+    InspectionAction, InspectionContext, Inspector, MalformedEventMode, ResponseBudget,
 };
 use crate::domain::inspection::{Budgets, Run};
 use crate::infrastructure::ag_ui::{to_event, to_fragment};
@@ -27,18 +27,25 @@ use crate::infrastructure::sse::{SseDecoder, encode};
 /// required field) cannot be inspected yet belongs to the run, so forwarding it
 /// raw would bypass the policy. `malformed_mode` decides its fate
 /// ([`MalformedEventMode`]); the default is to fail closed and terminate.
+///
+/// `response_budget` caps how much one run may stream (events / bytes seen from
+/// upstream); crossing it ends the run with a `RUN_ERROR` so a runaway agent
+/// cannot flood the client.
 pub fn inspect_stream(
     mut upstream: AgentResponseStream,
     inspector: Arc<Inspector>,
     context: InspectionContext,
     budgets: Budgets,
     malformed_mode: MalformedEventMode,
+    response_budget: ResponseBudget,
     metrics: Arc<dyn ProxyMetrics>,
 ) -> impl Stream<Item = Bytes> + Send {
     async_stream::stream! {
         let mut decoder = SseDecoder::new();
         let mut run = Run::new(context.run, budgets);
         let mut pending: Vec<String> = Vec::new();
+        let mut seen_events: usize = 0;
+        let mut seen_bytes: usize = 0;
 
         while let Some(chunk) = upstream.next().await {
             let chunk = match chunk {
@@ -52,6 +59,18 @@ pub fn inspect_stream(
             };
 
             for event in decoder.push(&chunk) {
+                // Count what the upstream sent and fail closed if the run's
+                // response budget is crossed (DoS guard against unbounded output).
+                seen_events += 1;
+                seen_bytes += event.raw.len();
+                if let Some(reason) = response_budget.exceeded(seen_events, seen_bytes) {
+                    warn!(run = %context.run, reason, "terminating run: response budget exceeded");
+                    metrics.record_inspected(InspectionOutcome::Terminate);
+                    pending.clear();
+                    yield Bytes::from(run_error(reason));
+                    return;
+                }
+
                 let fragment = match serde_json::from_str::<Value>(&event.data) {
                     Ok(value) => match to_fragment(&value) {
                         Ok(fragment) => fragment,
@@ -229,8 +248,9 @@ mod tests {
         Arc::new(CountingMetrics::default())
     }
 
-    /// Run `inspect_stream` with the default budgets/context and a fail-closed
-    /// malformed mode — the shape every test below shares.
+    /// Run `inspect_stream` with the default budgets/context, a fail-closed
+    /// malformed mode, and an unlimited response budget — the shape every test
+    /// below shares.
     fn inspect(
         upstream: AgentResponseStream,
         inspector: Arc<Inspector>,
@@ -242,6 +262,7 @@ mod tests {
             context(),
             Budgets::default(),
             MalformedEventMode::Terminate,
+            ResponseBudget::unlimited(),
             metrics,
         )
     }
@@ -385,6 +406,7 @@ mod tests {
             context(),
             Budgets::default(),
             MalformedEventMode::Forward,
+            ResponseBudget::unlimited(),
             metrics(),
         );
 
@@ -412,6 +434,39 @@ mod tests {
         assert!(
             out.contains("SOME_FUTURE_EVENT"),
             "an unknown type is not treated as malformed: {out}"
+        );
+    }
+
+    /// A run that streams more events than its budget allows is terminated with
+    /// a `RUN_ERROR` instead of flooding the client.
+    #[tokio::test]
+    async fn a_run_over_its_event_budget_is_terminated() {
+        let stream = inspect_stream(
+            upstream(&[
+                "data: {\"type\":\"RUN_STARTED\"}\n\n",
+                "data: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"m1\",\"delta\":\"a\"}\n\n",
+                "data: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"m1\",\"delta\":\"b\"}\n\n",
+                "data: {\"type\":\"RUN_FINISHED\"}\n\n",
+            ]),
+            inspector(Arc::new(AllowAllPolicy)),
+            context(),
+            Budgets::default(),
+            MalformedEventMode::Terminate,
+            ResponseBudget {
+                max_events: 2,
+                max_bytes: 0,
+            },
+            metrics(),
+        );
+
+        let out = collect(stream).await;
+        assert!(
+            out.contains("RUN_ERROR"),
+            "budget over-run terminates: {out}"
+        );
+        assert!(
+            !out.contains("RUN_FINISHED"),
+            "the stream ends before the run completes: {out}"
         );
     }
 }

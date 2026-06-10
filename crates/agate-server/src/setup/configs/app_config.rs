@@ -7,7 +7,7 @@ use agate_policy::domain::common::errors::DomainError;
 use agate_policy::domain::decision::{
     ArgumentRule, PolicyRuleset, SecretPattern, ToolName, ToolPolicy,
 };
-use agate_proxy::application::inspection::MalformedEventMode;
+use agate_proxy::application::inspection::{MalformedEventMode, ResponseBudget};
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,10 @@ impl AppConfig {
             )
             .with_concurrency_limit(self.proxy.max_concurrent_requests)
             .with_malformed_event_mode(self.malformed_event_mode())
+            .with_response_budget(ResponseBudget {
+                max_events: self.proxy.max_response_events,
+                max_bytes: self.proxy.max_response_bytes,
+            })
     }
 
     /// How the response leg treats a recognized-but-malformed event.
@@ -164,6 +168,12 @@ pub struct ProxySection {
     pub api_keys: Vec<String>,
     /// Maximum concurrently in-flight proxied runs; excess is shed with `503`.
     pub max_concurrent_requests: usize,
+    /// Per-run ceiling on response events streamed to the client (`0` =
+    /// unlimited). A runaway agent over this is cut off with a `RUN_ERROR`.
+    pub max_response_events: usize,
+    /// Per-run ceiling on response bytes streamed to the client (`0` =
+    /// unlimited).
+    pub max_response_bytes: usize,
 }
 
 impl ProxySection {
@@ -205,6 +215,10 @@ impl Default for ProxySection {
             api_key: None,
             api_keys: Vec::new(),
             max_concurrent_requests: 256,
+            // Generous defaults that catch a runaway stream without tripping a
+            // legitimate long run; `0` disables a limit.
+            max_response_events: 100_000,
+            max_response_bytes: 64 << 20,
         }
     }
 }
@@ -436,6 +450,7 @@ mod tests {
                 api_key: Some("  k  ".to_owned()),
                 api_keys: vec!["k2".to_owned(), "  ".to_owned()],
                 max_concurrent_requests: 64,
+                ..ProxySection::default()
             },
             ..AppConfig::default()
         };
@@ -550,6 +565,16 @@ mod tests {
             config.policy.on_malformed_event = toml;
             assert_eq!(config.proxy_config().malformed_event_mode, expected);
         }
+    }
+
+    #[test]
+    fn response_budget_maps_from_config() {
+        let mut config = AppConfig::default();
+        config.proxy.max_response_events = 42;
+        config.proxy.max_response_bytes = 4096;
+        let budget = config.proxy_config().response_budget;
+        assert_eq!(budget.max_events, 42);
+        assert_eq!(budget.max_bytes, 4096);
     }
 
     #[test]
