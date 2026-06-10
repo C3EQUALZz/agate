@@ -53,6 +53,7 @@ async fn proxy_run(
     Inject(inspector): Inject<Inspector>,
     Inject(client): Inject<UpstreamAgentClientHandle>,
     Inject(metrics): Inject<ProxyMetricsHandle>,
+    Inject(config): Inject<ProxyConfig>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ProxyError> {
@@ -91,8 +92,15 @@ async fn proxy_run(
         ProxyError::Upstream(error)
     })?;
 
-    let inspected = inspect_stream(upstream, inspector, context, Budgets::default(), metrics)
-        .map(Ok::<Bytes, Infallible>);
+    let inspected = inspect_stream(
+        upstream,
+        inspector,
+        context,
+        Budgets::default(),
+        config.malformed_event_mode,
+        metrics,
+    )
+    .map(Ok::<Bytes, Infallible>);
 
     Ok(Response::builder()
         .header(CONTENT_TYPE, "text/event-stream")

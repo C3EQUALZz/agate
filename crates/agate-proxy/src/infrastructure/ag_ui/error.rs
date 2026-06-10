@@ -20,6 +20,18 @@ pub enum AgUiError {
     MalformedRequest,
 }
 
+impl AgUiError {
+    /// Whether this is a **recognized** event type with a missing or blank
+    /// required field — i.e. the proxy knows the `type` but cannot inspect the
+    /// event. A non-object, a missing/unknown `type`, or a malformed request
+    /// body is *not* a malformed known event (it carries nothing to inspect),
+    /// so this returns `false` for them.
+    #[must_use]
+    pub fn is_malformed_known(&self) -> bool {
+        matches!(self, Self::MissingField { .. } | Self::BlankField { .. })
+    }
+}
+
 impl fmt::Display for AgUiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

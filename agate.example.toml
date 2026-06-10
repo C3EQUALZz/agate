@@ -67,6 +67,11 @@ redact = ["sk-", "AKIA"]
 fail_mode = "closed"
 # Deadline for a single policy decision, in milliseconds (must be > 0).
 decision_timeout_ms = 5000
+# A recognized response event that is malformed (a known type with a missing or
+# blank required field) cannot be inspected. What to do with it: "forward"
+# (pass the raw frame), "drop" (discard it), or "terminate" (end the run with a
+# RUN_ERROR). Defaults to the secure "terminate".
+on_malformed_event = "terminate"
 
 [observability.logging]
 # Set false to silence logs entirely.

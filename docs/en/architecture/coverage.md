@@ -22,6 +22,7 @@ gaps live in the repository at
 | Lifecycle (`RUN_*`, `STEP_*`) | ordering enforced by the `Run` state machine | structural only (no policy verdict) |
 | `STATE_SNAPSHOT` / `STATE_DELTA` | size / op-count budget checked | **No** — content auto-allowed |
 | Request leg (`RunAgentInput`) | `tools[*].name` authorized; `user` message text screened for SSRF URLs | **Yes** — reject before forwarding |
+| Malformed **known** events | a recognized type with a missing/blank required field cannot be inspected → handled per `[policy].on_malformed_event` (default `terminate`) | **Yes** — fails closed by default |
 
 ## What is forwarded uninspected
 
@@ -33,7 +34,6 @@ gaps live in the repository at
 | `RAW`, `CUSTOM`, `REASONING_ENCRYPTED_VALUE` | opaque — forwarded as-is, never inspected |
 | Unknown / future AG-UI event types | forwarded raw |
 | Hidden request fields (`system`, `forwardedProps`, `context`, inbound `state`) | not extracted, so injection into them is not screened |
-| Malformed **known** events | a recognized event with a missing/blank required field currently forwards raw instead of failing closed |
 
 ## Operational limits
 
@@ -51,8 +51,9 @@ gaps live in the repository at
 
 ## Roadmap
 
-Closing these gaps is sequenced in
+Closing the remaining gaps is sequenced in
 [`security-coverage-roadmap.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/security-coverage-roadmap.md):
-tool-argument inspection, fail-closed handling of malformed known events,
-bringing state and tool-results under the policy, rate/output budgets, and a
-richer (regex/glob + argument-condition) TOML policy language.
+tool-argument inspection, bringing state and tool-results under the policy,
+rate/output budgets, and a richer (regex/glob + argument-condition) TOML policy
+language. (Fail-closed handling of malformed known events is now implemented —
+see `[policy].on_malformed_event`.)
