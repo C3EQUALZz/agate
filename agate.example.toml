@@ -23,6 +23,11 @@ max_body_bytes = 1048576
 # Maximum concurrently in-flight proxied runs. Each holds an upstream connection
 # for its full stream; requests over the cap are shed with 503 (not queued).
 max_concurrent_requests = 256
+# Per-run response budget: cut a runaway agent off with a RUN_ERROR once it
+# streams more than this many response events or bytes to the client. 0 = no
+# limit. Defaults are generous (catch runaways, not legitimate long runs).
+max_response_events = 100000
+max_response_bytes = 67108864
 # API-key authentication on the `X-API-Key` header. A request is accepted if it
 # matches ANY accepted key; with none set the proxy is open (only sensible
 # behind another gateway).

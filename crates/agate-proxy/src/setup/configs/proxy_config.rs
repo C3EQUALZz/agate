@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::application::inspection::MalformedEventMode;
+use crate::application::inspection::{MalformedEventMode, ResponseBudget};
 
 /// How long to wait to establish a connection to the upstream agent before
 /// failing fast. Kept short so an unreachable agent surfaces quickly.
@@ -39,6 +39,9 @@ pub struct ProxyConfig {
     /// What to do with a recognized-but-malformed response event (defaults to
     /// the secure [`Terminate`](MalformedEventMode::Terminate)).
     pub malformed_event_mode: MalformedEventMode,
+    /// Per-run ceiling on the response stream (events / bytes); defaults to
+    /// unlimited, the composition root applies the configured limits.
+    pub response_budget: ResponseBudget,
 }
 
 impl ProxyConfig {
@@ -54,7 +57,15 @@ impl ProxyConfig {
             api_keys: Vec::new(),
             max_concurrent_requests: DEFAULT_MAX_CONCURRENT_REQUESTS,
             malformed_event_mode: MalformedEventMode::default(),
+            response_budget: ResponseBudget::default(),
         }
+    }
+
+    /// Override the per-run response budget (events / bytes).
+    #[must_use]
+    pub fn with_response_budget(mut self, response_budget: ResponseBudget) -> Self {
+        self.response_budget = response_budget;
+        self
     }
 
     /// Override the handling of recognized-but-malformed response events.

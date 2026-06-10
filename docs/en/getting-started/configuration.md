@@ -38,6 +38,8 @@ aborts startup — fail fast on misconfiguration rather than running degraded.
 | `read_timeout_secs` | no | `60` | Idle timeout between upstream SSE chunks. **Not** an overall deadline — a healthy stream runs on. |
 | `max_body_bytes` | no | `1048576` | Maximum accepted request body size (1 MiB). Oversized requests get `413`. |
 | `max_concurrent_requests` | no | `256` | Maximum concurrently in-flight proxied runs. Each holds an upstream connection for its full stream; requests over the cap are shed with `503` (not queued), so a flood cannot exhaust memory/connections. |
+| `max_response_events` | no | `100000` | Per-run cap on response events streamed to the client. A runaway/hostile agent over this is cut off with a `RUN_ERROR`. `0` = unlimited. |
+| `max_response_bytes` | no | `67108864` | Per-run cap on response bytes streamed to the client (64 MiB). `0` = unlimited. |
 | `api_key` | no | — | Single API key required on the `X-API-Key` header (a shorthand, merged with `api_keys`). Prefer `AGATE__PROXY__API_KEY` for the secret. |
 | `api_keys` | no | `[]` | Accepted API keys; a request matching **any** is authenticated (`401` otherwise). Holding several at once enables zero-downtime **rotation**: add the new key, migrate clients, then drop the old. With `api_key` and `api_keys` both empty, the proxy is open. |
 
@@ -172,6 +174,8 @@ connect_timeout_secs = 5
 read_timeout_secs = 60
 max_body_bytes = 1048576
 max_concurrent_requests = 256
+max_response_events = 100000
+max_response_bytes = 67108864
 # api_key = "change-me"          # single key; prefer AGATE__PROXY__API_KEY
 # api_keys = ["current", "next"] # multiple keys for zero-downtime rotation
 

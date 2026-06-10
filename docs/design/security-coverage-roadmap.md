@@ -33,7 +33,7 @@ enforce it. File references are to `crates/` on `main`.
 | **A2 — sensitive-data exfiltration** | redact text, screen URLs | literal, case-insensitive substring redaction on `TEXT_MESSAGE_CONTENT` only (`text_redactor.rs`); request-leg SSRF screen on `user` messages, no DNS resolution | tool args / tool results / state not redacted; SSRF is best-effort and request-leg only |
 | **A3 — instruction integrity / prompt injection** | resist injection incl. indirect (URL content, tool results) | tool **results** now reach the policy and are secret-redacted; broader injection heuristics still absent | partial — no anti-injection heuristics yet |
 | **A4 — shared-state integrity** | verdict on state-mutating events; validate & bound JSON Patch | `STATE_*` payload now reaches the policy (a secret marker in it is denied) plus `byte_size`/`op_count` budgets | partial — RFC 6902 ops still unvalidated/unbounded |
-| **A5 — availability / DoS** | size/time **and rate** budgets per run and per connection | global concurrency cap, body-size limit, connect/read timeouts | no rate limit; no per-connection event budget; **client SSE response unbounded** |
+| **A5 — availability / DoS** | size/time **and rate** budgets per run and per connection | global concurrency cap, body-size limit, connect/read timeouts, **per-run response budget** (`max_response_events`/`max_response_bytes`) | partial — no per-key/session **rate** limit yet |
 | **A6 — audit tamper-evidence** | every inspected event + verdict recorded | recorded via a bounded outbox channel | **silent drop under backpressure** — `record()` returns `()`, data plane never learns of a lost record |
 
 ### Cross-cutting gaps (not a single asset)
@@ -86,9 +86,13 @@ architecture, which is the payoff of the hexagonal layering.
    Still to come: bounding/validating `STATE_DELTA` RFC 6902 operations (op
    kinds, path depth, value size) and richer anti-injection heuristics on tool
    results.
-4. **Rate & output budgets (A5).** Per-API-key and/or per-session rate limiting
-   on the request leg; a per-connection event-count / response-byte budget on
-   the SSE leg so a hostile agent cannot stream unbounded output to the client.
+4. **Rate & output budgets (A5).** ✅ **Output done.** A per-run `ResponseBudget`
+   (`max_response_events` / `max_response_bytes`, `0` = unlimited) caps the SSE
+   leg: crossing it ends the run with a `RUN_ERROR`, so a runaway/hostile agent
+   cannot stream unbounded output to the client. **Still to come:** per-API-key
+   / per-session **rate** limiting on the request leg (requests per unit time) —
+   a stateful middleware, likely on a dedicated dependency (`governor`),
+   tracked separately.
 
 ### Phase 2 — richer policy authoring (static TOML first)
 

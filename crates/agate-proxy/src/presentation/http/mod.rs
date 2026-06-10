@@ -98,6 +98,7 @@ async fn proxy_run(
         context,
         Budgets::default(),
         config.malformed_event_mode,
+        config.response_budget,
         metrics,
     )
     .map(Ok::<Bytes, Infallible>);
