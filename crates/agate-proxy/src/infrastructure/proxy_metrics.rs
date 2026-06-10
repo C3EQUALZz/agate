@@ -3,7 +3,7 @@
 
 use metrics::counter;
 
-use crate::application::common::ports::{InspectionOutcome, ProxyMetrics};
+use crate::application::common::ports::{InspectionOutcome, ProxyMetrics, UpstreamError};
 
 /// Emits the proxy data-plane counters via the `metrics` facade.
 #[derive(Debug, Default, Clone, Copy)]
@@ -14,8 +14,8 @@ impl ProxyMetrics for ProxyMetricsRecorder {
         counter!("agate_runs_total").increment(1);
     }
 
-    fn record_upstream_error(&self) {
-        counter!("agate_upstream_errors_total").increment(1);
+    fn record_upstream_error(&self, error: &UpstreamError) {
+        counter!("agate_upstream_errors_total", "kind" => error.label()).increment(1);
     }
 
     fn record_inspected(&self, outcome: InspectionOutcome) {

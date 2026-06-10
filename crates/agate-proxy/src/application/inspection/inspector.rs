@@ -68,7 +68,7 @@ impl Inspector {
     ) -> RequestDecision {
         for name in &request.offered_tools {
             let event = AgentEvent::ToolCall {
-                id: ToolCallId(REQUEST_ORIGIN.to_owned()),
+                id: ToolCallId::new(REQUEST_ORIGIN).expect("the synthetic origin is not blank"),
                 name: name.clone(),
                 arguments: String::new(),
             };
@@ -79,7 +79,7 @@ impl Inspector {
 
         for text in &request.user_messages {
             let event = AgentEvent::MessageChunk {
-                message: MessageId(REQUEST_ORIGIN.to_owned()),
+                message: MessageId::new(REQUEST_ORIGIN).expect("the synthetic origin is not blank"),
                 text: text.clone(),
             };
             if let Some(reason) = first_disallowed_url(text) {
@@ -158,7 +158,7 @@ mod tests {
     }
 
     fn context() -> InspectionContext {
-        InspectionContext::new(SessionId(Uuid::nil()), RunId(Uuid::nil()))
+        InspectionContext::new(SessionId::new(Uuid::nil()), RunId::new(Uuid::nil()))
     }
 
     fn inspector(policy: Arc<dyn PolicyPort>) -> Inspector {

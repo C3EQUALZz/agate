@@ -10,6 +10,7 @@ use crate::infrastructure::{
     AllowAllPolicy, NoopAuditSink, ProxyMetricsRecorder, ReqwestAgentClient,
 };
 use crate::setup::configs::ProxyConfig;
+use crate::setup::ioc::handles::{ProxyMetricsHandle, UpstreamAgentClientHandle};
 
 /// Build the IoC container with the default adapters: an allow-all policy and a
 /// no-op audit sink — the proxy run standalone, deciding nothing and recording
@@ -39,12 +40,11 @@ pub fn build_container_with(
                         .read_timeout(config.read_timeout)
                         .build()
                         .expect("build the upstream reqwest client");
-                    Ok(ReqwestAgentClient::with_client(
-                        client,
-                        config.agent_endpoint.clone(),
-                    ))
+                    Ok(UpstreamAgentClientHandle(Arc::new(
+                        ReqwestAgentClient::with_client(client, config.agent_endpoint.clone()),
+                    )))
                 }),
-                provide(|| Ok(ProxyMetricsRecorder)),
+                provide(|| Ok(ProxyMetricsHandle(Arc::new(ProxyMetricsRecorder)))),
                 provide(move || Ok(Inspector::new(policy.clone(), audit.clone()))),
             ]
         })

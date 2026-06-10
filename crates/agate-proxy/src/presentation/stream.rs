@@ -36,8 +36,8 @@ pub fn inspect_stream(
             let chunk = match chunk {
                 Ok(chunk) => chunk,
                 Err(error) => {
-                    warn!(run = %context.run.0, %error, "upstream stream error; ending run with RUN_ERROR");
-                    metrics.record_upstream_error();
+                    warn!(run = %context.run, %error, "upstream stream error; ending run with RUN_ERROR");
+                    metrics.record_upstream_error(&error);
                     yield Bytes::from(run_error(&error.to_string()));
                     return;
                 }
@@ -60,7 +60,7 @@ pub fn inspect_stream(
 
                 match inspector.inspect(&mut run, &context, fragment).await {
                     InspectionAction::Forward => {
-                        debug!(run = %context.run.0, "forwarding inspected event");
+                        debug!(run = %context.run, "forwarding inspected event");
                         metrics.record_inspected(InspectionOutcome::Forward);
                         for held in pending.drain(..) {
                             yield Bytes::from(held);
@@ -68,12 +68,12 @@ pub fn inspect_stream(
                         yield Bytes::from(event.raw);
                     }
                     InspectionAction::Hold => {
-                        debug!(run = %context.run.0, "buffering event until the tool call is complete");
+                        debug!(run = %context.run, "buffering event until the tool call is complete");
                         metrics.record_inspected(InspectionOutcome::Buffer);
                         pending.push(event.raw);
                     }
                     InspectionAction::ForwardTransformed(replacement) => {
-                        info!(run = %context.run.0, "policy transformed an event (e.g. redaction); forwarding the replacement");
+                        info!(run = %context.run, "policy transformed an event (e.g. redaction); forwarding the replacement");
                         metrics.record_inspected(InspectionOutcome::Transform);
                         pending.clear();
                         match to_event(&replacement) {
@@ -82,12 +82,12 @@ pub fn inspect_stream(
                         }
                     }
                     InspectionAction::Drop(reason) => {
-                        info!(run = %context.run.0, reason = reason.as_str(), "policy denied an event; dropping it");
+                        info!(run = %context.run, reason = reason.as_str(), "policy denied an event; dropping it");
                         metrics.record_inspected(InspectionOutcome::Deny);
                         pending.clear();
                     }
                     InspectionAction::Terminate(reason) => {
-                        warn!(run = %context.run.0, reason = reason.as_str(), "terminating run with RUN_ERROR");
+                        warn!(run = %context.run, reason = reason.as_str(), "terminating run with RUN_ERROR");
                         metrics.record_inspected(InspectionOutcome::Terminate);
                         pending.clear();
                         yield Bytes::from(run_error(reason.as_str()));
@@ -159,7 +159,7 @@ mod tests {
     }
 
     fn context() -> InspectionContext {
-        InspectionContext::new(SessionId(Uuid::nil()), RunId(Uuid::nil()))
+        InspectionContext::new(SessionId::new(Uuid::nil()), RunId::new(Uuid::nil()))
     }
 
     async fn collect(stream: impl Stream<Item = Bytes>) -> String {
@@ -183,7 +183,7 @@ mod tests {
 
     impl ProxyMetrics for CountingMetrics {
         fn record_run(&self) {}
-        fn record_upstream_error(&self) {
+        fn record_upstream_error(&self, _: &UpstreamError) {
             self.upstream_errors
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
@@ -278,7 +278,7 @@ mod tests {
 
     #[tokio::test]
     async fn upstream_error_ends_with_a_run_error() {
-        let upstream = stream::iter(vec![Err(UpstreamError("boom".to_string()))]).boxed();
+        let upstream = stream::iter(vec![Err(UpstreamError::Stream("boom".to_string()))]).boxed();
         let stream = inspect_stream(
             upstream,
             inspector(Arc::new(AllowAllPolicy)),

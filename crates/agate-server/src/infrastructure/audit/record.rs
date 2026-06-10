@@ -18,8 +18,8 @@ pub fn encode_record(
     verdict: &Verdict<AgentEvent>,
 ) -> Vec<u8> {
     json!({
-        "session": context.session.0.to_string(),
-        "run": context.run.0.to_string(),
+        "session": context.session.to_string(),
+        "run": context.run.to_string(),
         "verdict": verdict_label(verdict),
         "event": encode_event(event),
     })
@@ -41,7 +41,7 @@ fn encode_event(event: &AgentEvent) -> Value {
     match event {
         AgentEvent::MessageChunk { message, text } => json!({
             "kind": "message_chunk",
-            "message": message.0,
+            "message": message.as_str(),
             "text": text,
         }),
         AgentEvent::ToolCall {
@@ -50,13 +50,13 @@ fn encode_event(event: &AgentEvent) -> Value {
             arguments,
         } => json!({
             "kind": "tool_call",
-            "id": id.0,
+            "id": id.as_str(),
             "name": name,
             "arguments": arguments,
         }),
         AgentEvent::ToolResult { id, content } => json!({
             "kind": "tool_result",
-            "id": id.0,
+            "id": id.as_str(),
             "content": content,
         }),
         AgentEvent::StateMutation(mutation) => encode_state_mutation(mutation),
@@ -122,7 +122,7 @@ mod tests {
     use super::encode_record;
 
     fn decode(event: &AgentEvent, verdict: &Verdict<AgentEvent>) -> Value {
-        let context = InspectionContext::new(SessionId(Uuid::nil()), RunId(Uuid::nil()));
+        let context = InspectionContext::new(SessionId::new(Uuid::nil()), RunId::new(Uuid::nil()));
         serde_json::from_slice(&encode_record(&context, event, verdict)).expect("valid JSON")
     }
 
@@ -162,14 +162,14 @@ mod tests {
         let cases = [
             (
                 AgentEvent::MessageChunk {
-                    message: MessageId("m".into()),
+                    message: MessageId::new("m").expect("valid id"),
                     text: "hi".into(),
                 },
                 "message_chunk",
             ),
             (
                 AgentEvent::ToolCall {
-                    id: ToolCallId("c".into()),
+                    id: ToolCallId::new("c").expect("valid id"),
                     name: "t".into(),
                     arguments: "{}".into(),
                 },
@@ -177,7 +177,7 @@ mod tests {
             ),
             (
                 AgentEvent::ToolResult {
-                    id: ToolCallId("c".into()),
+                    id: ToolCallId::new("c").expect("valid id"),
                     content: "r".into(),
                 },
                 "tool_result",

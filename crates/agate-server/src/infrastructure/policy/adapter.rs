@@ -82,7 +82,7 @@ mod tests {
     use super::PolicyAdapter;
 
     fn context() -> InspectionContext {
-        InspectionContext::new(SessionId(Uuid::nil()), RunId(Uuid::nil()))
+        InspectionContext::new(SessionId::new(Uuid::nil()), RunId::new(Uuid::nil()))
     }
 
     fn adapter(ruleset: PolicyRuleset) -> PolicyAdapter {
@@ -99,7 +99,7 @@ mod tests {
 
     fn tool(name: &str) -> AgentEvent {
         AgentEvent::ToolCall {
-            id: ToolCallId("c".into()),
+            id: ToolCallId::new("c").expect("valid id"),
             name: name.into(),
             arguments: "{}".into(),
         }
@@ -130,12 +130,12 @@ mod tests {
             vec![SecretPattern::new("sk").expect("valid pattern")],
         ));
         let event = AgentEvent::MessageChunk {
-            message: MessageId("m1".into()),
+            message: MessageId::new("m1").expect("valid id"),
             text: "a sk b".into(),
         };
         match adapter.decide(&context(), &event).await {
             Verdict::Transform(AgentEvent::MessageChunk { message, text }) => {
-                assert_eq!(message, MessageId("m1".into()));
+                assert_eq!(message, MessageId::new("m1").expect("valid id"));
                 assert!(text.contains("[REDACTED]") && !text.contains("sk"));
             }
             other => panic!("expected a message transform, got {other:?}"),
@@ -146,7 +146,7 @@ mod tests {
     async fn ungoverned_events_pass_through() {
         let adapter = adapter(PolicyRuleset::allow_all());
         let event = AgentEvent::ToolResult {
-            id: ToolCallId("c".into()),
+            id: ToolCallId::new("c").expect("valid id"),
             content: "result".into(),
         };
         assert_eq!(adapter.decide(&context(), &event).await, Verdict::Allow);

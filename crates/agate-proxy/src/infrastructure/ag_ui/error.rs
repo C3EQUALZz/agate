@@ -10,6 +10,12 @@ pub enum AgUiError {
         event: String,
         field: &'static str,
     },
+    /// A correlating id field is present but blank, so it could never match
+    /// its sibling frames.
+    BlankField {
+        event: String,
+        field: &'static str,
+    },
     /// The request body is not valid `RunAgentInput` JSON.
     MalformedRequest,
 }
@@ -21,6 +27,9 @@ impl fmt::Display for AgUiError {
             AgUiError::MissingType => write!(f, "AG-UI event has no `type`"),
             AgUiError::MissingField { event, field } => {
                 write!(f, "AG-UI {event} event is missing `{field}`")
+            }
+            AgUiError::BlankField { event, field } => {
+                write!(f, "AG-UI {event} event has a blank `{field}`")
             }
             AgUiError::MalformedRequest => {
                 write!(f, "request body is not valid RunAgentInput JSON")

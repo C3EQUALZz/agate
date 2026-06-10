@@ -52,7 +52,7 @@ impl PolicyPort for FailModePolicy {
             Ok(verdict) => verdict,
             Err(_elapsed) => {
                 warn!(
-                    run = %context.run.0,
+                    run = %context.run,
                     mode = ?self.mode,
                     "policy decision timed out; applying the fail mode",
                 );
@@ -95,7 +95,7 @@ mod tests {
     }
 
     fn context() -> InspectionContext {
-        InspectionContext::new(SessionId(Uuid::nil()), RunId(Uuid::nil()))
+        InspectionContext::new(SessionId::new(Uuid::nil()), RunId::new(Uuid::nil()))
     }
 
     fn event() -> AgentEvent {
