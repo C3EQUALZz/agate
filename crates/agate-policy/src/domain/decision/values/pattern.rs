@@ -5,57 +5,69 @@ use regex::Regex;
 use crate::domain::common::errors::DomainError;
 use crate::domain::common::values::ValueObject;
 
-/// The placeholder substituted for each matched secret.
+/// The placeholder substituted for each matched occurrence when masking.
 pub const REDACTION_MASK: &str = "[REDACTED]";
 
-/// A marker whose occurrences in emitted text must be redacted. Either a
-/// **literal** (matched case-insensitively over ASCII) or a **regex** (full
-/// `regex` syntax; add `(?i)` for case-insensitivity). The literal form stays
-/// the default — cheaper and impossible to miswrite into a catch-all.
+/// A text matcher used across the decision rules — secret redaction and
+/// argument deny rules both match content the same way. Either a **literal**
+/// (matched case-insensitively over ASCII — only the literal's own bytes are
+/// folded, not Unicode) or a **regex** (full `regex` syntax; add `(?i)` for
+/// case-insensitivity). The literal form is the default — cheaper and
+/// impossible to miswrite into a catch-all.
 ///
-/// Validated at construction: an empty literal would "match" everywhere, and an
-/// invalid regex is rejected before it can reach the data plane.
+/// The kind is sealed behind private constructors: an empty literal (which
+/// would "match" everywhere and loop forever while masking) and an invalid
+/// regex are both rejected at construction, so no caller can build a pattern
+/// that violates those invariants.
 #[derive(Clone, Debug)]
-pub enum SecretPattern {
+pub struct Pattern(Kind);
+
+#[derive(Clone, Debug)]
+enum Kind {
     Literal(String),
     Regex(Box<Regex>),
 }
 
-impl SecretPattern {
-    /// A literal marker, rejected when empty.
+impl Pattern {
+    /// A literal marker, rejected when blank.
     pub fn literal(needle: impl Into<String>) -> Result<Self, DomainError> {
         let needle = needle.into();
-        if needle.is_empty() {
-            return Err(DomainError::Field(
-                "secret pattern must not be empty".into(),
-            ));
+        if needle.trim().is_empty() {
+            return Err(DomainError::Field("pattern must not be blank".into()));
         }
-        Ok(Self::Literal(needle))
+        Ok(Self(Kind::Literal(needle)))
     }
 
     /// A regex marker, rejected when blank or not a valid expression.
     pub fn regex(source: impl Into<String>) -> Result<Self, DomainError> {
         let source = source.into();
         if source.trim().is_empty() {
-            return Err(DomainError::Field("secret regex must not be blank".into()));
+            return Err(DomainError::Field("pattern regex must not be blank".into()));
         }
         let compiled = Regex::new(&source)
-            .map_err(|error| DomainError::Field(format!("invalid secret regex: {error}")))?;
-        Ok(Self::Regex(Box::new(compiled)))
+            .map_err(|error| DomainError::Field(format!("invalid pattern regex: {error}")))?;
+        Ok(Self(Kind::Regex(Box::new(compiled))))
     }
 
-    /// Backwards-compatible constructor: a literal marker.
-    pub fn new(needle: impl Into<String>) -> Result<Self, DomainError> {
-        Self::literal(needle)
+    /// Whether the pattern occurs in `text` (ASCII case-insensitive for a
+    /// literal; regex semantics otherwise).
+    #[must_use]
+    pub fn matches(&self, text: &str) -> bool {
+        match &self.0 {
+            Kind::Literal(needle) => text
+                .to_ascii_lowercase()
+                .contains(&needle.to_ascii_lowercase()),
+            Kind::Regex(re) => re.is_match(text),
+        }
     }
 
     /// Mask every occurrence in `text`, returning the result and whether
     /// anything matched.
     #[must_use]
     pub fn mask(&self, text: &str) -> (String, bool) {
-        match self {
-            Self::Literal(needle) => mask_literal(text, needle),
-            Self::Regex(re) => {
+        match &self.0 {
+            Kind::Literal(needle) => mask_literal(text, needle),
+            Kind::Regex(re) => {
                 if re.is_match(text) {
                     (re.replace_all(text, REDACTION_MASK).into_owned(), true)
                 } else {
@@ -65,51 +77,40 @@ impl SecretPattern {
         }
     }
 
-    /// Whether the pattern occurs in `text` — a detection without masking.
-    #[must_use]
-    pub fn detects(&self, text: &str) -> bool {
-        match self {
-            Self::Literal(needle) => text
-                .to_ascii_lowercase()
-                .contains(&needle.to_ascii_lowercase()),
-            Self::Regex(re) => re.is_match(text),
-        }
-    }
-
     /// The pattern source — its identity for equality/hashing.
     fn source(&self) -> &str {
-        match self {
-            Self::Literal(needle) => needle,
-            Self::Regex(re) => re.as_str(),
+        match &self.0 {
+            Kind::Literal(needle) => needle,
+            Kind::Regex(re) => re.as_str(),
         }
     }
 
     fn tag(&self) -> u8 {
-        match self {
-            Self::Literal(_) => 0,
-            Self::Regex(_) => 1,
+        match &self.0 {
+            Kind::Literal(_) => 0,
+            Kind::Regex(_) => 1,
         }
     }
 }
 
 // `regex::Regex` is not `Eq`/`Hash`, so derive can't apply; identity is the kind
 // plus the source string.
-impl PartialEq for SecretPattern {
+impl PartialEq for Pattern {
     fn eq(&self, other: &Self) -> bool {
         self.tag() == other.tag() && self.source() == other.source()
     }
 }
 
-impl Eq for SecretPattern {}
+impl Eq for Pattern {}
 
-impl Hash for SecretPattern {
+impl Hash for Pattern {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.tag().hash(state);
         self.source().hash(state);
     }
 }
 
-impl ValueObject for SecretPattern {}
+impl ValueObject for Pattern {}
 
 /// Replace every ASCII-case-insensitive occurrence of `needle` with the mask.
 /// ASCII lowercasing preserves byte length, so positions in the lowered copy
@@ -137,30 +138,33 @@ fn mask_literal(haystack: &str, needle: &str) -> (String, bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{REDACTION_MASK, SecretPattern};
+    use super::{Pattern, REDACTION_MASK};
 
     #[test]
-    fn an_empty_literal_is_rejected() {
-        assert!(SecretPattern::literal("").is_err());
+    fn a_blank_literal_is_rejected() {
+        assert!(Pattern::literal("").is_err());
+        assert!(Pattern::literal("   ").is_err());
     }
 
     #[test]
     fn a_blank_or_invalid_regex_is_rejected() {
-        assert!(SecretPattern::regex("   ").is_err());
-        assert!(SecretPattern::regex("(unclosed").is_err());
+        assert!(Pattern::regex("   ").is_err());
+        assert!(Pattern::regex("(unclosed").is_err());
     }
 
     #[test]
-    fn a_literal_masks_case_insensitively() {
-        let pattern = SecretPattern::literal("sk-").expect("valid");
+    fn a_literal_matches_and_masks_case_insensitively() {
+        let pattern = Pattern::literal("sk-").expect("valid");
+        assert!(pattern.matches("my SK- key"));
         let (out, hit) = pattern.mask("my SK- key");
         assert!(hit);
         assert_eq!(out, format!("my {REDACTION_MASK} key"));
     }
 
     #[test]
-    fn a_regex_masks_each_match() {
-        let pattern = SecretPattern::regex(r"sk-[a-z0-9]{4}").expect("valid");
+    fn a_regex_matches_and_masks_each_match() {
+        let pattern = Pattern::regex(r"sk-[a-z0-9]{4}").expect("valid");
+        assert!(pattern.matches("here sk-ab12"));
         let (out, hit) = pattern.mask("keys sk-ab12 and sk-cd34 done");
         assert!(hit);
         assert_eq!(
@@ -170,22 +174,22 @@ mod tests {
     }
 
     #[test]
-    fn detects_reports_a_match_without_masking() {
-        let pattern = SecretPattern::regex(r"AKIA[0-9A-Z]{4}").expect("valid");
-        assert!(pattern.detects(r#"{"key":"AKIA1234"}"#));
-        assert!(!pattern.detects(r#"{"key":"nope"}"#));
+    fn matches_reports_a_hit_without_masking() {
+        let pattern = Pattern::regex(r"AKIA[0-9A-Z]{4}").expect("valid");
+        assert!(pattern.matches(r#"{"key":"AKIA1234"}"#));
+        assert!(!pattern.matches(r#"{"key":"nope"}"#));
     }
 
     #[test]
     fn equality_is_by_kind_and_source() {
         assert_eq!(
-            SecretPattern::literal("sk-").unwrap(),
-            SecretPattern::literal("sk-").unwrap()
+            Pattern::literal("sk-").unwrap(),
+            Pattern::literal("sk-").unwrap()
         );
         // Same source, different kind → not equal.
         assert_ne!(
-            SecretPattern::literal("sk-").unwrap(),
-            SecretPattern::regex("sk-").unwrap()
+            Pattern::literal("sk-").unwrap(),
+            Pattern::regex("sk-").unwrap()
         );
     }
 }

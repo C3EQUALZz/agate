@@ -6,8 +6,8 @@ use std::collections::BTreeSet;
 use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::services::REDACTION_MASK;
 use agate_policy::domain::decision::{
-    ArgumentRule, DenyReason, InspectedAction, PolicyDecision, PolicyRuleset, SecretPattern,
-    ToolName, ToolPolicy,
+    ArgumentRule, DenyReason, InspectedAction, Pattern, PolicyDecision, PolicyRuleset, ToolName,
+    ToolPolicy,
 };
 
 fn tool_names(names: &[&str]) -> BTreeSet<ToolName> {
@@ -83,7 +83,7 @@ fn denylist_blocks_only_listed_tools() {
 
 #[test]
 fn a_regex_pattern_redacts_matching_secrets_in_a_message() {
-    let pattern = SecretPattern::regex(r"sk-[a-z0-9]{4}").expect("valid pattern");
+    let pattern = Pattern::regex(r"sk-[a-z0-9]{4}").expect("valid pattern");
     let service = PolicyService::new(PolicyRuleset::new(
         ToolPolicy::AllowAll,
         Vec::new(),
@@ -101,7 +101,7 @@ fn a_regex_pattern_redacts_matching_secrets_in_a_message() {
 
 #[test]
 fn message_with_a_secret_is_redacted() {
-    let pattern = SecretPattern::new("sk-SECRET").expect("valid pattern");
+    let pattern = Pattern::literal("sk-SECRET").expect("valid pattern");
     let service = PolicyService::new(PolicyRuleset::new(
         ToolPolicy::AllowAll,
         Vec::new(),
@@ -119,7 +119,7 @@ fn message_with_a_secret_is_redacted() {
 
 #[test]
 fn clean_message_is_allowed() {
-    let pattern = SecretPattern::new("sk-SECRET").expect("valid pattern");
+    let pattern = Pattern::literal("sk-SECRET").expect("valid pattern");
     let service = PolicyService::new(PolicyRuleset::new(
         ToolPolicy::AllowAll,
         Vec::new(),
@@ -137,7 +137,7 @@ fn ungoverned_actions_are_allowed() {
     let service = PolicyService::new(PolicyRuleset::new(
         ToolPolicy::Allowlist(tool_names(&["search"])),
         Vec::new(),
-        vec![SecretPattern::new("secret").expect("valid pattern")],
+        vec![Pattern::literal("secret").expect("valid pattern")],
     ));
 
     assert_eq!(
@@ -167,7 +167,10 @@ fn padded_allowlist_entry_still_matches_the_tool() {
 fn a_permitted_tool_is_denied_when_its_arguments_match_a_rule() {
     let ruleset = PolicyRuleset::new(
         ToolPolicy::AllowAll,
-        vec![ArgumentRule::new(None, "rm -rf").expect("valid rule")],
+        vec![ArgumentRule::new(
+            None,
+            Pattern::literal("rm -rf").expect("valid"),
+        )],
         Vec::new(),
     );
     let service = PolicyService::new(ruleset);
@@ -186,8 +189,10 @@ fn a_permitted_tool_is_denied_when_its_arguments_match_a_rule() {
 
 #[test]
 fn a_tool_scoped_argument_rule_ignores_other_tools() {
-    let rule = ArgumentRule::new(Some(ToolName::new("shell").expect("valid")), "curl")
-        .expect("valid rule");
+    let rule = ArgumentRule::new(
+        Some(ToolName::new("shell").expect("valid")),
+        Pattern::literal("curl").expect("valid"),
+    );
     let service = PolicyService::new(PolicyRuleset::new(
         ToolPolicy::AllowAll,
         vec![rule],
@@ -209,7 +214,10 @@ fn a_tool_scoped_argument_rule_ignores_other_tools() {
 fn a_denied_tool_name_short_circuits_before_argument_rules() {
     let ruleset = PolicyRuleset::new(
         ToolPolicy::Allowlist(tool_names(&["search"])),
-        vec![ArgumentRule::new(None, "anything").expect("valid rule")],
+        vec![ArgumentRule::new(
+            None,
+            Pattern::literal("anything").expect("valid"),
+        )],
         Vec::new(),
     );
     let service = PolicyService::new(ruleset);
@@ -227,7 +235,7 @@ fn a_secret_in_a_tool_result_is_redacted() {
     let service = PolicyService::new(PolicyRuleset::new(
         ToolPolicy::AllowAll,
         Vec::new(),
-        vec![SecretPattern::new("sk-LEAK").expect("valid pattern")],
+        vec![Pattern::literal("sk-LEAK").expect("valid pattern")],
     ));
     let action = InspectedAction::ToolResult {
         content: "the key is sk-leak, hide it".to_owned(),
@@ -244,7 +252,7 @@ fn a_secret_in_a_state_mutation_is_denied() {
     let service = PolicyService::new(PolicyRuleset::new(
         ToolPolicy::AllowAll,
         Vec::new(),
-        vec![SecretPattern::new("sk-LEAK").expect("valid pattern")],
+        vec![Pattern::literal("sk-LEAK").expect("valid pattern")],
     ));
 
     // State can't be masked in place, so a secret in it is denied, not leaked.

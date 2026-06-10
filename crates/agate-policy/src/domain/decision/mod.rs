@@ -10,6 +10,6 @@ pub mod values;
 
 pub use services::{ArgumentInspector, PolicyEvaluator, TextRedactor, ToolAuthorizer};
 pub use values::{
-    ArgumentRule, DenyReason, InspectedAction, PolicyDecision, PolicyRuleset, SecretPattern,
-    ToolName, ToolPolicy,
+    ArgumentRule, DenyReason, InspectedAction, Pattern, PolicyDecision, PolicyRuleset, ToolName,
+    ToolPolicy,
 };

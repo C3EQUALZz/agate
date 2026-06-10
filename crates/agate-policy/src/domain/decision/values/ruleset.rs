@@ -1,5 +1,5 @@
 use super::argument_rule::ArgumentRule;
-use super::secret_pattern::SecretPattern;
+use super::pattern::Pattern;
 use super::tool_policy::ToolPolicy;
 use crate::domain::common::values::ValueObject;
 
@@ -12,7 +12,7 @@ use crate::domain::common::values::ValueObject;
 pub struct PolicyRuleset {
     tools: ToolPolicy,
     argument_rules: Vec<ArgumentRule>,
-    secrets: Vec<SecretPattern>,
+    secrets: Vec<Pattern>,
 }
 
 impl PolicyRuleset {
@@ -20,7 +20,7 @@ impl PolicyRuleset {
     pub fn new(
         tools: ToolPolicy,
         argument_rules: Vec<ArgumentRule>,
-        secrets: Vec<SecretPattern>,
+        secrets: Vec<Pattern>,
     ) -> Self {
         Self {
             tools,
@@ -47,7 +47,7 @@ impl PolicyRuleset {
     }
 
     #[must_use]
-    pub fn secrets(&self) -> &[SecretPattern] {
+    pub fn secrets(&self) -> &[Pattern] {
         &self.secrets
     }
 }
