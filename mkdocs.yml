@@ -97,6 +97,7 @@ plugins:
             Policy (agate-policy): Политики (agate-policy)
             Server (agate-server): Сервер (agate-server)
             Threat Model: Модель угроз
+            Coverage & Limitations: Покрытие и ограничения
             Reference: Справочник
             API (rustdoc): API (rustdoc)
             Contributing: Участие в разработке
@@ -161,6 +162,7 @@ nav:
       - architecture/index.md
       - Architecture & DDD: architecture/ddd.md
       - Threat Model: architecture/threat-model.md
+      - Coverage & Limitations: architecture/coverage.md
       - Bounded Contexts:
           - Crypto (agate-crypto): architecture/contexts/crypto.md
           - Audit (agate-audit): architecture/contexts/audit.md
