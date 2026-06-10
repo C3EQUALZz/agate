@@ -75,7 +75,7 @@ nothing is redacted**.
 | --- | --- | --- |
 | `[policy.tools].mode` | `allow-all` \| `allowlist` \| `denylist` | How tool calls are authorized. Default `allow-all`. |
 | `[policy.tools].names` | array of tool names | Tools governed by `mode` (ignored when `allow-all`). |
-| `[[policy.tools.deny_arguments]]` | tables of `{ tool?, contains }` | Argument-level deny rules: a permitted tool call is **blocked** when its arguments contain `contains` (case-insensitive). `tool` scopes the rule to one tool; omit it for any tool. |
+| `[[policy.tools.deny_arguments]]` | tables of `{ tool?, contains \| matches }` | Argument-level deny rules: a permitted tool call is **blocked** when its arguments match. Each rule sets exactly one of `contains` (case-insensitive literal) or `matches` (regex). `tool` scopes the rule to one tool; omit it for any tool. |
 | `[policy].redact` | array of literal markers | Substrings masked (case-insensitive) in emitted text and tool results before they reach the client. |
 | `[policy].redact_regex` | array of regex patterns | Regex markers masked in emitted text and tool results (full `regex` syntax; prefix `(?i)` for case-insensitivity). An invalid expression aborts startup. |
 | `[policy].fail_mode` | `open` \| `closed` | What to do if a policy decision times out: forward (`open`) or block (`closed`). Default `closed` (safety over availability). |
@@ -197,7 +197,7 @@ names = ["search", "fetch"]
 tool = "search"
 contains = "rm -rf"
 [[policy.tools.deny_arguments]]
-contains = "AKIA"
+matches = "169\\.254\\.169\\.254"
 
 [policy]
 redact = ["sk-", "AKIA"]

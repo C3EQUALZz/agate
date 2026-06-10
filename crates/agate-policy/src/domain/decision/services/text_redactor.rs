@@ -1,14 +1,13 @@
 use crate::domain::common::services::DomainService;
-use crate::domain::decision::values::{PolicyDecision, SecretPattern};
+use crate::domain::decision::values::{Pattern, PolicyDecision};
 
 // Re-exported from the value object, which owns the mask now that each pattern
 // redacts itself (literal or regex).
-pub use crate::domain::decision::values::secret_pattern::REDACTION_MASK;
+pub use crate::domain::decision::values::pattern::REDACTION_MASK;
 
 /// Redacts emitted text by masking every occurrence of a configured secret
-/// marker. Each [`SecretPattern`] applies itself (literal, ASCII
-/// case-insensitive; or regex), so this only sequences them and reports the
-/// overall verdict.
+/// marker. Each [`Pattern`] applies itself (literal, ASCII case-insensitive; or
+/// regex), so this only sequences them and reports the overall verdict.
 pub struct TextRedactor;
 
 impl TextRedactor {
@@ -16,13 +15,13 @@ impl TextRedactor {
     /// content that cannot be rewritten in place (e.g. a structured state
     /// payload).
     #[must_use]
-    pub fn detects(patterns: &[SecretPattern], text: &str) -> bool {
-        patterns.iter().any(|pattern| pattern.detects(text))
+    pub fn detects(patterns: &[Pattern], text: &str) -> bool {
+        patterns.iter().any(|pattern| pattern.matches(text))
     }
 
     /// `RedactText` with the masked text if any pattern matched, else `Allow`.
     #[must_use]
-    pub fn redact(patterns: &[SecretPattern], text: &str) -> PolicyDecision {
+    pub fn redact(patterns: &[Pattern], text: &str) -> PolicyDecision {
         let mut current = text.to_owned();
         let mut redacted = false;
 

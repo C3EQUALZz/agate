@@ -65,13 +65,15 @@ mode = "allowlist"
 names = ["search", "fetch"]
 
 # Argument-level deny rules: a permitted tool call is still blocked when its
-# arguments contain `contains` (matched case-insensitively). `tool` scopes the
-# rule to one tool; omit it to apply to any tool. Add as many tables as needed.
+# arguments match a marker. Each rule sets exactly one of `contains` (a
+# case-insensitive literal) or `matches` (a regex). `tool` scopes the rule to
+# one tool; omit it to apply to any tool. Add as many tables as needed.
 [[policy.tools.deny_arguments]]
 tool = "search"
 contains = "rm -rf"
 [[policy.tools.deny_arguments]]
-contains = "AKIA"
+# Regex: block any tool whose arguments point at the cloud metadata IP.
+matches = "169\\.254\\.169\\.254"
 
 [policy]
 # Literal markers redacted from emitted assistant text (case-insensitive).

@@ -40,12 +40,13 @@ The composition root maps a `PolicyDecision` onto the proxy's `Verdict`
 - `PolicyRuleset` — the configured rules: a `ToolPolicy`, argument deny rules,
   and secret patterns.
 - `ToolPolicy` — `AllowAll`, `Allowlist(set)`, or `Denylist(set)`.
-- `ArgumentRule` — denies a permitted tool call whose arguments contain a marker
-  (optionally scoped to one tool); applied by `ArgumentInspector` after name
-  authorization.
-- `ToolName`, `SecretPattern` — validated value objects (a blank or invalid
-  entry is rejected at construction). `SecretPattern` is a literal (ASCII
-  case-insensitive) or a regex.
+- `ArgumentRule` — denies a permitted tool call whose arguments match a
+  `Pattern` (optionally scoped to one tool); applied by `ArgumentInspector`
+  after name authorization.
+- `ToolName`, `Pattern` — validated value objects (a blank or invalid entry is
+  rejected at construction). `Pattern` is the shared content matcher — a literal
+  (ASCII case-insensitive) or a regex — used by both secret redaction and
+  argument rules.
 
 ## Layering
 

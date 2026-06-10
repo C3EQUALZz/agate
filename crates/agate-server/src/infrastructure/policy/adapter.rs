@@ -79,7 +79,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use agate_policy::application::PolicyService;
-    use agate_policy::domain::decision::{PolicyRuleset, SecretPattern, ToolName, ToolPolicy};
+    use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolName, ToolPolicy};
     use agate_proxy::application::common::ports::PolicyPort;
     use agate_proxy::application::inspection::InspectionContext;
     use agate_proxy::domain::inspection::{
@@ -136,7 +136,7 @@ mod tests {
         let adapter = adapter(PolicyRuleset::new(
             ToolPolicy::AllowAll,
             vec![],
-            vec![SecretPattern::new("sk").expect("valid pattern")],
+            vec![Pattern::literal("sk").expect("valid pattern")],
         ));
         let event = AgentEvent::MessageChunk {
             message: MessageId::new("m1").expect("valid id"),
@@ -166,7 +166,7 @@ mod tests {
         let adapter = adapter(PolicyRuleset::new(
             ToolPolicy::AllowAll,
             vec![],
-            vec![SecretPattern::new("sk").expect("valid pattern")],
+            vec![Pattern::literal("sk").expect("valid pattern")],
         ));
         let event = AgentEvent::ToolResult {
             id: ToolCallId::new("c1").expect("valid id"),
@@ -186,7 +186,7 @@ mod tests {
         let adapter = adapter(PolicyRuleset::new(
             ToolPolicy::AllowAll,
             vec![],
-            vec![SecretPattern::new("sk").expect("valid pattern")],
+            vec![Pattern::literal("sk").expect("valid pattern")],
         ));
         let event = AgentEvent::StateMutation(StateMutation::Snapshot {
             byte_size: 16,

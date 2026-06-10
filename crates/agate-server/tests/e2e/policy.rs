@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use agate_audit::domain::merkle::LeafIndex;
-use agate_policy::domain::decision::{PolicyRuleset, SecretPattern, ToolName, ToolPolicy};
+use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolName, ToolPolicy};
 
 use crate::fixture::{self, spawn};
 
@@ -26,7 +26,7 @@ fn ruleset() -> PolicyRuleset {
     PolicyRuleset::new(
         ToolPolicy::Allowlist(allowlist),
         vec![],
-        vec![SecretPattern::new("sk-LEAK").expect("valid pattern")],
+        vec![Pattern::literal("sk-LEAK").expect("valid pattern")],
     )
 }
 

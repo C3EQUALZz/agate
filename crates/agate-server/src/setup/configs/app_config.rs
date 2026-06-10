@@ -4,9 +4,7 @@ use std::time::Duration;
 use agate_audit::infrastructure::persistence::postgres::PoolConfig;
 use agate_audit::setup::configs::{PostgresConfig, StorageConfig};
 use agate_policy::domain::common::errors::DomainError;
-use agate_policy::domain::decision::{
-    ArgumentRule, PolicyRuleset, SecretPattern, ToolName, ToolPolicy,
-};
+use agate_policy::domain::decision::{ArgumentRule, Pattern, PolicyRuleset, ToolName, ToolPolicy};
 use agate_proxy::application::inspection::{MalformedEventMode, ResponseBudget};
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
@@ -125,10 +123,10 @@ impl AppConfig {
             .policy
             .redact
             .iter()
-            .map(SecretPattern::literal)
+            .map(Pattern::literal)
             .collect::<Result<Vec<_>, _>>()?;
         for source in &self.policy.redact_regex {
-            secrets.push(SecretPattern::regex(source)?);
+            secrets.push(Pattern::regex(source)?);
         }
         Ok(PolicyRuleset::new(tools, argument_rules, secrets))
     }
@@ -383,14 +381,17 @@ pub struct ToolsSection {
 }
 
 /// One `[[policy.tools.deny_arguments]]` entry: a marker forbidden in tool
-/// arguments, optionally scoped to a single tool.
+/// arguments, optionally scoped to a single tool. Provide exactly one of
+/// `contains` (a case-insensitive literal) or `matches` (a regex).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ArgumentRuleConfig {
     /// The tool this rule applies to; omit (or leave blank) to apply to any tool.
     pub tool: Option<String>,
-    /// The forbidden marker, matched case-insensitively in the arguments.
-    pub contains: String,
+    /// A case-insensitive literal forbidden in the arguments.
+    pub contains: Option<String>,
+    /// A regex forbidden in the arguments (full `regex` syntax).
+    pub matches: Option<String>,
 }
 
 impl ArgumentRuleConfig {
@@ -399,7 +400,22 @@ impl ArgumentRuleConfig {
             Some(name) if !name.is_empty() => Some(ToolName::new(name)?),
             _ => None,
         };
-        ArgumentRule::new(tool, self.contains.clone())
+        let marker = match (&self.contains, &self.matches) {
+            (Some(literal), None) => Pattern::literal(literal)?,
+            (None, Some(regex)) => Pattern::regex(regex)?,
+            (Some(_), Some(_)) => {
+                return Err(DomainError::Field(
+                    "a deny_arguments rule sets exactly one of `contains` or `matches`, not both"
+                        .into(),
+                ));
+            }
+            (None, None) => {
+                return Err(DomainError::Field(
+                    "a deny_arguments rule needs `contains` or `matches`".into(),
+                ));
+            }
+        };
+        Ok(ArgumentRule::new(tool, marker))
     }
 }
 
@@ -633,11 +649,14 @@ mod tests {
         config.policy.tools.deny_arguments = vec![
             super::ArgumentRuleConfig {
                 tool: Some("shell".to_owned()),
-                contains: "rm -rf".to_owned(),
+                contains: Some("rm -rf".to_owned()),
+                matches: None,
             },
+            // A regex-marker rule alongside a literal one.
             super::ArgumentRuleConfig {
                 tool: None,
-                contains: "AKIA".to_owned(),
+                contains: None,
+                matches: Some(r"AKIA[0-9A-Z]{16}".to_owned()),
             },
         ];
         let ruleset = config.policy_ruleset().expect("valid");
@@ -649,9 +668,26 @@ mod tests {
         let mut config = AppConfig::default();
         config.policy.tools.deny_arguments = vec![super::ArgumentRuleConfig {
             tool: None,
-            contains: "   ".to_owned(),
+            contains: Some("   ".to_owned()),
+            matches: None,
         }];
         assert!(config.policy_ruleset().is_err());
+    }
+
+    #[test]
+    fn a_deny_argument_rule_needs_exactly_one_marker() {
+        let mut config = AppConfig::default();
+        // Neither set → error.
+        config.policy.tools.deny_arguments = vec![super::ArgumentRuleConfig::default()];
+        assert!(config.policy_ruleset().is_err(), "no marker is rejected");
+
+        // Both set → error.
+        config.policy.tools.deny_arguments = vec![super::ArgumentRuleConfig {
+            tool: None,
+            contains: Some("x".to_owned()),
+            matches: Some("y".to_owned()),
+        }];
+        assert!(config.policy_ruleset().is_err(), "two markers are rejected");
     }
 
     #[test]

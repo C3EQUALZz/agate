@@ -27,11 +27,15 @@ impl DomainService for ArgumentInspector {}
 #[cfg(test)]
 mod tests {
     use super::{ArgumentInspector, ArgumentRule};
-    use crate::domain::decision::values::PolicyDecision;
+    use crate::domain::decision::values::{Pattern, PolicyDecision};
+
+    fn rule(needle: &str) -> ArgumentRule {
+        ArgumentRule::new(None, Pattern::literal(needle).expect("valid pattern"))
+    }
 
     #[test]
     fn denies_on_a_matching_argument_rule() {
-        let rules = [ArgumentRule::new(None, "rm -rf").expect("valid")];
+        let rules = [rule("rm -rf")];
         assert!(matches!(
             ArgumentInspector::inspect(&rules, "shell", r#"{"cmd":"rm -rf /"}"#),
             PolicyDecision::Deny(_)
@@ -40,7 +44,7 @@ mod tests {
 
     #[test]
     fn allows_when_no_rule_fires() {
-        let rules = [ArgumentRule::new(None, "rm -rf").expect("valid")];
+        let rules = [rule("rm -rf")];
         assert_eq!(
             ArgumentInspector::inspect(&rules, "shell", r#"{"cmd":"ls"}"#),
             PolicyDecision::Allow
