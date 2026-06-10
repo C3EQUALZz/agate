@@ -505,13 +505,16 @@ mod tests {
             MalformedEventMode::Terminate
         );
 
-        // The TOML knob maps onto the proxy's inspection setting.
-        let mut config = AppConfig::default();
-        config.policy.on_malformed_event = MalformedMode::Forward;
-        assert_eq!(
-            config.proxy_config().malformed_event_mode,
-            MalformedEventMode::Forward
-        );
+        // Every TOML variant maps onto the matching proxy inspection setting.
+        for (toml, expected) in [
+            (MalformedMode::Forward, MalformedEventMode::Forward),
+            (MalformedMode::Drop, MalformedEventMode::Drop),
+            (MalformedMode::Terminate, MalformedEventMode::Terminate),
+        ] {
+            let mut config = AppConfig::default();
+            config.policy.on_malformed_event = toml;
+            assert_eq!(config.proxy_config().malformed_event_mode, expected);
+        }
     }
 
     #[test]
