@@ -33,7 +33,7 @@ impl PolicyEvaluator {
             InspectedAction::StateMutation { content } => {
                 if TextRedactor::detects(ruleset.secrets(), content) {
                     PolicyDecision::Deny(DenyReason::new(
-                        "state mutation contains a redacted marker and cannot be masked",
+                        "state mutation contains a secret pattern that cannot be masked in place",
                     ))
                 } else {
                     PolicyDecision::Allow
