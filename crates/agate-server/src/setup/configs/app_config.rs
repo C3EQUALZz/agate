@@ -388,9 +388,11 @@ pub struct ToolsSection {
 pub struct ArgumentRuleConfig {
     /// The tool this rule applies to; omit (or leave blank) to apply to any tool.
     pub tool: Option<String>,
-    /// A case-insensitive literal forbidden in the arguments.
+    /// A literal forbidden in the arguments, folded ASCII-case-insensitively
+    /// (not Unicode).
     pub contains: Option<String>,
-    /// A regex forbidden in the arguments (full `regex` syntax).
+    /// A regex forbidden in the arguments (full `regex` syntax; prefix `(?i)`
+    /// for case-insensitivity). Matched against the raw argument JSON string.
     pub matches: Option<String>,
 }
 

@@ -10,14 +10,20 @@ pub const REDACTION_MASK: &str = "[REDACTED]";
 
 /// A text matcher used across the decision rules — secret redaction and
 /// argument deny rules both match content the same way. Either a **literal**
-/// (matched case-insensitively over ASCII) or a **regex** (full `regex` syntax;
-/// add `(?i)` for case-insensitivity). The literal form is the default —
-/// cheaper and impossible to miswrite into a catch-all.
+/// (matched case-insensitively over ASCII — only the literal's own bytes are
+/// folded, not Unicode) or a **regex** (full `regex` syntax; add `(?i)` for
+/// case-insensitivity). The literal form is the default — cheaper and
+/// impossible to miswrite into a catch-all.
 ///
-/// Validated at construction: an empty literal would "match" everywhere, and an
-/// invalid regex is rejected before it can reach the data plane.
+/// The kind is sealed behind private constructors: an empty literal (which
+/// would "match" everywhere and loop forever while masking) and an invalid
+/// regex are both rejected at construction, so no caller can build a pattern
+/// that violates those invariants.
 #[derive(Clone, Debug)]
-pub enum Pattern {
+pub struct Pattern(Kind);
+
+#[derive(Clone, Debug)]
+enum Kind {
     Literal(String),
     Regex(Box<Regex>),
 }
@@ -29,7 +35,7 @@ impl Pattern {
         if needle.trim().is_empty() {
             return Err(DomainError::Field("pattern must not be blank".into()));
         }
-        Ok(Self::Literal(needle))
+        Ok(Self(Kind::Literal(needle)))
     }
 
     /// A regex marker, rejected when blank or not a valid expression.
@@ -40,17 +46,18 @@ impl Pattern {
         }
         let compiled = Regex::new(&source)
             .map_err(|error| DomainError::Field(format!("invalid pattern regex: {error}")))?;
-        Ok(Self::Regex(Box::new(compiled)))
+        Ok(Self(Kind::Regex(Box::new(compiled))))
     }
 
-    /// Whether the pattern occurs in `text`.
+    /// Whether the pattern occurs in `text` (ASCII case-insensitive for a
+    /// literal; regex semantics otherwise).
     #[must_use]
     pub fn matches(&self, text: &str) -> bool {
-        match self {
-            Self::Literal(needle) => text
+        match &self.0 {
+            Kind::Literal(needle) => text
                 .to_ascii_lowercase()
                 .contains(&needle.to_ascii_lowercase()),
-            Self::Regex(re) => re.is_match(text),
+            Kind::Regex(re) => re.is_match(text),
         }
     }
 
@@ -58,9 +65,9 @@ impl Pattern {
     /// anything matched.
     #[must_use]
     pub fn mask(&self, text: &str) -> (String, bool) {
-        match self {
-            Self::Literal(needle) => mask_literal(text, needle),
-            Self::Regex(re) => {
+        match &self.0 {
+            Kind::Literal(needle) => mask_literal(text, needle),
+            Kind::Regex(re) => {
                 if re.is_match(text) {
                     (re.replace_all(text, REDACTION_MASK).into_owned(), true)
                 } else {
@@ -72,16 +79,16 @@ impl Pattern {
 
     /// The pattern source — its identity for equality/hashing.
     fn source(&self) -> &str {
-        match self {
-            Self::Literal(needle) => needle,
-            Self::Regex(re) => re.as_str(),
+        match &self.0 {
+            Kind::Literal(needle) => needle,
+            Kind::Regex(re) => re.as_str(),
         }
     }
 
     fn tag(&self) -> u8 {
-        match self {
-            Self::Literal(_) => 0,
-            Self::Regex(_) => 1,
+        match &self.0 {
+            Kind::Literal(_) => 0,
+            Kind::Regex(_) => 1,
         }
     }
 }

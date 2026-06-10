@@ -43,6 +43,7 @@ impl ArgumentRule {
         self.tool.as_ref().map(ToolName::as_str)
     }
 
+    /// The forbidden-content matcher this rule fires on.
     #[must_use]
     pub fn marker(&self) -> &Pattern {
         &self.marker
