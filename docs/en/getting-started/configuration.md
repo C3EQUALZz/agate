@@ -76,7 +76,8 @@ nothing is redacted**.
 | `[policy.tools].mode` | `allow-all` \| `allowlist` \| `denylist` | How tool calls are authorized. Default `allow-all`. |
 | `[policy.tools].names` | array of tool names | Tools governed by `mode` (ignored when `allow-all`). |
 | `[[policy.tools.deny_arguments]]` | tables of `{ tool?, contains }` | Argument-level deny rules: a permitted tool call is **blocked** when its arguments contain `contains` (case-insensitive). `tool` scopes the rule to one tool; omit it for any tool. |
-| `[policy].redact` | array of literal markers | Substrings masked (case-insensitive) in emitted text before it reaches the client. |
+| `[policy].redact` | array of literal markers | Substrings masked (case-insensitive) in emitted text and tool results before they reach the client. |
+| `[policy].redact_regex` | array of regex patterns | Regex markers masked in emitted text and tool results (full `regex` syntax; prefix `(?i)` for case-insensitivity). An invalid expression aborts startup. |
 | `[policy].fail_mode` | `open` \| `closed` | What to do if a policy decision times out: forward (`open`) or block (`closed`). Default `closed` (safety over availability). |
 | `[policy].decision_timeout_ms` | integer (ms) | Deadline for one policy decision. Default `5000`; must be > 0. |
 | `[policy].on_malformed_event` | `forward` \| `drop` \| `terminate` | What to do with a recognized response event that is malformed (a known type missing a required field), so it cannot be inspected. `forward` passes the raw frame, `drop` discards it, `terminate` ends the run. Default `terminate` (it must not bypass the policy). |
@@ -200,6 +201,7 @@ contains = "AKIA"
 
 [policy]
 redact = ["sk-", "AKIA"]
+redact_regex = ["sk-[A-Za-z0-9]{20,}", "AKIA[0-9A-Z]{16}"]
 fail_mode = "closed"
 decision_timeout_ms = 5000
 on_malformed_event = "terminate"

@@ -119,12 +119,17 @@ impl AppConfig {
             .iter()
             .map(ArgumentRuleConfig::to_rule)
             .collect::<Result<Vec<_>, _>>()?;
-        let secrets = self
+        // Literal markers first, then regex markers — both join the one secret
+        // list the redactor applies in order.
+        let mut secrets = self
             .policy
             .redact
             .iter()
-            .map(|pattern| SecretPattern::new(pattern.clone()))
+            .map(SecretPattern::literal)
             .collect::<Result<Vec<_>, _>>()?;
+        for source in &self.policy.redact_regex {
+            secrets.push(SecretPattern::regex(source)?);
+        }
         Ok(PolicyRuleset::new(tools, argument_rules, secrets))
     }
 
@@ -300,8 +305,11 @@ pub enum AuditBackend {
 #[serde(default)]
 pub struct PolicySection {
     pub tools: ToolsSection,
-    /// Literal markers redacted from emitted text.
+    /// Literal markers redacted from emitted text (case-insensitive).
     pub redact: Vec<String>,
+    /// Regex markers redacted from emitted text (full `regex` syntax; add `(?i)`
+    /// for case-insensitivity). An invalid expression aborts startup.
+    pub redact_regex: Vec<String>,
     /// What to do when a policy decision cannot be made in time: `open`
     /// (forward) or `closed` (block). Defaults to the secure `closed`.
     pub fail_mode: PolicyFailMode,
@@ -328,6 +336,7 @@ impl Default for PolicySection {
         Self {
             tools: ToolsSection::default(),
             redact: Vec::new(),
+            redact_regex: Vec::new(),
             fail_mode: PolicyFailMode::default(),
             decision_timeout_ms: 5000,
             on_malformed_event: MalformedMode::default(),
@@ -600,6 +609,21 @@ mod tests {
     #[test]
     fn a_blank_tool_name_is_rejected() {
         let config = with_policy(ToolMode::Allowlist, &["  "], &[]);
+        assert!(config.policy_ruleset().is_err());
+    }
+
+    #[test]
+    fn literal_and_regex_redaction_patterns_build_together() {
+        let mut config = with_policy(ToolMode::AllowAll, &[], &["sk-"]);
+        config.policy.redact_regex = vec![r"AKIA[0-9A-Z]{16}".to_owned()];
+        let ruleset = config.policy_ruleset().expect("valid");
+        assert_eq!(ruleset.secrets().len(), 2);
+    }
+
+    #[test]
+    fn an_invalid_redaction_regex_aborts_the_ruleset() {
+        let mut config = AppConfig::default();
+        config.policy.redact_regex = vec!["(unclosed".to_owned()];
         assert!(config.policy_ruleset().is_err());
     }
 

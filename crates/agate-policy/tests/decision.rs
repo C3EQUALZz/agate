@@ -82,6 +82,24 @@ fn denylist_blocks_only_listed_tools() {
 }
 
 #[test]
+fn a_regex_pattern_redacts_matching_secrets_in_a_message() {
+    let pattern = SecretPattern::regex(r"sk-[a-z0-9]{4}").expect("valid pattern");
+    let service = PolicyService::new(PolicyRuleset::new(
+        ToolPolicy::AllowAll,
+        Vec::new(),
+        vec![pattern],
+    ));
+    let action = InspectedAction::Message {
+        text: "tokens sk-ab12 and sk-cd34".to_owned(),
+    };
+
+    assert_eq!(
+        service.decide(&action),
+        PolicyDecision::RedactText(format!("tokens {REDACTION_MASK} and {REDACTION_MASK}"))
+    );
+}
+
+#[test]
 fn message_with_a_secret_is_redacted() {
     let pattern = SecretPattern::new("sk-SECRET").expect("valid pattern");
     let service = PolicyService::new(PolicyRuleset::new(
