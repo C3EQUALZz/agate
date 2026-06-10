@@ -4,7 +4,9 @@ use std::time::Duration;
 use agate_audit::infrastructure::persistence::postgres::PoolConfig;
 use agate_audit::setup::configs::{PostgresConfig, StorageConfig};
 use agate_policy::domain::common::errors::DomainError;
-use agate_policy::domain::decision::{PolicyRuleset, SecretPattern, ToolName, ToolPolicy};
+use agate_policy::domain::decision::{
+    ArgumentRule, PolicyRuleset, SecretPattern, ToolName, ToolPolicy,
+};
 use agate_proxy::application::inspection::MalformedEventMode;
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
@@ -106,13 +108,20 @@ impl AppConfig {
             ToolMode::Allowlist => ToolPolicy::Allowlist(names()?),
             ToolMode::Denylist => ToolPolicy::Denylist(names()?),
         };
+        let argument_rules = self
+            .policy
+            .tools
+            .deny_arguments
+            .iter()
+            .map(ArgumentRuleConfig::to_rule)
+            .collect::<Result<Vec<_>, _>>()?;
         let secrets = self
             .policy
             .redact
             .iter()
             .map(|pattern| SecretPattern::new(pattern.clone()))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(PolicyRuleset::new(tools, secrets))
+        Ok(PolicyRuleset::new(tools, argument_rules, secrets))
     }
 
     /// The proxy's fail mode for a policy-decision timeout.
@@ -344,6 +353,31 @@ pub struct ToolsSection {
     pub mode: ToolMode,
     /// Tool names governed by `mode` (ignored when `mode = "allow-all"`).
     pub names: Vec<String>,
+    /// Argument-level deny rules: a permitted tool call is still blocked when
+    /// its arguments contain one of these markers. Configured as
+    /// `[[policy.tools.deny_arguments]]` tables.
+    pub deny_arguments: Vec<ArgumentRuleConfig>,
+}
+
+/// One `[[policy.tools.deny_arguments]]` entry: a marker forbidden in tool
+/// arguments, optionally scoped to a single tool.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ArgumentRuleConfig {
+    /// The tool this rule applies to; omit (or leave blank) to apply to any tool.
+    pub tool: Option<String>,
+    /// The forbidden marker, matched case-insensitively in the arguments.
+    pub contains: String,
+}
+
+impl ArgumentRuleConfig {
+    fn to_rule(&self) -> Result<ArgumentRule, DomainError> {
+        let tool = match self.tool.as_deref().map(str::trim) {
+            Some(name) if !name.is_empty() => Some(ToolName::new(name)?),
+            _ => None,
+        };
+        ArgumentRule::new(tool, self.contains.clone())
+    }
 }
 
 /// How tool invocations are authorized.
@@ -375,6 +409,7 @@ mod tests {
                 tools: ToolsSection {
                     mode,
                     names: names.iter().map(|s| (*s).to_owned()).collect(),
+                    ..ToolsSection::default()
                 },
                 redact: redact.iter().map(|s| (*s).to_owned()).collect(),
                 ..PolicySection::default()
@@ -540,6 +575,33 @@ mod tests {
     #[test]
     fn a_blank_tool_name_is_rejected() {
         let config = with_policy(ToolMode::Allowlist, &["  "], &[]);
+        assert!(config.policy_ruleset().is_err());
+    }
+
+    #[test]
+    fn deny_argument_rules_build_from_config() {
+        let mut config = AppConfig::default();
+        config.policy.tools.deny_arguments = vec![
+            super::ArgumentRuleConfig {
+                tool: Some("shell".to_owned()),
+                contains: "rm -rf".to_owned(),
+            },
+            super::ArgumentRuleConfig {
+                tool: None,
+                contains: "AKIA".to_owned(),
+            },
+        ];
+        let ruleset = config.policy_ruleset().expect("valid");
+        assert_eq!(ruleset.argument_rules().len(), 2);
+    }
+
+    #[test]
+    fn a_blank_argument_marker_is_rejected() {
+        let mut config = AppConfig::default();
+        config.policy.tools.deny_arguments = vec![super::ArgumentRuleConfig {
+            tool: None,
+            contains: "   ".to_owned(),
+        }];
         assert!(config.policy_ruleset().is_err());
     }
 

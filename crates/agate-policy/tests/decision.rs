@@ -6,7 +6,8 @@ use std::collections::BTreeSet;
 use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::services::REDACTION_MASK;
 use agate_policy::domain::decision::{
-    DenyReason, InspectedAction, PolicyDecision, PolicyRuleset, SecretPattern, ToolName, ToolPolicy,
+    ArgumentRule, DenyReason, InspectedAction, PolicyDecision, PolicyRuleset, SecretPattern,
+    ToolName, ToolPolicy,
 };
 
 fn tool_names(names: &[&str]) -> BTreeSet<ToolName> {
@@ -23,6 +24,13 @@ fn tool_call(name: &str) -> InspectedAction {
     }
 }
 
+fn tool_call_with(name: &str, arguments: &str) -> InspectedAction {
+    InspectedAction::ToolCall {
+        name: name.to_owned(),
+        arguments: arguments.to_owned(),
+    }
+}
+
 #[test]
 fn allow_all_permits_every_tool() {
     let service = PolicyService::new(PolicyRuleset::allow_all());
@@ -32,7 +40,11 @@ fn allow_all_permits_every_tool() {
 
 #[test]
 fn allowlist_denies_a_tool_not_on_it() {
-    let ruleset = PolicyRuleset::new(ToolPolicy::Allowlist(tool_names(&["search"])), Vec::new());
+    let ruleset = PolicyRuleset::new(
+        ToolPolicy::Allowlist(tool_names(&["search"])),
+        Vec::new(),
+        Vec::new(),
+    );
     let service = PolicyService::new(ruleset);
 
     assert_eq!(
@@ -43,7 +55,11 @@ fn allowlist_denies_a_tool_not_on_it() {
 
 #[test]
 fn allowlist_permits_a_listed_tool() {
-    let ruleset = PolicyRuleset::new(ToolPolicy::Allowlist(tool_names(&["search"])), Vec::new());
+    let ruleset = PolicyRuleset::new(
+        ToolPolicy::Allowlist(tool_names(&["search"])),
+        Vec::new(),
+        Vec::new(),
+    );
     let service = PolicyService::new(ruleset);
 
     assert_eq!(service.decide(&tool_call("search")), PolicyDecision::Allow);
@@ -51,7 +67,11 @@ fn allowlist_permits_a_listed_tool() {
 
 #[test]
 fn denylist_blocks_only_listed_tools() {
-    let ruleset = PolicyRuleset::new(ToolPolicy::Denylist(tool_names(&["rm_rf"])), Vec::new());
+    let ruleset = PolicyRuleset::new(
+        ToolPolicy::Denylist(tool_names(&["rm_rf"])),
+        Vec::new(),
+        Vec::new(),
+    );
     let service = PolicyService::new(ruleset);
 
     assert!(matches!(
@@ -64,7 +84,11 @@ fn denylist_blocks_only_listed_tools() {
 #[test]
 fn message_with_a_secret_is_redacted() {
     let pattern = SecretPattern::new("sk-SECRET").expect("valid pattern");
-    let service = PolicyService::new(PolicyRuleset::new(ToolPolicy::AllowAll, vec![pattern]));
+    let service = PolicyService::new(PolicyRuleset::new(
+        ToolPolicy::AllowAll,
+        Vec::new(),
+        vec![pattern],
+    ));
     let action = InspectedAction::Message {
         text: "my key is sk-secret, keep it safe".to_owned(),
     };
@@ -78,7 +102,11 @@ fn message_with_a_secret_is_redacted() {
 #[test]
 fn clean_message_is_allowed() {
     let pattern = SecretPattern::new("sk-SECRET").expect("valid pattern");
-    let service = PolicyService::new(PolicyRuleset::new(ToolPolicy::AllowAll, vec![pattern]));
+    let service = PolicyService::new(PolicyRuleset::new(
+        ToolPolicy::AllowAll,
+        Vec::new(),
+        vec![pattern],
+    ));
     let action = InspectedAction::Message {
         text: "nothing sensitive here".to_owned(),
     };
@@ -90,6 +118,7 @@ fn clean_message_is_allowed() {
 fn ungoverned_actions_are_allowed() {
     let service = PolicyService::new(PolicyRuleset::new(
         ToolPolicy::Allowlist(tool_names(&["search"])),
+        Vec::new(),
         vec![SecretPattern::new("secret").expect("valid pattern")],
     ));
 
@@ -109,8 +138,68 @@ fn padded_allowlist_entry_still_matches_the_tool() {
     let ruleset = PolicyRuleset::new(
         ToolPolicy::Allowlist(tool_names(&["  search  "])),
         Vec::new(),
+        Vec::new(),
     );
     let service = PolicyService::new(ruleset);
 
     assert_eq!(service.decide(&tool_call("search")), PolicyDecision::Allow);
+}
+
+#[test]
+fn a_permitted_tool_is_denied_when_its_arguments_match_a_rule() {
+    let ruleset = PolicyRuleset::new(
+        ToolPolicy::AllowAll,
+        vec![ArgumentRule::new(None, "rm -rf").expect("valid rule")],
+        Vec::new(),
+    );
+    let service = PolicyService::new(ruleset);
+
+    // The tool name is allowed, but the dangerous argument is blocked.
+    assert!(matches!(
+        service.decide(&tool_call_with("shell", r#"{"cmd":"rm -rf /"}"#)),
+        PolicyDecision::Deny(_)
+    ));
+    // A benign call to the same tool is allowed.
+    assert_eq!(
+        service.decide(&tool_call_with("shell", r#"{"cmd":"ls"}"#)),
+        PolicyDecision::Allow
+    );
+}
+
+#[test]
+fn a_tool_scoped_argument_rule_ignores_other_tools() {
+    let rule = ArgumentRule::new(Some(ToolName::new("shell").expect("valid")), "curl")
+        .expect("valid rule");
+    let service = PolicyService::new(PolicyRuleset::new(
+        ToolPolicy::AllowAll,
+        vec![rule],
+        Vec::new(),
+    ));
+
+    assert!(matches!(
+        service.decide(&tool_call_with("shell", r#"{"cmd":"curl x"}"#)),
+        PolicyDecision::Deny(_)
+    ));
+    // Same marker, different tool → not governed by this rule.
+    assert_eq!(
+        service.decide(&tool_call_with("search", r#"{"q":"curl"}"#)),
+        PolicyDecision::Allow
+    );
+}
+
+#[test]
+fn a_denied_tool_name_short_circuits_before_argument_rules() {
+    let ruleset = PolicyRuleset::new(
+        ToolPolicy::Allowlist(tool_names(&["search"])),
+        vec![ArgumentRule::new(None, "anything").expect("valid rule")],
+        Vec::new(),
+    );
+    let service = PolicyService::new(ruleset);
+
+    // `rm_rf` is not on the allowlist: the name check denies it first, with the
+    // name reason — the argument rules never run.
+    assert_eq!(
+        service.decide(&tool_call_with("rm_rf", "anything goes")),
+        PolicyDecision::Deny(DenyReason::new("tool 'rm_rf' is not permitted"))
+    );
 }

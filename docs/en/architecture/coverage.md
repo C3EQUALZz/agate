@@ -8,16 +8,18 @@ gaps live in the repository at
 [`docs/design/security-coverage-roadmap.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/security-coverage-roadmap.md).
 
 !!! warning "Read this before relying on Agate as your only guardrail"
-    Agate currently enforces **two** controls end to end: tool-call
-    authorization **by tool name**, and **literal text redaction**. Several
-    threats named in the threat model are not yet enforced (below). Treat Agate
-    as one layer, not a complete agent firewall, until the roadmap items land.
+    Agate currently enforces tool-call authorization (by **name** and by
+    **argument** deny rules), literal text redaction, and fail-closed handling
+    of malformed events. Several threats named in the threat model are not yet
+    enforced (below) — notably tool **results**, **state** content, and rate
+    limits. Treat Agate as one layer, not a complete agent firewall, until the
+    remaining roadmap items land.
 
 ## What is inspected
 
 | Event / input | What happens | Policy can act? |
 |---|---|---|
-| `TOOL_CALL_*` (assembled) | buffered into a complete tool call, then judged | **Yes** — allow/deny **by tool name** |
+| `TOOL_CALL_*` (assembled) | buffered into a complete tool call, then judged | **Yes** — allow/deny by tool **name** and by **argument** deny rules (`[[policy.tools.deny_arguments]]`) |
 | `TEXT_MESSAGE_CONTENT` | scanned for secret patterns | **Yes** — redact (literal, case-insensitive substring) |
 | Lifecycle (`RUN_*`, `STEP_*`) | ordering enforced by the `Run` state machine | structural only (no policy verdict) |
 | `STATE_SNAPSHOT` / `STATE_DELTA` | size / op-count budget checked | **No** — content auto-allowed |
@@ -28,7 +30,6 @@ gaps live in the repository at
 
 | Event / input | Why it matters |
 |---|---|
-| Tool-call **arguments** | passed to the policy but only the **name** is checked — argument payloads (injection, SSRF, oversized data) are not yet policy-screened |
 | Tool **results** (`TOOL_CALL_RESULT`) | auto-allowed — the indirect-injection and exfiltration surface is not inspected |
 | **State** mutation content | only byte-size/op-count budgets; RFC 6902 patch operations are not validated |
 | `RAW`, `CUSTOM`, `REASONING_ENCRYPTED_VALUE` | opaque — forwarded as-is, never inspected |
@@ -53,7 +54,8 @@ gaps live in the repository at
 
 Closing the remaining gaps is sequenced in
 [`security-coverage-roadmap.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/security-coverage-roadmap.md):
-tool-argument inspection, bringing state and tool-results under the policy,
-rate/output budgets, and a richer (regex/glob + argument-condition) TOML policy
-language. (Fail-closed handling of malformed known events is now implemented —
-see `[policy].on_malformed_event`.)
+bringing state and tool-results under the policy, rate/output budgets, and a
+richer (regex/glob, structured argument predicates) TOML policy language.
+(Fail-closed handling of malformed known events and literal tool-argument deny
+rules are now implemented — see `[policy].on_malformed_event` and
+`[[policy.tools.deny_arguments]]`.)

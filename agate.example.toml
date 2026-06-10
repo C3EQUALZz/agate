@@ -59,6 +59,15 @@ mode = "allowlist"
 # Tools governed by `mode` (ignored when mode = "allow-all").
 names = ["search", "fetch"]
 
+# Argument-level deny rules: a permitted tool call is still blocked when its
+# arguments contain `contains` (matched case-insensitively). `tool` scopes the
+# rule to one tool; omit it to apply to any tool. Add as many tables as needed.
+[[policy.tools.deny_arguments]]
+tool = "search"
+contains = "rm -rf"
+[[policy.tools.deny_arguments]]
+contains = "AKIA"
+
 [policy]
 # Literal markers redacted from emitted assistant text (case-insensitive).
 redact = ["sk-", "AKIA"]
