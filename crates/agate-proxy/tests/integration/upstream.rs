@@ -40,7 +40,13 @@ async fn forwards_the_run_and_streams_the_response() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unreachable_agent_is_a_connect_error() {
-    let client = ReqwestAgentClient::new("http://127.0.0.1:1/run".to_string());
+    // Reserve an ephemeral port and drop the listener so the address is
+    // guaranteed free — a connect there is deterministically refused, with no
+    // dependence on whatever happens to be bound on a fixed port.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let client = ReqwestAgentClient::new(format!("http://{addr}/run"));
 
     let error = client.run(request()).await.err().expect("the run fails");
 

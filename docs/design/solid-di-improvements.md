@@ -1,9 +1,10 @@
 # Plan: SOLID / DI improvements
 
-> Status: planned / not implemented. To be done on a dedicated branch **after**
-> `feat/multi-backend-seam` merges into `main`. Findings come from a full
-> architecture audit (crate graph, domain purity, DI wiring, `cargo deny`,
-> lints — all pass); these are the four targeted gaps that remain.
+> Status: **implemented** (branch `refactor/solid-di`, PR #56). All four items
+> below landed, one commit each, with the full gate green. Findings came from a
+> full architecture audit (crate graph, domain purity, DI wiring, `cargo deny`,
+> lints — all pass); these were the four targeted gaps. One deviation is noted
+> inline: `Run::new` stays `pub`.
 
 ## Scope
 

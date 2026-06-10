@@ -22,6 +22,9 @@ pub enum ProxyError {
 
 impl IntoResponse for ProxyError {
     fn into_response(self) -> Response {
+        // The client body is a stable, sanitized message — the detailed upstream
+        // error (which can carry the agent's host/topology) stays in the logs,
+        // never in the response, so the proxy does not become an SSRF oracle.
         let (status, body) = match self {
             Self::MalformedRequest(error) => {
                 (StatusCode::BAD_REQUEST, format!("invalid request: {error}"))
@@ -29,9 +32,12 @@ impl IntoResponse for ProxyError {
             Self::Denied(reason) => (StatusCode::FORBIDDEN, reason),
             Self::Upstream(UpstreamError::Timeout) => (
                 StatusCode::GATEWAY_TIMEOUT,
-                UpstreamError::Timeout.to_string(),
+                "upstream agent timed out".into(),
             ),
-            Self::Upstream(error) => (StatusCode::BAD_GATEWAY, error.to_string()),
+            Self::Upstream(_) => (
+                StatusCode::BAD_GATEWAY,
+                "upstream agent request failed".into(),
+            ),
         };
         (status, body).into_response()
     }
