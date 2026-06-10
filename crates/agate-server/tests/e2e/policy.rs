@@ -25,6 +25,7 @@ fn ruleset() -> PolicyRuleset {
         .collect();
     PolicyRuleset::new(
         ToolPolicy::Allowlist(allowlist),
+        vec![],
         vec![SecretPattern::new("sk-LEAK").expect("valid pattern")],
     )
 }

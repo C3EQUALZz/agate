@@ -107,7 +107,7 @@ mod tests {
 
     #[tokio::test]
     async fn allows_a_listed_tool() {
-        let adapter = adapter(PolicyRuleset::new(allowlist(&["ok"]), vec![]));
+        let adapter = adapter(PolicyRuleset::new(allowlist(&["ok"]), vec![], vec![]));
         assert_eq!(
             adapter.decide(&context(), &tool("ok")).await,
             Verdict::Allow
@@ -116,7 +116,7 @@ mod tests {
 
     #[tokio::test]
     async fn denies_an_unlisted_tool() {
-        let adapter = adapter(PolicyRuleset::new(allowlist(&["ok"]), vec![]));
+        let adapter = adapter(PolicyRuleset::new(allowlist(&["ok"]), vec![], vec![]));
         assert!(matches!(
             adapter.decide(&context(), &tool("rm")).await,
             Verdict::Deny(_)
@@ -127,6 +127,7 @@ mod tests {
     async fn redacts_a_message_into_a_transform_keeping_the_id() {
         let adapter = adapter(PolicyRuleset::new(
             ToolPolicy::AllowAll,
+            vec![],
             vec![SecretPattern::new("sk").expect("valid pattern")],
         ));
         let event = AgentEvent::MessageChunk {

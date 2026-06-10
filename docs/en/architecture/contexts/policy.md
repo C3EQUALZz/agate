@@ -36,8 +36,12 @@ The composition root maps a `PolicyDecision` onto the proxy's `Verdict`
 
 - `InspectedAction` — the input: a tool invocation or a piece of emitted text.
 - `PolicyDecision` — the output verdict in policy terms.
-- `PolicyRuleset` — the configured rules: a `ToolPolicy` plus secret patterns.
+- `PolicyRuleset` — the configured rules: a `ToolPolicy`, argument deny rules,
+  and secret patterns.
 - `ToolPolicy` — `AllowAll`, `Allowlist(set)`, or `Denylist(set)`.
+- `ArgumentRule` — denies a permitted tool call whose arguments contain a marker
+  (optionally scoped to one tool); applied by `ArgumentInspector` after name
+  authorization.
 - `ToolName`, `SecretPattern` — validated value objects (a blank or invalid
   entry is rejected at construction).
 

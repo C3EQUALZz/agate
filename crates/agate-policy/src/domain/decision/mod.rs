@@ -8,7 +8,8 @@
 pub mod services;
 pub mod values;
 
-pub use services::{PolicyEvaluator, TextRedactor, ToolAuthorizer};
+pub use services::{ArgumentInspector, PolicyEvaluator, TextRedactor, ToolAuthorizer};
 pub use values::{
-    DenyReason, InspectedAction, PolicyDecision, PolicyRuleset, SecretPattern, ToolName, ToolPolicy,
+    ArgumentRule, DenyReason, InspectedAction, PolicyDecision, PolicyRuleset, SecretPattern,
+    ToolName, ToolPolicy,
 };

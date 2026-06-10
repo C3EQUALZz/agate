@@ -73,6 +73,7 @@ nothing is redacted**.
 | --- | --- | --- |
 | `[policy.tools].mode` | `allow-all` \| `allowlist` \| `denylist` | How tool calls are authorized. Default `allow-all`. |
 | `[policy.tools].names` | array of tool names | Tools governed by `mode` (ignored when `allow-all`). |
+| `[[policy.tools.deny_arguments]]` | tables of `{ tool?, contains }` | Argument-level deny rules: a permitted tool call is **blocked** when its arguments contain `contains` (case-insensitive). `tool` scopes the rule to one tool; omit it for any tool. |
 | `[policy].redact` | array of literal markers | Substrings masked (case-insensitive) in emitted text before it reaches the client. |
 | `[policy].fail_mode` | `open` \| `closed` | What to do if a policy decision times out: forward (`open`) or block (`closed`). Default `closed` (safety over availability). |
 | `[policy].decision_timeout_ms` | integer (ms) | Deadline for one policy decision. Default `5000`; must be > 0. |
@@ -186,6 +187,12 @@ connect_backoff_secs = 1
 [policy.tools]
 mode = "allowlist"
 names = ["search", "fetch"]
+
+[[policy.tools.deny_arguments]]
+tool = "search"
+contains = "rm -rf"
+[[policy.tools.deny_arguments]]
+contains = "AKIA"
 
 [policy]
 redact = ["sk-", "AKIA"]

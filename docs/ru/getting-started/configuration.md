@@ -74,6 +74,7 @@ docker run --rm \
 | --- | --- | --- |
 | `[policy.tools].mode` | `allow-all` \| `allowlist` \| `denylist` | Как авторизуются вызовы инструментов. По умолчанию `allow-all`. |
 | `[policy.tools].names` | массив имён инструментов | Инструменты, управляемые `mode` (игнорируются при `allow-all`). |
+| `[[policy.tools.deny_arguments]]` | таблицы `{ tool?, contains }` | Правила запрета по аргументам: разрешённый вызов инструмента всё равно **блокируется**, если его аргументы содержат `contains` (без учёта регистра). `tool` ограничивает правило одним инструментом; опустите его — правило применится к любому. |
 | `[policy].redact` | массив литеральных маркеров | Подстроки, маскируемые (без учёта регистра) в исходящем тексте до его доставки клиенту. |
 | `[policy].fail_mode` | `open` \| `closed` | Что делать при таймауте решения политики: переслать (`open`) или заблокировать (`closed`). По умолчанию `closed` (безопасность важнее доступности). |
 | `[policy].decision_timeout_ms` | целое (мс) | Дедлайн одного решения политики. По умолчанию `5000`; должен быть > 0. |
@@ -188,6 +189,12 @@ connect_backoff_secs = 1
 [policy.tools]
 mode = "allowlist"
 names = ["search", "fetch"]
+
+[[policy.tools.deny_arguments]]
+tool = "search"
+contains = "rm -rf"
+[[policy.tools.deny_arguments]]
+contains = "AKIA"
 
 [policy]
 redact = ["sk-", "AKIA"]

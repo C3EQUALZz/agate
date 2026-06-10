@@ -29,7 +29,7 @@ enforce it. File references are to `crates/` on `main`.
 
 | Asset / threat | Threat model promises | Enforced today | Gap |
 |---|---|---|---|
-| **A1 — tool authorization** | verdict on tool **and arguments** | `ToolAuthorizer` matches the tool **name** only (`agate-policy/.../tool_authorizer.rs`); arguments are buffered, handed to the policy, and ignored | **arguments uninspected** |
+| **A1 — tool authorization** | verdict on tool **and arguments** | name authorized by `ToolAuthorizer`; arguments checked by `ArgumentInspector` against `[[policy.tools.deny_arguments]]` literal markers (`agate-policy/.../argument_inspector.rs`) | literal-only — structured/JSONPath predicates still to come (P2) |
 | **A2 — sensitive-data exfiltration** | redact text, screen URLs | literal, case-insensitive substring redaction on `TEXT_MESSAGE_CONTENT` only (`text_redactor.rs`); request-leg SSRF screen on `user` messages, no DNS resolution | tool args / tool results / state not redacted; SSRF is best-effort and request-leg only |
 | **A3 — instruction integrity / prompt injection** | resist injection incl. indirect (URL content, tool results) | not implemented; tool results are `auto-allow` | **whole asset open** |
 | **A4 — shared-state integrity** | verdict on state-mutating events; validate & bound JSON Patch | `STATE_DELTA`/`STATE_SNAPSHOT` checked for `byte_size`/`op_count` budgets only; never reaches the policy (`adapter.rs` maps them to `InspectedAction::Other`) | **state content uninspected**; RFC 6902 ops unvalidated |
@@ -65,12 +65,13 @@ architecture, which is the payoff of the hexagonal layering.
 
 ### Phase 1 — close the highest-impact gaps
 
-1. **Tool-argument inspection (A1).** Extend the policy language so a rule can
-   match on tool **arguments**, not just the name. Concretely: add
-   argument-condition rules to `ToolPolicy` — a JSONPath/`serde_json::Value`
-   predicate set (e.g. "deny `shell` when `args.cmd` matches `rm -rf`", "deny
-   any tool whose args contain a private-IP URL"). The arguments already reach
-   the policy; this is policy-side work plus config surface.
+1. **Tool-argument inspection (A1).** ✅ **Done (literal).** `ArgumentInspector`
+   denies a permitted tool call whose arguments contain a configured marker;
+   rules are `[[policy.tools.deny_arguments]]` (`{ tool?, contains }`,
+   case-insensitive), optionally scoped to one tool, evaluated after name
+   authorization. Structured/JSONPath predicates over the parsed arguments
+   remain for P2 (the `ArgumentRule` value object is the seam to grow them
+   behind).
 2. **Fail-closed on malformed known events (G1).** ✅ **Done.** `inspect_stream`
    distinguishes "unrecognized type → forward" (`Ok(None)`) from "recognized but
    malformed → `Err`" (`AgUiError::is_malformed_known`). The behavior is the
@@ -94,8 +95,10 @@ engine — it closes most real cases without new infrastructure or a sandbox.
 - **Patterns:** regex / glob for tool names (`ToolName`) and for secret
   redaction (`SecretPattern`), alongside the current literal match. Keep literal
   as the default for safety and speed.
-- **Argument predicates:** the JSONPath/condition rules from Phase 1, expressed
-  in `[policy.tools]`.
+- **Argument predicates:** grow `[[policy.tools.deny_arguments]]` beyond the
+  literal `contains` marker — JSONPath / structured conditions over the parsed
+  arguments (e.g. "deny when `args.url` resolves to a private IP"), behind the
+  existing `ArgumentRule` value object.
 - **Result & state rules:** redaction/deny conditions for tool results and
   state mutations.
 - **Per-tool policies:** today the ruleset is flat (one `ToolPolicy` + one
