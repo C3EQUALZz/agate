@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use crate::application::inspection::MalformedEventMode;
+
 /// How long to wait to establish a connection to the upstream agent before
 /// failing fast. Kept short so an unreachable agent surfaces quickly.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -34,6 +36,9 @@ pub struct ProxyConfig {
     pub api_keys: Vec<String>,
     /// Maximum concurrently in-flight proxied runs; excess is shed with `503`.
     pub max_concurrent_requests: usize,
+    /// What to do with a recognized-but-malformed response event (defaults to
+    /// the secure [`Terminate`](MalformedEventMode::Terminate)).
+    pub malformed_event_mode: MalformedEventMode,
 }
 
 impl ProxyConfig {
@@ -48,7 +53,15 @@ impl ProxyConfig {
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
             api_keys: Vec::new(),
             max_concurrent_requests: DEFAULT_MAX_CONCURRENT_REQUESTS,
+            malformed_event_mode: MalformedEventMode::default(),
         }
+    }
+
+    /// Override the handling of recognized-but-malformed response events.
+    #[must_use]
+    pub fn with_malformed_event_mode(mut self, mode: MalformedEventMode) -> Self {
+        self.malformed_event_mode = mode;
+        self
     }
 
     /// Override the maximum number of concurrently in-flight proxied runs.

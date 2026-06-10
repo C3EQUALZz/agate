@@ -6,7 +6,9 @@ use serde_json::{Value, json};
 use tracing::{debug, info, warn};
 
 use crate::application::common::ports::{AgentResponseStream, InspectionOutcome, ProxyMetrics};
-use crate::application::inspection::{InspectionAction, InspectionContext, Inspector};
+use crate::application::inspection::{
+    InspectionAction, InspectionContext, Inspector, MalformedEventMode,
+};
 use crate::domain::inspection::{Budgets, Run};
 use crate::infrastructure::ag_ui::{to_event, to_fragment};
 use crate::infrastructure::sse::{SseDecoder, encode};
@@ -19,12 +21,18 @@ use crate::infrastructure::sse::{SseDecoder, encode};
 /// forwards byte-for-byte (after flushing any held frames), a transformed one
 /// is re-encoded, a dropped one vanishes, and a terminate (or upstream error)
 /// ends the stream with a `RUN_ERROR`. Events that are not inspectable (framing
-/// markers, unknown types, non-JSON) pass through unchanged.
+/// markers, unknown types, non-objects, non-JSON) pass through unchanged.
+///
+/// A **recognized but malformed** event (a known `type` with a missing/blank
+/// required field) cannot be inspected yet belongs to the run, so forwarding it
+/// raw would bypass the policy. `malformed_mode` decides its fate
+/// ([`MalformedEventMode`]); the default is to fail closed and terminate.
 pub fn inspect_stream(
     mut upstream: AgentResponseStream,
     inspector: Arc<Inspector>,
     context: InspectionContext,
     budgets: Budgets,
+    malformed_mode: MalformedEventMode,
     metrics: Arc<dyn ProxyMetrics>,
 ) -> impl Stream<Item = Bytes> + Send {
     async_stream::stream! {
@@ -44,9 +52,34 @@ pub fn inspect_stream(
             };
 
             for event in decoder.push(&chunk) {
-                let fragment = serde_json::from_str::<Value>(&event.data)
-                    .ok()
-                    .and_then(|value| to_fragment(&value).ok().flatten());
+                let fragment = match serde_json::from_str::<Value>(&event.data) {
+                    Ok(value) => match to_fragment(&value) {
+                        Ok(fragment) => fragment,
+                        // Recognized event type, but a required field is missing
+                        // or blank: it cannot be inspected, so it must not slip
+                        // past the policy. Fail closed per the configured mode.
+                        Err(error) if error.is_malformed_known() => match malformed_mode {
+                            MalformedEventMode::Forward => None,
+                            MalformedEventMode::Drop => {
+                                warn!(run = %context.run, %error, "dropping a malformed known event");
+                                metrics.record_inspected(InspectionOutcome::Deny);
+                                continue;
+                            }
+                            MalformedEventMode::Terminate => {
+                                warn!(run = %context.run, %error, "terminating run on a malformed known event");
+                                metrics.record_inspected(InspectionOutcome::Terminate);
+                                pending.clear();
+                                yield Bytes::from(run_error("malformed protocol event"));
+                                return;
+                            }
+                        },
+                        // Not an object / no `type` → not an AG-UI event we
+                        // inspect; forward like any uninspectable frame.
+                        Err(_) => None,
+                    },
+                    // Not JSON → not inspectable.
+                    Err(_) => None,
+                };
 
                 let Some(fragment) = fragment else {
                     // not inspectable: forward (preserving order during a hold)
@@ -196,17 +229,32 @@ mod tests {
         Arc::new(CountingMetrics::default())
     }
 
+    /// Run `inspect_stream` with the default budgets/context and a fail-closed
+    /// malformed mode — the shape every test below shares.
+    fn inspect(
+        upstream: AgentResponseStream,
+        inspector: Arc<Inspector>,
+        metrics: Arc<dyn ProxyMetrics>,
+    ) -> impl Stream<Item = Bytes> + Send {
+        inspect_stream(
+            upstream,
+            inspector,
+            context(),
+            Budgets::default(),
+            MalformedEventMode::Terminate,
+            metrics,
+        )
+    }
+
     #[tokio::test]
     async fn transforms_a_message_and_forwards_the_replacement() {
-        let stream = inspect_stream(
+        let stream = inspect(
             upstream(&[
                 "data: {\"type\":\"RUN_STARTED\"}\n\n",
                 "data: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"m1\",\"delta\":\"secret\"}\n\n",
                 "data: {\"type\":\"RUN_FINISHED\"}\n\n",
             ]),
             inspector(Arc::new(RedactMessages)),
-            context(),
-            Budgets::default(),
             metrics(),
         );
 
@@ -223,14 +271,12 @@ mod tests {
 
     #[tokio::test]
     async fn forwards_an_allowed_run() {
-        let stream = inspect_stream(
+        let stream = inspect(
             upstream(&[
                 "data: {\"type\":\"RUN_STARTED\"}\n\n",
                 "data: {\"type\":\"RUN_FINISHED\"}\n\n",
             ]),
             inspector(Arc::new(AllowAllPolicy)),
-            context(),
-            Budgets::default(),
             metrics(),
         );
 
@@ -241,7 +287,7 @@ mod tests {
 
     #[tokio::test]
     async fn buffers_a_tool_call_and_forwards_it_on_end() {
-        let stream = inspect_stream(
+        let stream = inspect(
             upstream(&[
                 "data: {\"type\":\"RUN_STARTED\"}\n\n",
                 "data: {\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c1\",\"toolCallName\":\"x\"}\n\n",
@@ -249,8 +295,6 @@ mod tests {
                 "data: {\"type\":\"TOOL_CALL_END\",\"toolCallId\":\"c1\"}\n\n",
             ]),
             inspector(Arc::new(AllowAllPolicy)),
-            context(),
-            Budgets::default(),
             metrics(),
         );
 
@@ -264,11 +308,9 @@ mod tests {
 
     #[tokio::test]
     async fn denied_events_are_dropped() {
-        let stream = inspect_stream(
+        let stream = inspect(
             upstream(&["data: {\"type\":\"RUN_STARTED\"}\n\n"]),
             inspector(Arc::new(DenyAll)),
-            context(),
-            Budgets::default(),
             metrics(),
         );
 
@@ -279,13 +321,7 @@ mod tests {
     #[tokio::test]
     async fn upstream_error_ends_with_a_run_error() {
         let upstream = stream::iter(vec![Err(UpstreamError::Stream("boom".to_string()))]).boxed();
-        let stream = inspect_stream(
-            upstream,
-            inspector(Arc::new(AllowAllPolicy)),
-            context(),
-            Budgets::default(),
-            metrics(),
-        );
+        let stream = inspect(upstream, inspector(Arc::new(AllowAllPolicy)), metrics());
 
         let out = collect(stream).await;
         assert!(out.contains("RUN_ERROR"));
@@ -296,11 +332,9 @@ mod tests {
     async fn records_the_inspection_outcome_through_the_port() {
         let recorder = Arc::new(CountingMetrics::default());
         let metrics: Arc<dyn ProxyMetrics> = recorder.clone();
-        let stream = inspect_stream(
+        let stream = inspect(
             upstream(&["data: {\"type\":\"RUN_STARTED\"}\n\n"]),
             inspector(Arc::new(DenyAll)),
-            context(),
-            Budgets::default(),
             metrics,
         );
 
@@ -308,6 +342,76 @@ mod tests {
         assert_eq!(
             *recorder.inspected.lock().unwrap(),
             vec![InspectionOutcome::Deny],
+        );
+    }
+
+    /// A recognized event whose required field is missing must not slip past
+    /// the policy: by default it fails closed and terminates the run.
+    #[tokio::test]
+    async fn a_malformed_known_event_terminates_by_default() {
+        let stream = inspect(
+            upstream(&[
+                "data: {\"type\":\"RUN_STARTED\"}\n\n",
+                // TOOL_CALL_START with no toolCallName — recognized but malformed.
+                "data: {\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c1\"}\n\n",
+                "data: {\"type\":\"RUN_FINISHED\"}\n\n",
+            ]),
+            inspector(Arc::new(AllowAllPolicy)),
+            metrics(),
+        );
+
+        let out = collect(stream).await;
+        assert!(out.contains("RUN_ERROR"), "the run is terminated: {out}");
+        assert!(
+            !out.contains("TOOL_CALL_START"),
+            "the malformed frame never reaches the client: {out}"
+        );
+        assert!(
+            !out.contains("RUN_FINISHED"),
+            "the stream ends at the malformed event: {out}"
+        );
+    }
+
+    /// In `Forward` mode the same malformed frame is forwarded raw (the legacy,
+    /// availability-over-safety behavior).
+    #[tokio::test]
+    async fn a_malformed_known_event_is_forwarded_in_forward_mode() {
+        let stream = inspect_stream(
+            upstream(&[
+                "data: {\"type\":\"RUN_STARTED\"}\n\n",
+                "data: {\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c1\"}\n\n",
+            ]),
+            inspector(Arc::new(AllowAllPolicy)),
+            context(),
+            Budgets::default(),
+            MalformedEventMode::Forward,
+            metrics(),
+        );
+
+        let out = collect(stream).await;
+        assert!(
+            out.contains("TOOL_CALL_START"),
+            "forward mode passes the raw frame through: {out}"
+        );
+    }
+
+    /// An unrecognized (future) event type carries nothing to inspect and is
+    /// forwarded unchanged even under the fail-closed default.
+    #[tokio::test]
+    async fn an_unknown_event_type_is_forwarded() {
+        let stream = inspect(
+            upstream(&[
+                "data: {\"type\":\"RUN_STARTED\"}\n\n",
+                "data: {\"type\":\"SOME_FUTURE_EVENT\",\"x\":1}\n\n",
+            ]),
+            inspector(Arc::new(AllowAllPolicy)),
+            metrics(),
+        );
+
+        let out = collect(stream).await;
+        assert!(
+            out.contains("SOME_FUTURE_EVENT"),
+            "an unknown type is not treated as malformed: {out}"
         );
     }
 }

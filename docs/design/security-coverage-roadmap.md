@@ -38,14 +38,13 @@ enforce it. File references are to `crates/` on `main`.
 
 ### Cross-cutting gaps (not a single asset)
 
-- **G1 — fail-open on malformed *known* events.** `presentation/stream.rs` does
-  `to_fragment(&value).ok().flatten()`: a parse error on a recognized event
-  (missing/blank required field, e.g. a `TOOL_CALL_START` with a blank
-  `toolCallId`) collapses to "not inspectable → forward raw", bypassing policy.
-  The domain and the AG-UI mapper now *reject* a blank correlating id
-  (`AgUiError::BlankField`), but the stream still swallows that rejection. For a
-  security proxy a malformed known event should fail **closed** (or be
-  operator-configurable), not pass through.
+- **G1 — fail-open on malformed *known* events.** ✅ **Closed.**
+  `inspect_stream` now distinguishes a recognized-but-malformed event
+  (`AgUiError::is_malformed_known()` — a known `type` with a missing/blank
+  required field) from an uninspectable frame, and applies
+  `[policy].on_malformed_event` (`forward` | `drop` | `terminate`), defaulting
+  to the secure `terminate`. An unknown type / non-object / non-JSON frame still
+  forwards unchanged.
 - **G2 — no cross-run / per-session state.** `SessionId` is threaded through but
   the policy is stateless: a denied action can be retried in a fresh run within
   the same session; there are no per-session or per-key quotas.
@@ -72,11 +71,11 @@ architecture, which is the payoff of the hexagonal layering.
    predicate set (e.g. "deny `shell` when `args.cmd` matches `rm -rf`", "deny
    any tool whose args contain a private-IP URL"). The arguments already reach
    the policy; this is policy-side work plus config surface.
-2. **Fail-closed on malformed known events (G1).** In `inspect_stream`,
-   distinguish "unrecognized type → forward" (`Ok(None)`) from "recognized but
-   malformed → `Err`". Make the malformed-known-event behavior an explicit
-   policy/config knob (`forward` | `drop` | `terminate`), defaulting to the
-   secure choice (`terminate`, matching the structural-reject posture of the
+2. **Fail-closed on malformed known events (G1).** ✅ **Done.** `inspect_stream`
+   distinguishes "unrecognized type → forward" (`Ok(None)`) from "recognized but
+   malformed → `Err`" (`AgUiError::is_malformed_known`). The behavior is the
+   `[policy].on_malformed_event` knob (`forward` | `drop` | `terminate`),
+   defaulting to `terminate` (matching the structural-reject posture of the
    `Run` state machine).
 3. **State & tool-result inspection (A3/A4).** Add `InspectedAction::ToolResult`
    and `InspectedAction::StateMutation` variants so the policy *sees* these

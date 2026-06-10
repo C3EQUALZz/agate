@@ -5,6 +5,7 @@ use agate_audit::infrastructure::persistence::postgres::PoolConfig;
 use agate_audit::setup::configs::{PostgresConfig, StorageConfig};
 use agate_policy::domain::common::errors::DomainError;
 use agate_policy::domain::decision::{PolicyRuleset, SecretPattern, ToolName, ToolPolicy};
+use agate_proxy::application::inspection::MalformedEventMode;
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
 use serde::{Deserialize, Serialize};
@@ -55,6 +56,16 @@ impl AppConfig {
                 self.accepted_api_keys(),
             )
             .with_concurrency_limit(self.proxy.max_concurrent_requests)
+            .with_malformed_event_mode(self.malformed_event_mode())
+    }
+
+    /// How the response leg treats a recognized-but-malformed event.
+    fn malformed_event_mode(&self) -> MalformedEventMode {
+        match self.policy.on_malformed_event {
+            MalformedMode::Forward => MalformedEventMode::Forward,
+            MalformedMode::Drop => MalformedEventMode::Drop,
+            MalformedMode::Terminate => MalformedEventMode::Terminate,
+        }
     }
 
     /// The set of accepted API keys: the `api_keys` array plus the single
@@ -273,6 +284,10 @@ pub struct PolicySection {
     pub fail_mode: PolicyFailMode,
     /// Deadline for a single policy decision, in milliseconds.
     pub decision_timeout_ms: u64,
+    /// What to do with a recognized response event that is malformed (a known
+    /// type with a missing/blank required field, so it cannot be inspected):
+    /// `forward`, `drop`, or `terminate`. Defaults to the secure `terminate`.
+    pub on_malformed_event: MalformedMode,
 }
 
 impl PolicySection {
@@ -292,8 +307,23 @@ impl Default for PolicySection {
             redact: Vec::new(),
             fail_mode: PolicyFailMode::default(),
             decision_timeout_ms: 5000,
+            on_malformed_event: MalformedMode::default(),
         }
     }
+}
+
+/// What to do with a recognized-but-malformed response event — the data plane's
+/// fail-open / fail-closed knob for events it cannot inspect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MalformedMode {
+    /// Forward the raw frame (availability over safety).
+    Forward,
+    /// Drop the frame, continue the run.
+    Drop,
+    /// End the run with a `RUN_ERROR` — the secure default.
+    #[default]
+    Terminate,
 }
 
 /// Behavior when a policy decision times out — the fail-open / fail-closed knob.
@@ -463,6 +493,28 @@ mod tests {
             config.policy_decision_timeout(),
             std::time::Duration::from_secs(5)
         );
+    }
+
+    #[test]
+    fn malformed_event_mode_defaults_to_terminate_and_maps() {
+        use super::{MalformedEventMode, MalformedMode};
+
+        // Secure default: a malformed known event terminates the run.
+        assert_eq!(
+            AppConfig::default().proxy_config().malformed_event_mode,
+            MalformedEventMode::Terminate
+        );
+
+        // Every TOML variant maps onto the matching proxy inspection setting.
+        for (toml, expected) in [
+            (MalformedMode::Forward, MalformedEventMode::Forward),
+            (MalformedMode::Drop, MalformedEventMode::Drop),
+            (MalformedMode::Terminate, MalformedEventMode::Terminate),
+        ] {
+            let mut config = AppConfig::default();
+            config.policy.on_malformed_event = toml;
+            assert_eq!(config.proxy_config().malformed_event_mode, expected);
+        }
     }
 
     #[test]
