@@ -9,8 +9,15 @@ pub enum InspectedAction {
     ToolCall { name: String, arguments: String },
     /// A chunk of emitted assistant text (the redaction target).
     Message { text: String },
-    /// An action this context does not govern (lifecycle, opaque, state); it is
-    /// allowed without a content decision.
+    /// The content a tool returned — the indirect-injection / exfiltration
+    /// surface. Redacted like emitted text (secrets masked before the client).
+    ToolResult { content: String },
+    /// A mutation of shared agent/client state, carrying its raw JSON payload.
+    /// Its structure cannot be rewritten in place, so a secret found here is
+    /// denied rather than leaked.
+    StateMutation { content: String },
+    /// An action this context does not govern (lifecycle, opaque); it is allowed
+    /// without a content decision.
     Other,
 }
 

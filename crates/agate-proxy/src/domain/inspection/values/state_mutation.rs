@@ -25,6 +25,17 @@ impl StateMutation {
             }
         }
     }
+
+    /// The raw JSON payload — what the policy inspects (the domain never parses
+    /// it).
+    #[must_use]
+    pub fn payload(&self) -> &str {
+        match self {
+            StateMutation::Snapshot { payload, .. } | StateMutation::Delta { payload, .. } => {
+                payload
+            }
+        }
+    }
 }
 
 impl ValueObject for StateMutation {}

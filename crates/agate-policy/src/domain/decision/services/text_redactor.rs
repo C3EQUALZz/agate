@@ -9,6 +9,17 @@ pub const REDACTION_MASK: &str = "[REDACTED]";
 pub struct TextRedactor;
 
 impl TextRedactor {
+    /// Whether any pattern occurs in `text` (ASCII case-insensitive) — a
+    /// detection without masking, for content that cannot be rewritten in place
+    /// (e.g. a structured state payload).
+    #[must_use]
+    pub fn detects(patterns: &[SecretPattern], text: &str) -> bool {
+        let lowered = text.to_ascii_lowercase();
+        patterns
+            .iter()
+            .any(|pattern| lowered.contains(&pattern.needle().to_ascii_lowercase()))
+    }
+
     /// `RedactText` with the masked text if any pattern matched, else `Allow`.
     #[must_use]
     pub fn redact(patterns: &[SecretPattern], text: &str) -> PolicyDecision {

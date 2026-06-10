@@ -203,3 +203,44 @@ fn a_denied_tool_name_short_circuits_before_argument_rules() {
         PolicyDecision::Deny(DenyReason::new("tool 'rm_rf' is not permitted"))
     );
 }
+
+#[test]
+fn a_secret_in_a_tool_result_is_redacted() {
+    let service = PolicyService::new(PolicyRuleset::new(
+        ToolPolicy::AllowAll,
+        Vec::new(),
+        vec![SecretPattern::new("sk-LEAK").expect("valid pattern")],
+    ));
+    let action = InspectedAction::ToolResult {
+        content: "the key is sk-leak, hide it".to_owned(),
+    };
+
+    assert_eq!(
+        service.decide(&action),
+        PolicyDecision::RedactText(format!("the key is {REDACTION_MASK}, hide it"))
+    );
+}
+
+#[test]
+fn a_secret_in_a_state_mutation_is_denied() {
+    let service = PolicyService::new(PolicyRuleset::new(
+        ToolPolicy::AllowAll,
+        Vec::new(),
+        vec![SecretPattern::new("sk-LEAK").expect("valid pattern")],
+    ));
+
+    // State can't be masked in place, so a secret in it is denied, not leaked.
+    assert!(matches!(
+        service.decide(&InspectedAction::StateMutation {
+            content: r#"{"token":"sk-LEAK"}"#.to_owned(),
+        }),
+        PolicyDecision::Deny(_)
+    ));
+    // Clean state passes.
+    assert_eq!(
+        service.decide(&InspectedAction::StateMutation {
+            content: r#"{"count":1}"#.to_owned(),
+        }),
+        PolicyDecision::Allow
+    );
+}
