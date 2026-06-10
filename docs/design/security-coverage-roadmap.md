@@ -99,9 +99,10 @@ architecture, which is the payoff of the hexagonal layering.
 Chosen direction: **extend the static TOML policy language** before any plugin
 engine — it closes most real cases without new infrastructure or a sandbox.
 
-- **Patterns:** regex / glob for tool names (`ToolName`) and for secret
-  redaction (`SecretPattern`), alongside the current literal match. Keep literal
-  as the default for safety and speed.
+- **Patterns:** ✅ secret redaction (`SecretPattern`) now takes regex
+  (`[policy].redact_regex`) alongside the literal `redact`, literal still the
+  default. Still to come: regex / glob for **tool names** (`ToolName`) and for
+  argument deny markers.
 - **Argument predicates:** grow `[[policy.tools.deny_arguments]]` beyond the
   literal `contains` marker — JSONPath / structured conditions over the parsed
   arguments (e.g. "deny when `args.url` resolves to a private IP"), behind the

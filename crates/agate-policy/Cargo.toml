@@ -8,6 +8,8 @@ description = "Policy bounded context: content/authorization decisions over insp
 [dependencies]
 # A pure domain: no async runtime, transport, or framework deps. The context
 # decides verdicts from in-memory rules and depends on nothing internal.
+# `regex` is a pure CPU matcher (no async/IO), used for richer redaction rules.
+regex = { workspace = true }
 
 [lints]
 workspace = true

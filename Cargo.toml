@@ -45,6 +45,9 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 bytes = "1"
 futures = "0.3"
 async-stream = "0.3"
+# Pure CPU matcher for richer policy patterns (regex redaction rules); no
+# async/IO, so it keeps the policy domain pure.
+regex = "1"
 
 # --- internal crates ---
 agate-crypto = { path = "crates/agate-crypto", version = "0.1.0" }

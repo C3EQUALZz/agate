@@ -21,8 +21,8 @@ gaps live in the repository at
 | Event / input | What happens | Policy can act? |
 |---|---|---|
 | `TOOL_CALL_*` (assembled) | buffered into a complete tool call, then judged | **Yes** — allow/deny by tool **name** and by **argument** deny rules (`[[policy.tools.deny_arguments]]`) |
-| `TEXT_MESSAGE_CONTENT` | scanned for secret patterns | **Yes** — redact (literal, case-insensitive substring) |
-| `TOOL_CALL_RESULT` | tool-result content scanned for secret patterns | **Yes** — redact (the indirect-injection / exfiltration surface) |
+| `TEXT_MESSAGE_CONTENT` | scanned for secret patterns | **Yes** — redact (literal or regex) |
+| `TOOL_CALL_RESULT` | tool-result content scanned for secret patterns | **Yes** — redact (literal or regex; the indirect-injection / exfiltration surface) |
 | `STATE_SNAPSHOT` / `STATE_DELTA` | size/op-count budget **and** payload scanned for secret markers | **Yes** — denied if a marker is found (a structured payload can't be masked, so it's blocked, not leaked) |
 | Lifecycle (`RUN_*`, `STEP_*`) | ordering enforced by the `Run` state machine | structural only (no policy verdict) |
 | Request leg (`RunAgentInput`) | `tools[*].name` authorized; `user` message text screened for SSRF URLs | **Yes** — reject before forwarding |

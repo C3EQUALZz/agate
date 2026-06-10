@@ -44,7 +44,8 @@ The composition root maps a `PolicyDecision` onto the proxy's `Verdict`
   (optionally scoped to one tool); applied by `ArgumentInspector` after name
   authorization.
 - `ToolName`, `SecretPattern` — validated value objects (a blank or invalid
-  entry is rejected at construction).
+  entry is rejected at construction). `SecretPattern` is a literal (ASCII
+  case-insensitive) or a regex.
 
 ## Layering
 
