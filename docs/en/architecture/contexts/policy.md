@@ -34,7 +34,8 @@ The composition root maps a `PolicyDecision` onto the proxy's `Verdict`
 
 ## Domain language
 
-- `InspectedAction` — the input: a tool invocation or a piece of emitted text.
+- `InspectedAction` — the input: a tool invocation, a piece of emitted text, a
+  tool result, or a state mutation.
 - `PolicyDecision` — the output verdict in policy terms.
 - `PolicyRuleset` — the configured rules: a `ToolPolicy`, argument deny rules,
   and secret patterns.

@@ -31,8 +31,8 @@ enforce it. File references are to `crates/` on `main`.
 |---|---|---|---|
 | **A1 — tool authorization** | verdict on tool **and arguments** | name authorized by `ToolAuthorizer`; arguments checked by `ArgumentInspector` against `[[policy.tools.deny_arguments]]` literal markers (`agate-policy/.../argument_inspector.rs`) | literal-only — structured/JSONPath predicates still to come (P2) |
 | **A2 — sensitive-data exfiltration** | redact text, screen URLs | literal, case-insensitive substring redaction on `TEXT_MESSAGE_CONTENT` only (`text_redactor.rs`); request-leg SSRF screen on `user` messages, no DNS resolution | tool args / tool results / state not redacted; SSRF is best-effort and request-leg only |
-| **A3 — instruction integrity / prompt injection** | resist injection incl. indirect (URL content, tool results) | not implemented; tool results are `auto-allow` | **whole asset open** |
-| **A4 — shared-state integrity** | verdict on state-mutating events; validate & bound JSON Patch | `STATE_DELTA`/`STATE_SNAPSHOT` checked for `byte_size`/`op_count` budgets only; never reaches the policy (`adapter.rs` maps them to `InspectedAction::Other`) | **state content uninspected**; RFC 6902 ops unvalidated |
+| **A3 — instruction integrity / prompt injection** | resist injection incl. indirect (URL content, tool results) | tool **results** now reach the policy and are secret-redacted; broader injection heuristics still absent | partial — no anti-injection heuristics yet |
+| **A4 — shared-state integrity** | verdict on state-mutating events; validate & bound JSON Patch | `STATE_*` payload now reaches the policy (a secret marker in it is denied) plus `byte_size`/`op_count` budgets | partial — RFC 6902 ops still unvalidated/unbounded |
 | **A5 — availability / DoS** | size/time **and rate** budgets per run and per connection | global concurrency cap, body-size limit, connect/read timeouts | no rate limit; no per-connection event budget; **client SSE response unbounded** |
 | **A6 — audit tamper-evidence** | every inspected event + verdict recorded | recorded via a bounded outbox channel | **silent drop under backpressure** — `record()` returns `()`, data plane never learns of a lost record |
 
@@ -78,11 +78,14 @@ architecture, which is the payoff of the hexagonal layering.
    `[policy].on_malformed_event` knob (`forward` | `drop` | `terminate`),
    defaulting to `terminate` (matching the structural-reject posture of the
    `Run` state machine).
-3. **State & tool-result inspection (A3/A4).** Add `InspectedAction::ToolResult`
-   and `InspectedAction::StateMutation` variants so the policy *sees* these
-   events instead of `auto-allow`. Then: bound and validate `STATE_DELTA` RFC
-   6902 operations (op kinds, path depth, value size), and allow redaction/deny
-   on tool-result content (the indirect-injection / exfiltration surface).
+3. **State & tool-result inspection (A3/A4).** ✅ **Done (secret level).**
+   `InspectedAction` gained `ToolResult` and `StateMutation` variants, so both
+   reach the policy instead of `auto-allow`. Tool-result content is
+   secret-redacted in place (`Verdict::Transform`); a state payload cannot be
+   masked, so a secret marker found in it is **denied** rather than leaked.
+   Still to come: bounding/validating `STATE_DELTA` RFC 6902 operations (op
+   kinds, path depth, value size) and richer anti-injection heuristics on tool
+   results.
 4. **Rate & output budgets (A5).** Per-API-key and/or per-session rate limiting
    on the request leg; a per-connection event-count / response-byte budget on
    the SSE leg so a hostile agent cannot stream unbounded output to the client.

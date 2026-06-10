@@ -47,20 +47,28 @@ fn to_action(event: &AgentEvent) -> InspectedAction {
             arguments: arguments.clone(),
         },
         AgentEvent::MessageChunk { text, .. } => InspectedAction::Message { text: text.clone() },
-        AgentEvent::ToolResult { .. }
-        | AgentEvent::StateMutation(_)
-        | AgentEvent::Lifecycle(_)
-        | AgentEvent::Opaque(_) => InspectedAction::Other,
+        AgentEvent::ToolResult { content, .. } => InspectedAction::ToolResult {
+            content: content.clone(),
+        },
+        AgentEvent::StateMutation(mutation) => InspectedAction::StateMutation {
+            content: mutation.payload().to_owned(),
+        },
+        AgentEvent::Lifecycle(_) | AgentEvent::Opaque(_) => InspectedAction::Other,
     }
 }
 
-/// Rebuild the event with the redacted text. Redaction is only produced for a
-/// message, so any other event is forwarded unchanged (defensive).
+/// Rebuild the event with the redacted text. Redaction is produced for emitted
+/// messages and tool results (both carry rewritable text); any other event is
+/// forwarded unchanged (defensive).
 fn redacted_verdict(event: &AgentEvent, text: String) -> Verdict<AgentEvent> {
     match event {
         AgentEvent::MessageChunk { message, .. } => Verdict::Transform(AgentEvent::MessageChunk {
             message: message.clone(),
             text,
+        }),
+        AgentEvent::ToolResult { id, .. } => Verdict::Transform(AgentEvent::ToolResult {
+            id: id.clone(),
+            content: text,
         }),
         _ => Verdict::Allow,
     }
@@ -75,7 +83,7 @@ mod tests {
     use agate_proxy::application::common::ports::PolicyPort;
     use agate_proxy::application::inspection::InspectionContext;
     use agate_proxy::domain::inspection::{
-        AgentEvent, MessageId, RunId, SessionId, ToolCallId, Verdict,
+        AgentEvent, MessageId, RunId, SessionId, StateMutation, ToolCallId, Verdict,
     };
     use uuid::Uuid;
 
@@ -151,5 +159,42 @@ mod tests {
             content: "result".into(),
         };
         assert_eq!(adapter.decide(&context(), &event).await, Verdict::Allow);
+    }
+
+    #[tokio::test]
+    async fn redacts_a_secret_in_a_tool_result_keeping_the_id() {
+        let adapter = adapter(PolicyRuleset::new(
+            ToolPolicy::AllowAll,
+            vec![],
+            vec![SecretPattern::new("sk").expect("valid pattern")],
+        ));
+        let event = AgentEvent::ToolResult {
+            id: ToolCallId::new("c1").expect("valid id"),
+            content: "token sk here".into(),
+        };
+        match adapter.decide(&context(), &event).await {
+            Verdict::Transform(AgentEvent::ToolResult { id, content }) => {
+                assert_eq!(id, ToolCallId::new("c1").expect("valid id"));
+                assert!(content.contains("[REDACTED]") && !content.contains("sk"));
+            }
+            other => panic!("expected a tool-result transform, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn denies_a_state_mutation_carrying_a_secret() {
+        let adapter = adapter(PolicyRuleset::new(
+            ToolPolicy::AllowAll,
+            vec![],
+            vec![SecretPattern::new("sk").expect("valid pattern")],
+        ));
+        let event = AgentEvent::StateMutation(StateMutation::Snapshot {
+            byte_size: 16,
+            payload: r#"{"k":"sk-x"}"#.into(),
+        });
+        assert!(matches!(
+            adapter.decide(&context(), &event).await,
+            Verdict::Deny(_)
+        ));
     }
 }
