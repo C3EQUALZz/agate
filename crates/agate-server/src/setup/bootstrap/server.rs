@@ -17,9 +17,10 @@ use agate_proxy::infrastructure::{FailMode, FailModePolicy};
 use agate_proxy::setup::bootstrap::build_app_with;
 use agate_proxy::setup::configs::ProxyConfig;
 
-use crate::infrastructure::audit::{AuditLogSink, AuditOutbox};
+use crate::infrastructure::audit::{AuditLogSink, AuditOutbox, RecordAppender};
 use crate::infrastructure::policy::PolicyAdapter;
 use crate::presentation::http::readiness;
+use crate::setup::bootstrap::ScopedAppender;
 
 /// How many inspected records may queue before the forwarding path feels
 /// backpressure from the audit write. Bounded so a slow database cannot grow
@@ -57,8 +58,9 @@ pub fn build_server(
     let registry = Arc::new(build_registry());
     let metrics: Arc<dyn AuditMetrics> = Arc::new(AuditMetricsRecorder);
 
+    let appender: Arc<dyn RecordAppender> = Arc::new(ScopedAppender::new(container, registry));
     let (tx, rx) = mpsc::channel::<Vec<u8>>(OUTBOX_CAPACITY);
-    let outbox = tokio::spawn(AuditOutbox::new(container, registry, log, metrics.clone()).run(rx));
+    let outbox = tokio::spawn(AuditOutbox::new(appender, log, metrics.clone()).run(rx));
 
     // The real policy, wrapped so a slow/hung decision falls back to the
     // configured fail mode (fail-closed by default) instead of hanging the run.
