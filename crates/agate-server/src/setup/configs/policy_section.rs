@@ -129,8 +129,11 @@ impl ArgumentRuleConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ToolMode {
+    /// No tool restriction (the permissive default).
     #[default]
     AllowAll,
+    /// Only the tools in `names` may run; everything else is denied.
     Allowlist,
+    /// Every tool may run except the ones in `names`.
     Denylist,
 }

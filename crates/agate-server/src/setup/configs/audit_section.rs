@@ -68,6 +68,7 @@ impl Default for AuditSection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuditBackend {
+    /// PostgreSQL — the only implemented backend (and the default).
     #[default]
     Postgres,
 }
