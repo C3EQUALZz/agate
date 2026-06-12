@@ -4,21 +4,29 @@ use std::time::Duration;
 use agate_audit::infrastructure::persistence::postgres::PoolConfig;
 use agate_audit::setup::configs::{PostgresConfig, StorageConfig};
 use agate_policy::domain::common::errors::DomainError;
-use agate_policy::domain::decision::{ArgumentRule, Pattern, PolicyRuleset, ToolName, ToolPolicy};
+use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolName, ToolPolicy};
 use agate_proxy::application::inspection::{MalformedEventMode, ResponseBudget};
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
 use serde::{Deserialize, Serialize};
 
+use super::audit_section::{AuditBackend, AuditSection};
 use super::observability::ObservabilityConfig;
+use super::policy_section::{
+    ArgumentRuleConfig, MalformedMode, PolicyFailMode, PolicySection, ToolMode,
+};
+use super::proxy_section::ProxySection;
 use super::tls::TlsConfig;
 
-/// The full application configuration.
+/// The full application configuration — the server's composition root for
+/// on-disk config.
 ///
 /// Deserialized from `agate.toml` layered with environment overrides (see
-/// [`load`](super::loader::load)). The composition root reads this and maps each
-/// section onto the bounded contexts' own config types — the server owns the
-/// on-disk config format, the contexts stay free of it.
+/// [`load`](super::loader::load)). It reads this and maps each section onto the
+/// bounded contexts' own config types — the server owns the on-disk config
+/// format, the contexts stay free of it. Each `[section]` lives in its own
+/// module (`proxy_section`, `audit_section`, `policy_section`); this file
+/// composes them and the context mappings.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -147,290 +155,6 @@ impl AppConfig {
     }
 }
 
-/// `[proxy]` — the reverse-proxy data plane.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ProxySection {
-    /// Upstream agent run endpoint the proxy forwards to (required).
-    pub agent_endpoint: String,
-    /// Address the proxy listens on.
-    pub bind: String,
-    /// Connect timeout to the upstream agent, in seconds (fail fast when
-    /// unreachable). Not an overall deadline — a healthy SSE stream runs on.
-    pub connect_timeout_secs: u64,
-    /// Idle read timeout between upstream response chunks, in seconds.
-    pub read_timeout_secs: u64,
-    /// Maximum accepted request body size, in bytes.
-    pub max_body_bytes: usize,
-    /// Single API key required on the `X-API-Key` header — a shorthand for one
-    /// key. Merged with `api_keys`. Absent/blank (and `api_keys` empty) disables
-    /// authentication (open proxy) — set one, or front the proxy with a guard.
-    pub api_key: Option<String>,
-    /// Accepted API keys: a request matching **any** is authenticated. Holding
-    /// several at once is how rotation works (add the new, migrate, drop the old).
-    pub api_keys: Vec<String>,
-    /// Maximum concurrently in-flight proxied runs; excess is shed with `503`.
-    pub max_concurrent_requests: usize,
-    /// Per-run ceiling on response events streamed to the client (`0` =
-    /// unlimited). A runaway agent over this is cut off with a `RUN_ERROR`.
-    pub max_response_events: usize,
-    /// Per-run ceiling on response bytes streamed to the client (`0` =
-    /// unlimited).
-    pub max_response_bytes: usize,
-}
-
-impl ProxySection {
-    /// Fail fast on a missing endpoint or zeroed ingress knobs.
-    pub fn validate(&self) -> Result<(), String> {
-        if self.agent_endpoint.trim().is_empty() {
-            return Err(
-                "proxy.agent_endpoint is required (set [proxy].agent_endpoint or \
-                 AGATE__PROXY__AGENT_ENDPOINT)"
-                    .into(),
-            );
-        }
-        // Zero is a footgun, not a sensible "disable": a 0-byte body limit
-        // rejects every request, and a 0s timeout fails the connection at once.
-        if self.max_body_bytes == 0 {
-            return Err("proxy.max_body_bytes must be greater than 0".into());
-        }
-        if self.connect_timeout_secs == 0 || self.read_timeout_secs == 0 {
-            return Err(
-                "proxy.connect_timeout_secs and proxy.read_timeout_secs must be greater than 0"
-                    .into(),
-            );
-        }
-        if self.max_concurrent_requests == 0 {
-            return Err("proxy.max_concurrent_requests must be greater than 0".into());
-        }
-        Ok(())
-    }
-}
-
-impl Default for ProxySection {
-    fn default() -> Self {
-        Self {
-            agent_endpoint: String::new(),
-            bind: "0.0.0.0:8080".into(),
-            connect_timeout_secs: 5,
-            read_timeout_secs: 60,
-            max_body_bytes: 1 << 20,
-            api_key: None,
-            api_keys: Vec::new(),
-            max_concurrent_requests: 256,
-            // Generous defaults that catch a runaway stream without tripping a
-            // legitimate long run; `0` disables a limit.
-            max_response_events: 100_000,
-            max_response_bytes: 64 << 20,
-        }
-    }
-}
-
-/// `[audit]` — the transparency-log store.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct AuditSection {
-    /// Which persistence backend to assemble at startup.
-    pub backend: AuditBackend,
-    /// PostgreSQL connection URL (required; prefer the env override for secrets).
-    pub database_url: String,
-    /// Maximum pooled database connections.
-    pub max_connections: u32,
-    /// How long to wait for a free pooled connection before erroring, in seconds.
-    pub acquire_timeout_secs: u64,
-    /// Initial-connect retries before giving up (`0` = try once, no retry).
-    pub connect_max_retries: u32,
-    /// Base backoff between connect attempts, in seconds (doubled each retry).
-    pub connect_backoff_secs: u64,
-}
-
-impl AuditSection {
-    /// Fail fast on missing or zeroed store settings. The checks are keyed to
-    /// the configured backend: `database_url` and the pool knobs are Postgres
-    /// requirements, not generic audit ones — a future backend validates its
-    /// own variant here.
-    pub fn validate(&self) -> Result<(), String> {
-        match self.backend {
-            AuditBackend::Postgres => self.validate_postgres(),
-        }
-    }
-
-    fn validate_postgres(&self) -> Result<(), String> {
-        if self.database_url.trim().is_empty() {
-            return Err(
-                "audit.database_url is required (set [audit].database_url or \
-                 AGATE__AUDIT__DATABASE_URL)"
-                    .into(),
-            );
-        }
-        if self.max_connections == 0 {
-            return Err("audit.max_connections must be greater than 0".into());
-        }
-        if self.acquire_timeout_secs == 0 {
-            return Err("audit.acquire_timeout_secs must be greater than 0".into());
-        }
-        // A zero backoff would busy-loop the connect retries; require a real pause.
-        if self.connect_backoff_secs == 0 {
-            return Err("audit.connect_backoff_secs must be greater than 0".into());
-        }
-        Ok(())
-    }
-}
-
-impl Default for AuditSection {
-    fn default() -> Self {
-        Self {
-            backend: AuditBackend::Postgres,
-            database_url: String::new(),
-            max_connections: 10,
-            acquire_timeout_secs: 30,
-            connect_max_retries: 10,
-            connect_backoff_secs: 1,
-        }
-    }
-}
-
-/// Which persistence backend the transparency log uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AuditBackend {
-    #[default]
-    Postgres,
-}
-
-/// `[policy]` — content/authorization rules.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct PolicySection {
-    pub tools: ToolsSection,
-    /// Literal markers redacted from emitted text (case-insensitive).
-    pub redact: Vec<String>,
-    /// Regex markers redacted from emitted text (full `regex` syntax; add `(?i)`
-    /// for case-insensitivity). An invalid expression aborts startup.
-    pub redact_regex: Vec<String>,
-    /// What to do when a policy decision cannot be made in time: `open`
-    /// (forward) or `closed` (block). Defaults to the secure `closed`.
-    pub fail_mode: PolicyFailMode,
-    /// Deadline for a single policy decision, in milliseconds.
-    pub decision_timeout_ms: u64,
-    /// What to do with a recognized response event that is malformed (a known
-    /// type with a missing/blank required field, so it cannot be inspected):
-    /// `forward`, `drop`, or `terminate`. Defaults to the secure `terminate`.
-    pub on_malformed_event: MalformedMode,
-}
-
-impl PolicySection {
-    /// Fail fast on a zeroed decision deadline.
-    pub fn validate(&self) -> Result<(), String> {
-        if self.decision_timeout_ms == 0 {
-            return Err("policy.decision_timeout_ms must be greater than 0".into());
-        }
-        Ok(())
-    }
-}
-
-impl Default for PolicySection {
-    fn default() -> Self {
-        Self {
-            tools: ToolsSection::default(),
-            redact: Vec::new(),
-            redact_regex: Vec::new(),
-            fail_mode: PolicyFailMode::default(),
-            decision_timeout_ms: 5000,
-            on_malformed_event: MalformedMode::default(),
-        }
-    }
-}
-
-/// What to do with a recognized-but-malformed response event — the data plane's
-/// fail-open / fail-closed knob for events it cannot inspect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum MalformedMode {
-    /// Forward the raw frame (availability over safety).
-    Forward,
-    /// Drop the frame, continue the run.
-    Drop,
-    /// End the run with a `RUN_ERROR` — the secure default.
-    #[default]
-    Terminate,
-}
-
-/// Behavior when a policy decision times out — the fail-open / fail-closed knob.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PolicyFailMode {
-    /// Forward the event (availability over safety).
-    Open,
-    /// Block the run (safety over availability) — the secure default.
-    #[default]
-    Closed,
-}
-
-/// `[policy.tools]` — tool-call authorization.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ToolsSection {
-    pub mode: ToolMode,
-    /// Tool names governed by `mode` (ignored when `mode = "allow-all"`).
-    pub names: Vec<String>,
-    /// Argument-level deny rules: a permitted tool call is still blocked when
-    /// its arguments contain one of these markers. Configured as
-    /// `[[policy.tools.deny_arguments]]` tables.
-    pub deny_arguments: Vec<ArgumentRuleConfig>,
-}
-
-/// One `[[policy.tools.deny_arguments]]` entry: a marker forbidden in tool
-/// arguments, optionally scoped to a single tool. Provide exactly one of
-/// `contains` (a case-insensitive literal) or `matches` (a regex).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ArgumentRuleConfig {
-    /// The tool this rule applies to; omit (or leave blank) to apply to any tool.
-    pub tool: Option<String>,
-    /// A literal forbidden in the arguments, folded ASCII-case-insensitively
-    /// (not Unicode).
-    pub contains: Option<String>,
-    /// A regex forbidden in the arguments (full `regex` syntax; prefix `(?i)`
-    /// for case-insensitivity). Matched against the raw argument JSON string.
-    pub matches: Option<String>,
-}
-
-impl ArgumentRuleConfig {
-    fn to_rule(&self) -> Result<ArgumentRule, DomainError> {
-        let tool = match self.tool.as_deref().map(str::trim) {
-            Some(name) if !name.is_empty() => Some(ToolName::new(name)?),
-            _ => None,
-        };
-        let marker = match (&self.contains, &self.matches) {
-            (Some(literal), None) => Pattern::literal(literal)?,
-            (None, Some(regex)) => Pattern::regex(regex)?,
-            (Some(_), Some(_)) => {
-                return Err(DomainError::Field(
-                    "a deny_arguments rule sets exactly one of `contains` or `matches`, not both"
-                        .into(),
-                ));
-            }
-            (None, None) => {
-                return Err(DomainError::Field(
-                    "a deny_arguments rule needs `contains` or `matches`".into(),
-                ));
-            }
-        };
-        Ok(ArgumentRule::new(tool, marker))
-    }
-}
-
-/// How tool invocations are authorized.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ToolMode {
-    #[default]
-    AllowAll,
-    Allowlist,
-    Denylist,
-}
-
 fn tool_set(names: &[String]) -> Result<BTreeSet<ToolName>, DomainError> {
     names
         .iter()
@@ -442,7 +166,8 @@ fn tool_set(names: &[String]) -> Result<BTreeSet<ToolName>, DomainError> {
 mod tests {
     use agate_policy::domain::decision::ToolPolicy;
 
-    use super::{AppConfig, FailMode, PolicySection, ProxySection, ToolMode, ToolsSection};
+    use super::super::policy_section::ToolsSection;
+    use super::{AppConfig, FailMode, PolicySection, ProxySection, ToolMode};
 
     fn with_policy(mode: ToolMode, names: &[&str], redact: &[&str]) -> AppConfig {
         AppConfig {
@@ -574,7 +299,8 @@ mod tests {
 
     #[test]
     fn malformed_event_mode_defaults_to_terminate_and_maps() {
-        use super::{MalformedEventMode, MalformedMode};
+        use super::super::policy_section::MalformedMode;
+        use super::MalformedEventMode;
 
         // Secure default: a malformed known event terminates the run.
         assert_eq!(
@@ -647,15 +373,17 @@ mod tests {
 
     #[test]
     fn deny_argument_rules_build_from_config() {
+        use super::super::policy_section::ArgumentRuleConfig;
+
         let mut config = AppConfig::default();
         config.policy.tools.deny_arguments = vec![
-            super::ArgumentRuleConfig {
+            ArgumentRuleConfig {
                 tool: Some("shell".to_owned()),
                 contains: Some("rm -rf".to_owned()),
                 matches: None,
             },
             // A regex-marker rule alongside a literal one.
-            super::ArgumentRuleConfig {
+            ArgumentRuleConfig {
                 tool: None,
                 contains: None,
                 matches: Some(r"AKIA[0-9A-Z]{16}".to_owned()),
@@ -667,8 +395,10 @@ mod tests {
 
     #[test]
     fn a_blank_argument_marker_is_rejected() {
+        use super::super::policy_section::ArgumentRuleConfig;
+
         let mut config = AppConfig::default();
-        config.policy.tools.deny_arguments = vec![super::ArgumentRuleConfig {
+        config.policy.tools.deny_arguments = vec![ArgumentRuleConfig {
             tool: None,
             contains: Some("   ".to_owned()),
             matches: None,
@@ -678,13 +408,15 @@ mod tests {
 
     #[test]
     fn a_deny_argument_rule_needs_exactly_one_marker() {
+        use super::super::policy_section::ArgumentRuleConfig;
+
         let mut config = AppConfig::default();
         // Neither set → error.
-        config.policy.tools.deny_arguments = vec![super::ArgumentRuleConfig::default()];
+        config.policy.tools.deny_arguments = vec![ArgumentRuleConfig::default()];
         assert!(config.policy_ruleset().is_err(), "no marker is rejected");
 
         // Both set → error.
-        config.policy.tools.deny_arguments = vec![super::ArgumentRuleConfig {
+        config.policy.tools.deny_arguments = vec![ArgumentRuleConfig {
             tool: None,
             contains: Some("x".to_owned()),
             matches: Some("y".to_owned()),
@@ -706,11 +438,13 @@ mod tests {
 
     #[test]
     fn the_database_url_requirement_is_keyed_to_the_postgres_backend() {
+        use super::super::audit_section::{AuditBackend, AuditSection};
+
         // Pins the multi-backend seam: `database_url` (and the pool knobs) are
         // Postgres rules — a future backend must validate its own variant, not
         // inherit these.
-        let section = super::AuditSection::default();
-        assert_eq!(section.backend, super::AuditBackend::Postgres);
+        let section = AuditSection::default();
+        assert_eq!(section.backend, AuditBackend::Postgres);
         assert!(
             section
                 .validate()
