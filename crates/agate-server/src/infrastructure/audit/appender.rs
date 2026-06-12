@@ -1,3 +1,5 @@
+use std::fmt;
+
 use async_trait::async_trait;
 
 use agate_audit::application::errors::AuditError;
@@ -22,4 +24,22 @@ pub enum AppendError {
     /// The append failed inside the pipeline, where the MetricsBehavior has
     /// already counted it.
     Pipeline(AuditError),
+}
+
+impl fmt::Display for AppendError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ScopeUnavailable(error) => write!(f, "request scope unavailable: {error}"),
+            Self::Pipeline(error) => write!(f, "append failed in the pipeline: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for AppendError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Pipeline(error) => Some(error),
+            Self::ScopeUnavailable(_) => None,
+        }
+    }
 }
