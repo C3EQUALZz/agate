@@ -15,7 +15,7 @@ use self::error_handlers::ProxyError;
 use super::inspect_stream;
 use crate::application::common::ports::RunRequest;
 use crate::application::inspection::{InspectionContext, Inspector, RequestDecision};
-use crate::domain::inspection::{Budgets, RunId, SessionId};
+use crate::domain::inspection::{RunId, SessionId};
 use crate::infrastructure::ag_ui::parse_request;
 use crate::setup::configs::ProxyConfig;
 use crate::setup::ioc::{ProxyMetricsHandle, UpstreamAgentClientHandle};
@@ -96,9 +96,7 @@ async fn proxy_run(
         upstream,
         inspector,
         context,
-        Budgets::default(),
-        config.malformed_event_mode,
-        config.response_budget,
+        config.inspection_settings(),
         metrics,
     )
     .map(Ok::<Bytes, Infallible>);

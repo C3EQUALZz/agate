@@ -7,9 +7,9 @@ use tracing::{debug, info, warn};
 
 use crate::application::common::ports::{AgentResponseStream, InspectionOutcome, ProxyMetrics};
 use crate::application::inspection::{
-    InspectionAction, InspectionContext, Inspector, MalformedEventMode, ResponseBudget,
+    InspectionAction, InspectionContext, InspectionSettings, Inspector, MalformedEventMode,
 };
-use crate::domain::inspection::{Budgets, Run};
+use crate::domain::inspection::Run;
 use crate::infrastructure::ag_ui::{to_event, to_fragment};
 use crate::infrastructure::sse::{SseDecoder, encode};
 
@@ -23,26 +23,23 @@ use crate::infrastructure::sse::{SseDecoder, encode};
 /// ends the stream with a `RUN_ERROR`. Events that are not inspectable (framing
 /// markers, unknown types, non-objects, non-JSON) pass through unchanged.
 ///
-/// A **recognized but malformed** event (a known `type` with a missing/blank
-/// required field) cannot be inspected yet belongs to the run, so forwarding it
-/// raw would bypass the policy. `malformed_mode` decides its fate
-/// ([`MalformedEventMode`]); the default is to fail closed and terminate.
-///
-/// `response_budget` caps how much one run may stream (events / bytes seen from
-/// upstream); crossing it ends the run with a `RUN_ERROR` so a runaway agent
-/// cannot flood the client.
+/// How the stream is guarded comes in as one [`InspectionSettings`]: the
+/// structural budgets, the malformed-event mode (a **recognized but malformed**
+/// event — a known `type` with a missing/blank required field — cannot be
+/// inspected yet belongs to the run, so forwarding it raw would bypass the
+/// policy; the default fails closed and terminates), and the per-run response
+/// budget (crossing it ends the run with a `RUN_ERROR` so a runaway agent
+/// cannot flood the client).
 pub fn inspect_stream(
     mut upstream: AgentResponseStream,
     inspector: Arc<Inspector>,
     context: InspectionContext,
-    budgets: Budgets,
-    malformed_mode: MalformedEventMode,
-    response_budget: ResponseBudget,
+    settings: InspectionSettings,
     metrics: Arc<dyn ProxyMetrics>,
 ) -> impl Stream<Item = Bytes> + Send {
     async_stream::stream! {
         let mut decoder = SseDecoder::new();
-        let mut run = Run::new(context.run, budgets);
+        let mut run = Run::new(context.run, settings.budgets);
         let mut pending: Vec<String> = Vec::new();
         let mut seen_events: usize = 0;
         let mut seen_bytes: usize = 0;
@@ -63,7 +60,7 @@ pub fn inspect_stream(
                 // response budget is crossed (DoS guard against unbounded output).
                 seen_events += 1;
                 seen_bytes += event.raw.len();
-                if let Some(reason) = response_budget.exceeded(seen_events, seen_bytes) {
+                if let Some(reason) = settings.response_budget.exceeded(seen_events, seen_bytes) {
                     warn!(run = %context.run, reason, "terminating run: response budget exceeded");
                     metrics.record_inspected(InspectionOutcome::Terminate);
                     pending.clear();
@@ -77,7 +74,7 @@ pub fn inspect_stream(
                         // Recognized event type, but a required field is missing
                         // or blank: it cannot be inspected, so it must not slip
                         // past the policy. Fail closed per the configured mode.
-                        Err(error) if error.is_malformed_known() => match malformed_mode {
+                        Err(error) if error.is_malformed_known() => match settings.malformed_mode {
                             MalformedEventMode::Forward => None,
                             MalformedEventMode::Drop => {
                                 warn!(run = %context.run, %error, "dropping a malformed known event");
@@ -168,6 +165,7 @@ mod tests {
 
     use super::*;
     use crate::application::common::ports::{AuditSink, PolicyPort, UpstreamError};
+    use crate::application::inspection::ResponseBudget;
     use crate::domain::inspection::{AgentEvent, DenyReason, RunId, SessionId, Verdict};
     use crate::infrastructure::AllowAllPolicy;
 
@@ -260,9 +258,7 @@ mod tests {
             upstream,
             inspector,
             context(),
-            Budgets::default(),
-            MalformedEventMode::Terminate,
-            ResponseBudget::unlimited(),
+            InspectionSettings::default(),
             metrics,
         )
     }
@@ -404,9 +400,10 @@ mod tests {
             ]),
             inspector(Arc::new(AllowAllPolicy)),
             context(),
-            Budgets::default(),
-            MalformedEventMode::Forward,
-            ResponseBudget::unlimited(),
+            InspectionSettings {
+                malformed_mode: MalformedEventMode::Forward,
+                ..InspectionSettings::default()
+            },
             metrics(),
         );
 
@@ -450,11 +447,12 @@ mod tests {
             ]),
             inspector(Arc::new(AllowAllPolicy)),
             context(),
-            Budgets::default(),
-            MalformedEventMode::Terminate,
-            ResponseBudget {
-                max_events: 2,
-                max_bytes: 0,
+            InspectionSettings {
+                response_budget: ResponseBudget {
+                    max_events: 2,
+                    max_bytes: 0,
+                },
+                ..InspectionSettings::default()
             },
             metrics(),
         );

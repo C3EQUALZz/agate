@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use crate::application::inspection::{MalformedEventMode, ResponseBudget};
+use crate::application::inspection::{InspectionSettings, MalformedEventMode, ResponseBudget};
+use crate::domain::inspection::Budgets;
 
 /// How long to wait to establish a connection to the upstream agent before
 /// failing fast. Kept short so an unreachable agent surfaces quickly.
@@ -58,6 +59,18 @@ impl ProxyConfig {
             max_concurrent_requests: DEFAULT_MAX_CONCURRENT_REQUESTS,
             malformed_event_mode: MalformedEventMode::default(),
             response_budget: ResponseBudget::default(),
+        }
+    }
+
+    /// The grouped stream-guard settings handed to the inspection pipeline:
+    /// the default structural budgets plus this config's malformed-event mode
+    /// and response budget.
+    #[must_use]
+    pub fn inspection_settings(&self) -> InspectionSettings {
+        InspectionSettings {
+            budgets: Budgets::default(),
+            malformed_mode: self.malformed_event_mode,
+            response_budget: self.response_budget,
         }
     }
 
