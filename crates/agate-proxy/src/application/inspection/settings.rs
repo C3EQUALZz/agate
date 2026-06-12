@@ -1,3 +1,6 @@
+//! The grouped stream-guard settings the composition root hands to the
+//! inspection pipeline.
+
 use crate::application::inspection::{MalformedEventMode, ResponseBudget};
 use crate::domain::inspection::Budgets;
 
