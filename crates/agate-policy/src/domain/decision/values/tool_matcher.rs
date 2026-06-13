@@ -28,9 +28,15 @@ pub struct ToolMatcher(Kind);
 #[derive(Clone, Debug)]
 enum Kind {
     Exact(String),
-    /// A glob or regex, both compiled to one anchored regex; `source` keeps the
-    /// author's original text for identity and display.
-    Pattern {
+    /// A glob or a regex — both compiled to one anchored regex; `source` keeps
+    /// the author's original text for identity and display. Glob and regex are
+    /// distinct variants (not one flag) so an identical source under each kind
+    /// stays distinct: `glob("a.b")` (literal dot) ≠ `regex("a.b")` (any char).
+    Glob {
+        source: String,
+        regex: Box<Regex>,
+    },
+    Regex {
         source: String,
         regex: Box<Regex>,
     },
@@ -60,7 +66,7 @@ impl ToolMatcher {
         // does.
         let regex = Regex::new(&glob_to_regex(&source))
             .map_err(|error| DomainError::Field(format!("invalid tool glob: {error}")))?;
-        Ok(Self(Kind::Pattern {
+        Ok(Self(Kind::Glob {
             source,
             regex: Box::new(regex),
         }))
@@ -75,7 +81,7 @@ impl ToolMatcher {
         let anchored = format!("^(?:{source})$");
         let regex = Regex::new(&anchored)
             .map_err(|error| DomainError::Field(format!("invalid tool regex: {error}")))?;
-        Ok(Self(Kind::Pattern {
+        Ok(Self(Kind::Regex {
             source,
             regex: Box::new(regex),
         }))
@@ -86,7 +92,7 @@ impl ToolMatcher {
     pub fn matches(&self, tool: &str) -> bool {
         match &self.0 {
             Kind::Exact(name) => name == tool,
-            Kind::Pattern { regex, .. } => regex.is_match(tool),
+            Kind::Glob { regex, .. } | Kind::Regex { regex, .. } => regex.is_match(tool),
         }
     }
 
@@ -94,14 +100,15 @@ impl ToolMatcher {
     fn source(&self) -> &str {
         match &self.0 {
             Kind::Exact(name) => name,
-            Kind::Pattern { source, .. } => source,
+            Kind::Glob { source, .. } | Kind::Regex { source, .. } => source,
         }
     }
 
     fn tag(&self) -> u8 {
         match &self.0 {
             Kind::Exact(_) => 0,
-            Kind::Pattern { .. } => 1,
+            Kind::Glob { .. } => 1,
+            Kind::Regex { .. } => 2,
         }
     }
 }
@@ -128,15 +135,30 @@ impl ValueObject for ToolMatcher {}
 /// Translate a shell-style glob into an anchored regex: `*` → `.*`, `?` → `.`,
 /// every other character escaped to its literal self.
 fn glob_to_regex(glob: &str) -> String {
-    let mut regex = String::with_capacity(glob.len() + 4);
+    let mut regex = String::with_capacity(glob.len() * 2 + 2);
     regex.push('^');
+    // Accumulate literal runs and escape them in one call, rather than per char.
+    let mut literal = String::new();
+    let flush = |literal: &mut String, regex: &mut String| {
+        if !literal.is_empty() {
+            regex.push_str(&regex::escape(literal));
+            literal.clear();
+        }
+    };
     for ch in glob.chars() {
         match ch {
-            '*' => regex.push_str(".*"),
-            '?' => regex.push('.'),
-            other => regex.push_str(&regex::escape(&other.to_string())),
+            '*' => {
+                flush(&mut literal, &mut regex);
+                regex.push_str(".*");
+            }
+            '?' => {
+                flush(&mut literal, &mut regex);
+                regex.push('.');
+            }
+            other => literal.push(other),
         }
     }
+    flush(&mut literal, &mut regex);
     regex.push('$');
     regex
 }
@@ -213,6 +235,13 @@ mod tests {
         assert_ne!(
             ToolMatcher::exact("fs").unwrap(),
             ToolMatcher::glob("fs").unwrap()
+        );
+        // glob and regex with identical source differ in semantics, so they
+        // must not collapse to equal (a `.` is literal under glob, any-char
+        // under regex).
+        assert_ne!(
+            ToolMatcher::glob("a.b").unwrap(),
+            ToolMatcher::regex("a.b").unwrap()
         );
     }
 }
