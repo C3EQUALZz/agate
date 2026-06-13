@@ -1,4 +1,5 @@
 use super::argument_inspector::ArgumentInspector;
+use super::result_inspector::ResultInspector;
 use super::text_redactor::TextRedactor;
 use super::tool_authorizer::ToolAuthorizer;
 use crate::domain::common::services::DomainService;
@@ -6,8 +7,8 @@ use crate::domain::decision::values::{DenyReason, InspectedAction, PolicyDecisio
 
 /// Applies a [`PolicyRuleset`] to an [`InspectedAction`], routing it to the
 /// service that governs its kind: tool calls to authorization (name, then
-/// arguments), emitted text and tool results to redaction, state mutations to
-/// secret detection, everything else allowed.
+/// arguments), tool results to deny rules then redaction, emitted text to
+/// redaction, state mutations to secret detection, everything else allowed.
 pub struct PolicyEvaluator;
 
 impl PolicyEvaluator {
@@ -24,10 +25,17 @@ impl PolicyEvaluator {
                     denied => denied,
                 }
             }
-            // Emitted text and tool results are both redacted in place.
-            InspectedAction::Message { text } | InspectedAction::ToolResult { content: text } => {
-                TextRedactor::redact(ruleset.secrets(), text)
+            // A tool result is first checked against the result deny rules (a
+            // forbidden result is blocked outright); if it clears, secrets in it
+            // are redacted in place.
+            InspectedAction::ToolResult { name, content } => {
+                match ResultInspector::inspect(ruleset.result_rules(), name.as_deref(), content) {
+                    PolicyDecision::Allow => TextRedactor::redact(ruleset.secrets(), content),
+                    denied => denied,
+                }
             }
+            // Emitted assistant text is redacted in place.
+            InspectedAction::Message { text } => TextRedactor::redact(ruleset.secrets(), text),
             // A state payload cannot be rewritten in place, so a secret found in
             // it is denied rather than leaked.
             InspectedAction::StateMutation { content } => {

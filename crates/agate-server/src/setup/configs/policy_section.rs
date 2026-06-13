@@ -1,5 +1,5 @@
 use agate_policy::domain::common::errors::DomainError;
-use agate_policy::domain::decision::{ArgumentRule, JsonPath, Pattern, ToolName};
+use agate_policy::domain::decision::{ArgumentRule, JsonPath, Pattern, ResultRule, ToolName};
 use serde::{Deserialize, Serialize};
 
 /// `[policy]` — content/authorization rules.
@@ -82,6 +82,10 @@ pub struct ToolsSection {
     /// its arguments match one of these markers. Configured as
     /// `[[policy.tools.deny_arguments]]` tables.
     pub deny_arguments: Vec<ArgumentRuleConfig>,
+    /// Result-level deny rules: a tool result is blocked when its content
+    /// matches one of these markers. Configured as
+    /// `[[policy.tools.deny_results]]` tables.
+    pub deny_results: Vec<ResultRuleConfig>,
 }
 
 /// One `[[policy.tools.deny_arguments]]` entry: a marker forbidden in tool
@@ -108,31 +112,91 @@ pub struct ArgumentRuleConfig {
 
 impl ArgumentRuleConfig {
     pub(super) fn to_rule(&self) -> Result<ArgumentRule, DomainError> {
-        let tool = match self.tool.as_deref().map(str::trim) {
-            Some(name) if !name.is_empty() => Some(ToolName::new(name)?),
-            _ => None,
-        };
-        let marker = match (&self.contains, &self.matches) {
-            (Some(literal), None) => Pattern::literal(literal)?,
-            (None, Some(regex)) => Pattern::regex(regex)?,
-            (Some(_), Some(_)) => {
-                return Err(DomainError::Field(
-                    "a deny_arguments rule sets exactly one of `contains` or `matches`, not both"
-                        .into(),
-                ));
-            }
-            (None, None) => {
-                return Err(DomainError::Field(
-                    "a deny_arguments rule needs `contains` or `matches`".into(),
-                ));
-            }
-        };
+        let (tool, path, marker) = rule_parts(
+            self.tool.as_deref(),
+            self.path.as_deref(),
+            self.contains.as_ref(),
+            self.matches.as_ref(),
+            "deny_arguments",
+        )?;
         let rule = ArgumentRule::new(tool, marker);
-        match self.path.as_deref().map(str::trim) {
-            Some(path) if !path.is_empty() => Ok(rule.with_path(JsonPath::parse(path)?)),
-            _ => Ok(rule),
-        }
+        Ok(match path {
+            Some(path) => rule.with_path(path),
+            None => rule,
+        })
     }
+}
+
+/// One `[[policy.tools.deny_results]]` entry: a marker forbidden in a tool
+/// *result*, optionally scoped to a single tool and/or one field of the parsed
+/// result. Provide exactly one of `contains` or `matches` — same shape as
+/// [`ArgumentRuleConfig`], applied to what a tool returns rather than its input.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ResultRuleConfig {
+    /// The tool this rule applies to; omit (or leave blank) to apply to any
+    /// tool. Only fires when the result's tool is known and matches.
+    pub tool: Option<String>,
+    /// A dotted path into the parsed result JSON (`body`, `data.token`) to match
+    /// against. Omit to match the whole raw result string.
+    pub path: Option<String>,
+    /// A literal forbidden in the result, folded ASCII-case-insensitively.
+    pub contains: Option<String>,
+    /// A regex forbidden in the result (full `regex` syntax; prefix `(?i)` for
+    /// case-insensitivity).
+    pub matches: Option<String>,
+}
+
+impl ResultRuleConfig {
+    pub(super) fn to_rule(&self) -> Result<ResultRule, DomainError> {
+        let (tool, path, marker) = rule_parts(
+            self.tool.as_deref(),
+            self.path.as_deref(),
+            self.contains.as_ref(),
+            self.matches.as_ref(),
+            "deny_results",
+        )?;
+        let rule = ResultRule::new(tool, marker);
+        Ok(match path {
+            Some(path) => rule.with_path(path),
+            None => rule,
+        })
+    }
+}
+
+/// Shared parsing for a deny rule's scope and marker: an optional tool scope, an
+/// optional argument/result path, and exactly one of a literal (`contains`) or a
+/// regex (`matches`) marker. `kind` names the config table in error messages.
+fn rule_parts(
+    tool: Option<&str>,
+    path: Option<&str>,
+    contains: Option<&String>,
+    matches: Option<&String>,
+    kind: &str,
+) -> Result<(Option<ToolName>, Option<JsonPath>, Pattern), DomainError> {
+    let tool = match tool.map(str::trim) {
+        Some(name) if !name.is_empty() => Some(ToolName::new(name)?),
+        _ => None,
+    };
+    let path = match path.map(str::trim) {
+        Some(path) if !path.is_empty() => Some(JsonPath::parse(path)?),
+        _ => None,
+    };
+    let marker = match (contains, matches) {
+        (Some(literal), None) => Pattern::literal(literal)?,
+        (None, Some(regex)) => Pattern::regex(regex)?,
+        (Some(_), Some(_)) => {
+            return Err(DomainError::Field(format!(
+                "a {kind} rule sets exactly one of `contains` or `matches`, not both"
+            )));
+        }
+        (None, None) => {
+            return Err(DomainError::Field(format!(
+                "a {kind} rule needs `contains` or `matches`"
+            )));
+        }
+    };
+    Ok((tool, path, marker))
 }
 
 /// How tool invocations are authorized.

@@ -62,6 +62,18 @@ impl JsonPath {
         Some(current)
     }
 
+    /// Resolve the path and render the node as match text: the inner string for
+    /// a JSON string (so `"http://x"` matches as `http://x`), or the node's
+    /// compact JSON otherwise (so a number/object/array can still be screened).
+    /// `None` if the path is absent.
+    #[must_use]
+    pub fn get_text(&self, value: &Value) -> Option<String> {
+        self.get(value).map(|node| match node {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        })
+    }
+
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.source

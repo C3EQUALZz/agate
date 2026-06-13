@@ -64,8 +64,8 @@ impl ArgumentRule {
         match &self.path {
             None => self.marker.matches(arguments),
             Some(path) => parsed
-                .and_then(|value| path.get(value))
-                .is_some_and(|node| self.marker.matches(&node_text(node))),
+                .and_then(|value| path.get_text(value))
+                .is_some_and(|text| self.marker.matches(&text)),
         }
     }
 
@@ -89,16 +89,6 @@ impl ArgumentRule {
 }
 
 impl ValueObject for ArgumentRule {}
-
-/// The text a marker matches against for a path node: the inner string for a
-/// JSON string (so `"http://x"` matches as `http://x`), or the node's compact
-/// JSON otherwise (so a number/object/array can still be screened).
-fn node_text(node: &Value) -> String {
-    match node {
-        Value::String(text) => text.clone(),
-        other => other.to_string(),
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -32,6 +32,10 @@ pub struct Run {
     id: RunId,
     phase: Phase,
     open_tool_calls: HashMap<ToolCallId, ToolCallBuffer>,
+    /// Tool name by call id, recorded at the call's start and kept for the run
+    /// so a later `TOOL_CALL_RESULT` (which carries only the id) can be
+    /// attributed to its tool.
+    tool_names: HashMap<ToolCallId, String>,
     budgets: Budgets,
 }
 
@@ -41,6 +45,7 @@ impl Run {
             id,
             phase: Phase::Pending,
             open_tool_calls: HashMap::new(),
+            tool_names: HashMap::new(),
             budgets,
         }
     }
@@ -88,7 +93,8 @@ impl Run {
             Fragment::ToolCallArgs { id, delta } => self.tool_call_args(&id, &delta),
             Fragment::ToolCallEnded { id } => self.tool_call_ended(&id),
             Fragment::ToolResult { id, content } => {
-                StructuralOutcome::Ready(AgentEvent::ToolResult { id, content })
+                let name = self.tool_names.get(&id).cloned();
+                StructuralOutcome::Ready(AgentEvent::ToolResult { id, name, content })
             }
             Fragment::MessageChunk { message, text } => {
                 StructuralOutcome::Ready(AgentEvent::MessageChunk { message, text })
@@ -111,6 +117,7 @@ impl Run {
         if self.open_tool_calls.len() >= self.budgets.max_open_tool_calls {
             return reject("too many concurrent tool calls");
         }
+        self.tool_names.insert(id.clone(), name.clone());
         self.open_tool_calls.insert(
             id,
             ToolCallBuffer {

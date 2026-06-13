@@ -47,7 +47,8 @@ fn to_action(event: &AgentEvent) -> InspectedAction {
             arguments: arguments.clone(),
         },
         AgentEvent::MessageChunk { text, .. } => InspectedAction::Message { text: text.clone() },
-        AgentEvent::ToolResult { content, .. } => InspectedAction::ToolResult {
+        AgentEvent::ToolResult { name, content, .. } => InspectedAction::ToolResult {
+            name: name.clone(),
             content: content.clone(),
         },
         AgentEvent::StateMutation(mutation) => InspectedAction::StateMutation {
@@ -66,8 +67,9 @@ fn redacted_verdict(event: &AgentEvent, text: String) -> Verdict<AgentEvent> {
             message: message.clone(),
             text,
         }),
-        AgentEvent::ToolResult { id, .. } => Verdict::Transform(AgentEvent::ToolResult {
+        AgentEvent::ToolResult { id, name, .. } => Verdict::Transform(AgentEvent::ToolResult {
             id: id.clone(),
+            name: name.clone(),
             content: text,
         }),
         _ => Verdict::Allow,
@@ -154,6 +156,7 @@ mod tests {
         let adapter = adapter(PolicyRuleset::allow_all());
         let event = AgentEvent::ToolResult {
             id: ToolCallId::new("c").expect("valid id"),
+            name: Some("fetch".into()),
             content: "result".into(),
         };
         assert_eq!(adapter.decide(&context(), &event).await, Verdict::Allow);
@@ -168,11 +171,13 @@ mod tests {
         ));
         let event = AgentEvent::ToolResult {
             id: ToolCallId::new("c1").expect("valid id"),
+            name: Some("fetch".into()),
             content: "token sk here".into(),
         };
         match adapter.decide(&context(), &event).await {
-            Verdict::Transform(AgentEvent::ToolResult { id, content }) => {
+            Verdict::Transform(AgentEvent::ToolResult { id, name, content }) => {
                 assert_eq!(id, ToolCallId::new("c1").expect("valid id"));
+                assert_eq!(name, Some("fetch".into()));
                 assert!(content.contains("[REDACTED]") && !content.contains("sk"));
             }
             other => panic!("expected a tool-result transform, got {other:?}"),

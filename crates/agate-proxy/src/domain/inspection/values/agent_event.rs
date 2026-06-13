@@ -21,8 +21,16 @@ pub enum AgentEvent {
         name: String,
         arguments: String,
     },
-    /// A tool result fed back into the conversation.
-    ToolResult { id: ToolCallId, content: String },
+    /// A tool result fed back into the conversation. `name` is the tool the
+    /// result belongs to, correlated from the call's start by [`Run`] — `None`
+    /// if the result references a call the proxy never saw start.
+    ///
+    /// [`Run`]: crate::domain::inspection::Run
+    ToolResult {
+        id: ToolCallId,
+        name: Option<String>,
+        content: String,
+    },
     /// A change to the shared state (snapshot or delta).
     StateMutation(StateMutation),
     /// A run/step lifecycle transition.

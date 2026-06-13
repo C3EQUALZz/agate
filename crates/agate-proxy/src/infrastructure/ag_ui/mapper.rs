@@ -87,7 +87,7 @@ pub fn to_event(event: &AgentEvent) -> Option<Value> {
             "messageId": message.as_str(),
             "delta": text,
         })),
-        AgentEvent::ToolResult { id, content } => Some(json!({
+        AgentEvent::ToolResult { id, content, .. } => Some(json!({
             "type": et::TOOL_CALL_RESULT,
             "toolCallId": id.as_str(),
             "content": content,

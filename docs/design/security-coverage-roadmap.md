@@ -118,13 +118,19 @@ engine — it closes most real cases without new infrastructure or a sandbox.
   without firing on an unrelated field. Still to come: predicates that go beyond
   text matching on a field (e.g. "deny when `args.url` *resolves* to a private
   IP"), behind the same `ArgumentRule` seam — see SSRF hardening in Phase 3.
-- **Result & state rules:** redaction/deny conditions for tool results and
-  state mutations.
-- **Per-tool policies:** today the ruleset is flat (one `ToolPolicy` + one
-  secret list); allow per-tool argument/result rules.
+- **Result & state rules:** ✅ tool results are secret-redacted and now also
+  screened by `[[policy.tools.deny_results]]` deny rules (a forbidden result is
+  blocked before the client, optionally scoped by `tool`/`path`); state
+  mutations carrying a secret are denied (they cannot be masked in place). Still
+  open: structured RFC 6902 validation of `STATE_DELTA` operations (Phase 3).
+- **Per-tool policies:** ✅ argument and result deny rules are tool-scoped (an
+  optional `tool` on each rule; result rules correlate the tool name from the
+  call's start). The redaction secret list stays global by design (content-based,
+  not tool-based).
 - **Hot-reload:** re-read the ruleset on `SIGHUP` / file-watch so operators
   iterate without a restart (the ruleset is already immutable and built at the
-  composition root — swap the `Arc` behind the `PolicyPort`).
+  composition root — swap the `Arc` behind the `PolicyPort`). **Deferred** as an
+  ops convenience, not a coverage gap.
 
 A **plugin engine** (Rego/OPA, CEL, or WASM via a sandbox) — rules as code,
 hot-reload, a policy marketplace — is the eventual "product" step. It is left as

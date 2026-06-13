@@ -54,9 +54,10 @@ fn encode_event(event: &AgentEvent) -> Value {
             "name": name,
             "arguments": arguments,
         }),
-        AgentEvent::ToolResult { id, content } => json!({
+        AgentEvent::ToolResult { id, name, content } => json!({
             "kind": "tool_result",
             "id": id.as_str(),
+            "name": name,
             "content": content,
         }),
         AgentEvent::StateMutation(mutation) => encode_state_mutation(mutation),
@@ -178,6 +179,7 @@ mod tests {
             (
                 AgentEvent::ToolResult {
                     id: ToolCallId::new("c").expect("valid id"),
+                    name: Some("t".into()),
                     content: "r".into(),
                 },
                 "tool_result",
