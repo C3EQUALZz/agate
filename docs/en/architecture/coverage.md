@@ -12,9 +12,9 @@ gaps live in the repository at
     **argument** deny rules), secret redaction across emitted text, tool
     results, and state, and fail-closed handling of malformed events. Some
     threats named in the threat model are not yet enforced (below) — notably
-    JSON-Patch validation, rate/output limits, and SSRF DNS resolution. Treat
-    Agate as one layer, not a complete agent firewall, until the remaining
-    roadmap items land.
+    JSON-Patch validation and response-leg URL screening. Treat Agate as one
+    layer, not a complete agent firewall, until the remaining roadmap items
+    land.
 
 ## What is inspected
 
@@ -25,7 +25,7 @@ gaps live in the repository at
 | `TOOL_CALL_RESULT` | tool-result content scanned for secret patterns | **Yes** — redact (literal or regex; the indirect-injection / exfiltration surface) |
 | `STATE_SNAPSHOT` / `STATE_DELTA` | size/op-count budget **and** payload scanned for secret markers | **Yes** — denied if a marker is found (a structured payload can't be masked, so it's blocked, not leaked) |
 | Lifecycle (`RUN_*`, `STEP_*`) | ordering enforced by the `Run` state machine | structural only (no policy verdict) |
-| Request leg (`RunAgentInput`) | `tools[*].name` authorized; `user` message text screened for SSRF URLs | **Yes** — reject before forwarding |
+| Request leg (`RunAgentInput`) | `tools[*].name` authorized; `user` message text screened for SSRF URLs — a domain host is **resolved** and its addresses re-checked, closing DNS-rebinding | **Yes** — reject before forwarding |
 | Malformed **known** events | a recognized type with a missing/blank required field cannot be inspected → handled per `[policy].on_malformed_event` (default `terminate`) | **Yes** — fails closed by default |
 
 ## What is forwarded uninspected
@@ -59,8 +59,8 @@ gaps live in the repository at
 
 Closing the remaining gaps is sequenced in
 [`security-coverage-roadmap.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/security-coverage-roadmap.md):
-RFC 6902 JSON-Patch validation, SSRF DNS
-resolution, and a richer (regex/glob, structured argument predicates) TOML
-policy language. (Malformed-event fail-closed, tool-argument deny rules, secret
-redaction of tool results and state, and per-run response budgets are now
+RFC 6902 JSON-Patch validation and response-leg URL
+screening. (Malformed-event fail-closed, tool-argument deny rules, secret
+redaction of tool results and state, per-run response budgets, and request-leg
+SSRF with DNS-rebinding resolution are now
 implemented.)

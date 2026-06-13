@@ -11,6 +11,7 @@ use agate_proxy::domain::inspection::{
     AgentEvent, Budgets, DenyReason, Fragment, LifecyclePhase, MessageId, OpaqueKind, Run, RunId,
     SessionId, ToolCallId, Verdict,
 };
+use agate_proxy::infrastructure::NoopHostResolver;
 
 use crate::common::fakes::{CountingAudit, FixedPolicy};
 
@@ -26,7 +27,11 @@ fn run() -> Run {
 /// tests can assert what was recorded.
 fn inspector(verdict: Verdict<AgentEvent>) -> (Inspector, Arc<CountingAudit>) {
     let audit = Arc::new(CountingAudit::default());
-    let inspector = Inspector::new(Arc::new(FixedPolicy(verdict)), audit.clone());
+    let inspector = Inspector::new(
+        Arc::new(FixedPolicy(verdict)),
+        audit.clone(),
+        Arc::new(NoopHostResolver),
+    );
     (inspector, audit)
 }
 

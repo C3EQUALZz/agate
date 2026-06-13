@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::action::InspectionAction;
 use super::context::InspectionContext;
 use super::request::{RequestContent, RequestDecision, first_disallowed_url};
-use crate::application::common::ports::{AuditSink, PolicyPort};
+use crate::application::common::ports::{AuditSink, HostResolver, PolicyPort};
 use crate::domain::inspection::{
     AgentEvent, DenyReason, Fragment, MessageId, Run, StructuralOutcome, ToolCallId, Verdict,
 };
@@ -23,11 +23,20 @@ const REQUEST_ORIGIN: &str = "request";
 pub struct Inspector {
     policy: Arc<dyn PolicyPort>,
     audit: Arc<dyn AuditSink>,
+    resolver: Arc<dyn HostResolver>,
 }
 
 impl Inspector {
-    pub fn new(policy: Arc<dyn PolicyPort>, audit: Arc<dyn AuditSink>) -> Self {
-        Self { policy, audit }
+    pub fn new(
+        policy: Arc<dyn PolicyPort>,
+        audit: Arc<dyn AuditSink>,
+        resolver: Arc<dyn HostResolver>,
+    ) -> Self {
+        Self {
+            policy,
+            audit,
+            resolver,
+        }
     }
 
     pub async fn inspect(
@@ -82,7 +91,7 @@ impl Inspector {
                 message: MessageId::new(REQUEST_ORIGIN).expect("the synthetic origin is not blank"),
                 text: text.clone(),
             };
-            if let Some(reason) = first_disallowed_url(text) {
+            if let Some(reason) = first_disallowed_url(text, self.resolver.as_ref()).await {
                 self.audit
                     .record(context, &event, &Verdict::Deny(reason.clone()))
                     .await;
@@ -128,6 +137,7 @@ mod tests {
     use crate::application::common::ports::{AuditSink, PolicyPort};
     use crate::application::inspection::InspectionContext;
     use crate::domain::inspection::{AgentEvent, DenyReason, RunId, SessionId, Verdict};
+    use crate::infrastructure::NoopHostResolver;
 
     struct NoopAudit;
     #[async_trait]
@@ -162,7 +172,7 @@ mod tests {
     }
 
     fn inspector(policy: Arc<dyn PolicyPort>) -> Inspector {
-        Inspector::new(policy, Arc::new(NoopAudit))
+        Inspector::new(policy, Arc::new(NoopAudit), Arc::new(NoopHostResolver))
     }
 
     #[tokio::test]
