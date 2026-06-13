@@ -456,6 +456,41 @@ mod tests {
         );
     }
 
+    /// In `Drop` mode the malformed frame vanishes but the run continues:
+    /// later well-formed events still reach the client.
+    #[tokio::test]
+    async fn a_malformed_known_event_is_dropped_in_drop_mode_and_the_stream_continues() {
+        let stream = inspect_stream(
+            upstream(&[
+                "data: {\"type\":\"RUN_STARTED\"}\n\n",
+                // TOOL_CALL_START with no toolCallName — recognized but malformed.
+                "data: {\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c1\"}\n\n",
+                "data: {\"type\":\"RUN_FINISHED\"}\n\n",
+            ]),
+            inspector(Arc::new(AllowAllPolicy)),
+            context(),
+            InspectionSettings {
+                malformed_mode: MalformedEventMode::Drop,
+                ..InspectionSettings::default()
+            },
+            metrics(),
+        );
+
+        let out = collect(stream).await;
+        assert!(
+            !out.contains("TOOL_CALL_START"),
+            "the malformed frame is dropped: {out}"
+        );
+        assert!(
+            !out.contains("RUN_ERROR"),
+            "dropping does not terminate the run: {out}"
+        );
+        assert!(
+            out.contains("RUN_STARTED") && out.contains("RUN_FINISHED"),
+            "events around the dropped frame still stream: {out}"
+        );
+    }
+
     /// In `Forward` mode the same malformed frame is forwarded raw (the legacy,
     /// availability-over-safety behavior).
     #[tokio::test]
