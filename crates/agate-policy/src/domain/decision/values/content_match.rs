@@ -20,6 +20,8 @@ pub struct ContentMatch {
 }
 
 impl ContentMatch {
+    /// Build a whole-payload match: an optional `tool` scope and the forbidden
+    /// `marker`, matched against the raw content until a path is added.
     pub fn new(tool: Option<ToolName>, marker: Pattern) -> Self {
         Self {
             tool,
@@ -28,6 +30,7 @@ impl ContentMatch {
         }
     }
 
+    /// Scope the match to one field of the parsed payload at `path`.
     #[must_use]
     pub fn with_path(mut self, path: JsonPath) -> Self {
         self.path = Some(path);
@@ -56,16 +59,19 @@ impl ContentMatch {
         }
     }
 
+    /// The tool this match is scoped to, if any.
     #[must_use]
     pub fn tool(&self) -> Option<&str> {
         self.tool.as_ref().map(ToolName::as_str)
     }
 
+    /// The payload path this match is scoped to, if any.
     #[must_use]
     pub fn path(&self) -> Option<&JsonPath> {
         self.path.as_ref()
     }
 
+    /// The forbidden-content matcher.
     #[must_use]
     pub fn marker(&self) -> &Pattern {
         &self.marker

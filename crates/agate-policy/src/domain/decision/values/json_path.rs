@@ -31,17 +31,17 @@ impl JsonPath {
         let source = source.into();
         let trimmed = source.trim();
         if trimmed.is_empty() {
-            return Err(DomainError::Field("argument path must not be blank".into()));
+            return Err(DomainError::Field("rule path must not be blank".into()));
         }
         let segments: Vec<String> = trimmed.split('.').map(|s| s.trim().to_owned()).collect();
         if segments.iter().any(String::is_empty) {
             return Err(DomainError::Field(format!(
-                "argument path '{trimmed}' has an empty segment"
+                "rule path '{trimmed}' has an empty segment"
             )));
         }
         if segments.iter().any(|s| s.contains('[') || s.contains(']')) {
             return Err(DomainError::Field(format!(
-                "argument path '{trimmed}' uses array indexing, which is not supported \
+                "rule path '{trimmed}' uses array indexing, which is not supported \
                  (object keys only)"
             )));
         }

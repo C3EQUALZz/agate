@@ -1,6 +1,7 @@
 //! Value objects of the decision subdomain.
 
 pub mod argument_rule;
+/// Shared matching mechanics behind the argument and result deny rules.
 pub mod content_match;
 pub mod deny_reason;
 pub mod inspected_action;

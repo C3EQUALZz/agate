@@ -206,6 +206,26 @@ mod tests {
     }
 
     #[test]
+    fn a_tool_result_records_its_correlated_tool_name() {
+        let allow = Verdict::Allow;
+        // Attributed result: the tool name is carried into the record.
+        let attributed = AgentEvent::ToolResult {
+            id: ToolCallId::new("c").expect("valid id"),
+            name: Some("fetch".into()),
+            content: "r".into(),
+        };
+        assert_eq!(decode(&attributed, &allow)["event"]["name"], "fetch");
+
+        // Unattributed result (the proxy never saw the call start) → null.
+        let unattributed = AgentEvent::ToolResult {
+            id: ToolCallId::new("c").expect("valid id"),
+            name: None,
+            content: "r".into(),
+        };
+        assert!(decode(&unattributed, &allow)["event"]["name"].is_null());
+    }
+
+    #[test]
     fn encodes_every_lifecycle_phase() {
         let allow = Verdict::Allow;
         let phase = |p| decode(&AgentEvent::Lifecycle(p), &allow)["event"]["phase"].clone();
