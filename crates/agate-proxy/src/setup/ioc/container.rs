@@ -4,10 +4,10 @@ use froodi::{
     DefaultScope::App, Inject, async_impl::Container, async_registry, instance, registry,
 };
 
-use crate::application::common::ports::{AuditSink, PolicyPort};
+use crate::application::common::ports::{AuditSink, HostResolver, PolicyPort};
 use crate::application::inspection::Inspector;
 use crate::infrastructure::{
-    AllowAllPolicy, NoopAuditSink, ProxyMetricsRecorder, ReqwestAgentClient,
+    AllowAllPolicy, NoopAuditSink, ProxyMetricsRecorder, ReqwestAgentClient, TokioHostResolver,
 };
 use crate::setup::configs::ProxyConfig;
 use crate::setup::ioc::handles::{ProxyMetricsHandle, UpstreamAgentClientHandle};
@@ -45,7 +45,10 @@ pub fn build_container_with(
                     )))
                 }),
                 provide(|| Ok(ProxyMetricsHandle(Arc::new(ProxyMetricsRecorder)))),
-                provide(move || Ok(Inspector::new(policy.clone(), audit.clone()))),
+                provide(move || {
+                    let resolver: Arc<dyn HostResolver> = Arc::new(TokioHostResolver);
+                    Ok(Inspector::new(policy.clone(), audit.clone(), resolver))
+                }),
             ]
         })
     };

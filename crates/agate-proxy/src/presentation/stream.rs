@@ -245,7 +245,11 @@ mod tests {
     }
 
     fn inspector(policy: Arc<dyn PolicyPort>) -> Arc<Inspector> {
-        Arc::new(Inspector::new(policy, Arc::new(NoopAudit)))
+        Arc::new(Inspector::new(
+            policy,
+            Arc::new(NoopAudit),
+            Arc::new(crate::infrastructure::NoopHostResolver),
+        ))
     }
 
     /// A fake [`ProxyMetrics`] that records every call, for asserting outcomes.

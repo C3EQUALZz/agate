@@ -30,7 +30,7 @@ enforce it. File references are to `crates/` on `main`.
 | Asset / threat | Threat model promises | Enforced today | Gap |
 |---|---|---|---|
 | **A1 — tool authorization** | verdict on tool **and arguments** | name authorized by `ToolAuthorizer` (exact/glob/regex); arguments checked by `ArgumentInspector` against `[[policy.tools.deny_arguments]]` literal/regex markers, optionally scoped to one parsed field by `path` (`agate-policy/.../argument_inspector.rs`) | text matching on a field or the raw blob — value-aware predicates (e.g. URL resolves to a private IP) still to come (P3 SSRF) |
-| **A2 — sensitive-data exfiltration** | redact text, screen URLs | literal-or-regex redaction across `TEXT_MESSAGE_CONTENT` **and** tool results; a secret in a state payload is denied (can't be masked); request-leg SSRF screen on `user` messages, no DNS resolution | SSRF is best-effort and request-leg only; no DNS resolution |
+| **A2 — sensitive-data exfiltration** | redact text, screen URLs | literal-or-regex redaction across `TEXT_MESSAGE_CONTENT` **and** tool results; a secret in a state payload is denied (can't be masked); request-leg SSRF screen on `user` messages that **resolves** domain hosts and re-checks the addresses (closes DNS-rebinding) | SSRF screen is request-leg only — response-leg content / tool-call argument URLs not yet screened |
 | **A3 — instruction integrity / prompt injection** | resist injection incl. indirect (URL content, tool results) | tool **results** now reach the policy and are secret-redacted; broader injection heuristics still absent | partial — no anti-injection heuristics yet |
 | **A4 — shared-state integrity** | verdict on state-mutating events; validate & bound JSON Patch | `STATE_*` payload now reaches the policy (a secret marker in it is denied) plus `byte_size`/`op_count` budgets | partial — RFC 6902 ops still unvalidated/unbounded |
 | **A5 — availability / DoS** | size/time **and rate** budgets per run and per connection | global concurrency cap, body-size limit, connect/read timeouts, **per-run response budget** (`max_response_events`/`max_response_bytes`), **per-client-IP rate limit** (`rate_limit_per_second`/`rate_limit_burst`, `429`) | done for the request leg; per-session (sub-IP) limits still open |
@@ -140,9 +140,11 @@ the proxy.
 
 ### Phase 3 — defense-in-depth
 
-- **SSRF hardening (A2):** resolve DNS and re-check against the blocklist to
-  close DNS-rebinding; extend the screen to tool arguments and response-leg
-  content, not just request-leg `user` messages.
+- **SSRF hardening (A2):** ✅ request-leg URLs now resolve the domain host and
+  re-check the resolved addresses (DNS-rebinding closed) via a `HostResolver`
+  port. Still to come: extend the screen to **tool-call arguments and
+  response-leg content** (message chunks, tool results), not just request-leg
+  `user` messages.
 - **Audit completeness (A6):** surface outbox backpressure to operators
   (a saturation metric + a configurable policy: block the data plane, or shed
   with a loud alert) so a gap in the tamper-evident log is never silent.
