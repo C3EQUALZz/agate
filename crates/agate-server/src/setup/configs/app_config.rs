@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::audit_section::{AuditBackend, AuditSection};
 use super::observability::ObservabilityConfig;
 use super::policy_section::{
-    ArgumentRuleConfig, MalformedMode, PolicyFailMode, PolicySection, ToolMode,
+    ArgumentRuleConfig, MalformedMode, PolicyFailMode, PolicySection, ResultRuleConfig, ToolMode,
 };
 use super::proxy_section::ProxySection;
 use super::tls::TlsConfig;
@@ -128,6 +128,13 @@ impl AppConfig {
             .iter()
             .map(ArgumentRuleConfig::to_rule)
             .collect::<Result<Vec<_>, _>>()?;
+        let result_rules = self
+            .policy
+            .tools
+            .deny_results
+            .iter()
+            .map(ResultRuleConfig::to_rule)
+            .collect::<Result<Vec<_>, _>>()?;
         // Literal markers first, then regex markers — both join the one secret
         // list the redactor applies in order.
         let mut secrets = self
@@ -139,7 +146,7 @@ impl AppConfig {
         for source in &self.policy.redact_regex {
             secrets.push(Pattern::regex(source)?);
         }
-        Ok(PolicyRuleset::new(tools, argument_rules, secrets))
+        Ok(PolicyRuleset::new(tools, argument_rules, secrets).with_result_rules(result_rules))
     }
 
     /// The proxy's fail mode for a policy-decision timeout.

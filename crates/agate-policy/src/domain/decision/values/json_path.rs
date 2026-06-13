@@ -31,17 +31,17 @@ impl JsonPath {
         let source = source.into();
         let trimmed = source.trim();
         if trimmed.is_empty() {
-            return Err(DomainError::Field("argument path must not be blank".into()));
+            return Err(DomainError::Field("rule path must not be blank".into()));
         }
         let segments: Vec<String> = trimmed.split('.').map(|s| s.trim().to_owned()).collect();
         if segments.iter().any(String::is_empty) {
             return Err(DomainError::Field(format!(
-                "argument path '{trimmed}' has an empty segment"
+                "rule path '{trimmed}' has an empty segment"
             )));
         }
         if segments.iter().any(|s| s.contains('[') || s.contains(']')) {
             return Err(DomainError::Field(format!(
-                "argument path '{trimmed}' uses array indexing, which is not supported \
+                "rule path '{trimmed}' uses array indexing, which is not supported \
                  (object keys only)"
             )));
         }
@@ -60,6 +60,18 @@ impl JsonPath {
             current = current.get(segment)?;
         }
         Some(current)
+    }
+
+    /// Resolve the path and render the node as match text: the inner string for
+    /// a JSON string (so `"http://x"` matches as `http://x`), or the node's
+    /// compact JSON otherwise (so a number/object/array can still be screened).
+    /// `None` if the path is absent.
+    #[must_use]
+    pub fn get_text(&self, value: &Value) -> Option<String> {
+        self.get(value).map(|node| match node {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        })
     }
 
     #[must_use]

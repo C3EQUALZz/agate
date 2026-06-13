@@ -54,9 +54,10 @@ fn encode_event(event: &AgentEvent) -> Value {
             "name": name,
             "arguments": arguments,
         }),
-        AgentEvent::ToolResult { id, content } => json!({
+        AgentEvent::ToolResult { id, name, content } => json!({
             "kind": "tool_result",
             "id": id.as_str(),
+            "name": name,
             "content": content,
         }),
         AgentEvent::StateMutation(mutation) => encode_state_mutation(mutation),
@@ -178,6 +179,7 @@ mod tests {
             (
                 AgentEvent::ToolResult {
                     id: ToolCallId::new("c").expect("valid id"),
+                    name: Some("t".into()),
                     content: "r".into(),
                 },
                 "tool_result",
@@ -201,6 +203,26 @@ mod tests {
         for (event, kind) in cases {
             assert_eq!(decode(&event, &allow)["event"]["kind"], kind);
         }
+    }
+
+    #[test]
+    fn a_tool_result_records_its_correlated_tool_name() {
+        let allow = Verdict::Allow;
+        // Attributed result: the tool name is carried into the record.
+        let attributed = AgentEvent::ToolResult {
+            id: ToolCallId::new("c").expect("valid id"),
+            name: Some("fetch".into()),
+            content: "r".into(),
+        };
+        assert_eq!(decode(&attributed, &allow)["event"]["name"], "fetch");
+
+        // Unattributed result (the proxy never saw the call start) → null.
+        let unattributed = AgentEvent::ToolResult {
+            id: ToolCallId::new("c").expect("valid id"),
+            name: None,
+            content: "r".into(),
+        };
+        assert!(decode(&unattributed, &allow)["event"]["name"].is_null());
     }
 
     #[test]

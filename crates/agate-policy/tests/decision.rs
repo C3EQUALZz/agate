@@ -4,8 +4,8 @@
 use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::services::REDACTION_MASK;
 use agate_policy::domain::decision::{
-    ArgumentRule, DenyReason, InspectedAction, Pattern, PolicyDecision, PolicyRuleset, ToolMatcher,
-    ToolName, ToolPolicy,
+    ArgumentRule, DenyReason, InspectedAction, Pattern, PolicyDecision, PolicyRuleset, ResultRule,
+    ToolMatcher, ToolName, ToolPolicy,
 };
 
 fn tool_names(names: &[&str]) -> Vec<ToolMatcher> {
@@ -236,6 +236,7 @@ fn a_secret_in_a_tool_result_is_redacted() {
         vec![Pattern::literal("sk-LEAK").expect("valid pattern")],
     ));
     let action = InspectedAction::ToolResult {
+        name: Some("fetch".to_owned()),
         content: "the key is sk-leak, hide it".to_owned(),
     };
 
@@ -243,6 +244,31 @@ fn a_secret_in_a_tool_result_is_redacted() {
         service.decide(&action),
         PolicyDecision::RedactText(format!("the key is {REDACTION_MASK}, hide it"))
     );
+}
+
+#[test]
+fn a_result_matching_a_deny_rule_is_blocked() {
+    let service =
+        PolicyService::new(
+            PolicyRuleset::allow_all().with_result_rules(vec![ResultRule::new(
+                Some(ToolName::new("fetch").expect("valid")),
+                Pattern::literal("BEGIN RSA PRIVATE KEY").expect("valid pattern"),
+            )]),
+        );
+
+    // The denied result is blocked outright (before any redaction).
+    let blocked = service.decide(&InspectedAction::ToolResult {
+        name: Some("fetch".to_owned()),
+        content: "leaked BEGIN RSA PRIVATE KEY material".to_owned(),
+    });
+    assert!(matches!(blocked, PolicyDecision::Deny(_)));
+
+    // A different tool's identical result is not in scope.
+    let allowed = service.decide(&InspectedAction::ToolResult {
+        name: Some("search".to_owned()),
+        content: "leaked BEGIN RSA PRIVATE KEY material".to_owned(),
+    });
+    assert_eq!(allowed, PolicyDecision::Allow);
 }
 
 #[test]

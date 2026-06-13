@@ -32,6 +32,10 @@ pub struct Run {
     id: RunId,
     phase: Phase,
     open_tool_calls: HashMap<ToolCallId, ToolCallBuffer>,
+    /// Tool name by call id, recorded at the call's start and removed when its
+    /// `TOOL_CALL_RESULT` (which carries only the id) is attributed — so the map
+    /// tracks only calls still awaiting a result, not every call ever made.
+    tool_names: HashMap<ToolCallId, String>,
     budgets: Budgets,
 }
 
@@ -41,6 +45,7 @@ impl Run {
             id,
             phase: Phase::Pending,
             open_tool_calls: HashMap::new(),
+            tool_names: HashMap::new(),
             budgets,
         }
     }
@@ -88,7 +93,11 @@ impl Run {
             Fragment::ToolCallArgs { id, delta } => self.tool_call_args(&id, &delta),
             Fragment::ToolCallEnded { id } => self.tool_call_ended(&id),
             Fragment::ToolResult { id, content } => {
-                StructuralOutcome::Ready(AgentEvent::ToolResult { id, content })
+                // Take the name out: one result per call, so the entry is no
+                // longer needed and the map stays bounded over a long run. A
+                // second result for the same id is then treated as unattributed.
+                let name = self.tool_names.remove(&id);
+                StructuralOutcome::Ready(AgentEvent::ToolResult { id, name, content })
             }
             Fragment::MessageChunk { message, text } => {
                 StructuralOutcome::Ready(AgentEvent::MessageChunk { message, text })
@@ -111,6 +120,7 @@ impl Run {
         if self.open_tool_calls.len() >= self.budgets.max_open_tool_calls {
             return reject("too many concurrent tool calls");
         }
+        self.tool_names.insert(id.clone(), name.clone());
         self.open_tool_calls.insert(
             id,
             ToolCallBuffer {

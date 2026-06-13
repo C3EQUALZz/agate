@@ -11,5 +11,5 @@ pub mod values;
 pub use services::{ArgumentInspector, PolicyEvaluator, TextRedactor, ToolAuthorizer};
 pub use values::{
     ArgumentRule, DenyReason, InspectedAction, JsonPath, Pattern, PolicyDecision, PolicyRuleset,
-    ToolMatcher, ToolName, ToolPolicy,
+    ResultRule, ToolMatcher, ToolName, ToolPolicy,
 };

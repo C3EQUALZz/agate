@@ -89,6 +89,13 @@ tool = "fetch"
 path = "url"
 matches = "^https?://169\\.254\\.169\\.254"
 
+# Result-level deny rules: a tool RESULT is blocked (dropped before the client)
+# when its content matches. Same shape as deny_arguments; `tool` scopes the rule
+# to one tool (only when the result's tool is known), `path` to one result field.
+[[policy.tools.deny_results]]
+# Block any result that leaks a private key.
+contains = "BEGIN RSA PRIVATE KEY"
+
 [policy]
 # Literal markers redacted from emitted assistant text (case-insensitive).
 redact = ["sk-", "AKIA"]
