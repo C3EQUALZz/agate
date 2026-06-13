@@ -1,3 +1,5 @@
+use serde_json::Value;
+
 use crate::domain::common::services::DomainService;
 use crate::domain::decision::values::{ArgumentRule, DenyReason, PolicyDecision};
 
@@ -12,7 +14,17 @@ impl ArgumentInspector {
     /// the client-facing `RUN_ERROR`.
     #[must_use]
     pub fn inspect(rules: &[ArgumentRule], name: &str, arguments: &str) -> PolicyDecision {
-        if rules.iter().any(|rule| rule.matches(name, arguments)) {
+        // Parse the arguments once for the whole rule set (only when a path rule
+        // needs it), so several path rules don't each re-deserialize.
+        let parsed = rules
+            .iter()
+            .any(|rule| rule.path().is_some())
+            .then(|| serde_json::from_str::<Value>(arguments).ok())
+            .flatten();
+        if rules
+            .iter()
+            .any(|rule| rule.matches(name, arguments, parsed.as_ref()))
+        {
             PolicyDecision::Deny(DenyReason::new(format!(
                 "tool '{name}' arguments matched a blocked pattern"
             )))

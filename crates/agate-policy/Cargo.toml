@@ -10,6 +10,9 @@ description = "Policy bounded context: content/authorization decisions over insp
 # decides verdicts from in-memory rules and depends on nothing internal.
 # `regex` is a pure CPU matcher (no async/IO), used for richer redaction rules.
 regex = { workspace = true }
+# `serde_json` is a pure CPU parser (no async/IO), used to evaluate structured
+# argument predicates over the parsed tool-call arguments.
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

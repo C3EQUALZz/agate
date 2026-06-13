@@ -29,7 +29,7 @@ enforce it. File references are to `crates/` on `main`.
 
 | Asset / threat | Threat model promises | Enforced today | Gap |
 |---|---|---|---|
-| **A1 — tool authorization** | verdict on tool **and arguments** | name authorized by `ToolAuthorizer`; arguments checked by `ArgumentInspector` against `[[policy.tools.deny_arguments]]` literal **or regex** markers (`agate-policy/.../argument_inspector.rs`) | literal/regex over the raw arg string — structured/JSONPath predicates over parsed args still to come (P2) |
+| **A1 — tool authorization** | verdict on tool **and arguments** | name authorized by `ToolAuthorizer` (exact/glob/regex); arguments checked by `ArgumentInspector` against `[[policy.tools.deny_arguments]]` literal/regex markers, optionally scoped to one parsed field by `path` (`agate-policy/.../argument_inspector.rs`) | text matching on a field or the raw blob — value-aware predicates (e.g. URL resolves to a private IP) still to come (P3 SSRF) |
 | **A2 — sensitive-data exfiltration** | redact text, screen URLs | literal-or-regex redaction across `TEXT_MESSAGE_CONTENT` **and** tool results; a secret in a state payload is denied (can't be masked); request-leg SSRF screen on `user` messages, no DNS resolution | SSRF is best-effort and request-leg only; no DNS resolution |
 | **A3 — instruction integrity / prompt injection** | resist injection incl. indirect (URL content, tool results) | tool **results** now reach the policy and are secret-redacted; broader injection heuristics still absent | partial — no anti-injection heuristics yet |
 | **A4 — shared-state integrity** | verdict on state-mutating events; validate & bound JSON Patch | `STATE_*` payload now reaches the policy (a secret marker in it is denied) plus `byte_size`/`op_count` budgets | partial — RFC 6902 ops still unvalidated/unbounded |
@@ -110,10 +110,14 @@ engine — it closes most real cases without new infrastructure or a sandbox.
   in `[policy.tools].names` by a `glob:` / `regex:` prefix (bare = exact);
   matching is anchored to the whole name and case-sensitive, so `search` never
   matches `research`.
-- **Argument predicates:** literal and regex markers are done
-  (`[[policy.tools.deny_arguments]]` `contains` / `matches`). Structured /
-  JSONPath conditions over the *parsed* arguments (e.g. "deny when `args.url`
-  resolves to a private IP") remain, behind the same `ArgumentRule` seam.
+- **Argument predicates:** ✅ literal and regex markers
+  (`[[policy.tools.deny_arguments]]` `contains` / `matches`), and ✅ a `path`
+  scope (a dotted path like `url` / `config.endpoint`) that matches the marker
+  against one field of the *parsed* arguments rather than the whole blob — so
+  `{ tool = "fetch", path = "url", matches = "169\.254" }` screens `args.url`
+  without firing on an unrelated field. Still to come: predicates that go beyond
+  text matching on a field (e.g. "deny when `args.url` *resolves* to a private
+  IP"), behind the same `ArgumentRule` seam — see SSRF hardening in Phase 3.
 - **Result & state rules:** redaction/deny conditions for tool results and
   state mutations.
 - **Per-tool policies:** today the ruleset is flat (one `ToolPolicy` + one

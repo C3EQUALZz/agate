@@ -182,9 +182,10 @@ fn parse_tool_matcher(entry: &str) -> Result<ToolMatcher, DomainError> {
 
 #[cfg(test)]
 mod tests {
-    use agate_policy::domain::decision::ToolPolicy;
+    use agate_policy::application::PolicyService;
+    use agate_policy::domain::decision::{InspectedAction, PolicyDecision, ToolPolicy};
 
-    use super::super::policy_section::ToolsSection;
+    use super::super::policy_section::{ArgumentRuleConfig, ToolsSection};
     use super::{AppConfig, FailMode, PolicySection, ProxySection, ToolMode};
 
     fn with_policy(mode: ToolMode, names: &[&str], redact: &[&str]) -> AppConfig {
@@ -421,20 +422,17 @@ mod tests {
 
     #[test]
     fn deny_argument_rules_build_from_config() {
-        use super::super::policy_section::ArgumentRuleConfig;
-
         let mut config = AppConfig::default();
         config.policy.tools.deny_arguments = vec![
             ArgumentRuleConfig {
                 tool: Some("shell".to_owned()),
                 contains: Some("rm -rf".to_owned()),
-                matches: None,
+                ..ArgumentRuleConfig::default()
             },
             // A regex-marker rule alongside a literal one.
             ArgumentRuleConfig {
-                tool: None,
-                contains: None,
                 matches: Some(r"AKIA[0-9A-Z]{16}".to_owned()),
+                ..ArgumentRuleConfig::default()
             },
         ];
         let ruleset = config.policy_ruleset().expect("valid");
@@ -443,21 +441,16 @@ mod tests {
 
     #[test]
     fn a_blank_argument_marker_is_rejected() {
-        use super::super::policy_section::ArgumentRuleConfig;
-
         let mut config = AppConfig::default();
         config.policy.tools.deny_arguments = vec![ArgumentRuleConfig {
-            tool: None,
             contains: Some("   ".to_owned()),
-            matches: None,
+            ..ArgumentRuleConfig::default()
         }];
         assert!(config.policy_ruleset().is_err());
     }
 
     #[test]
     fn a_deny_argument_rule_needs_exactly_one_marker() {
-        use super::super::policy_section::ArgumentRuleConfig;
-
         let mut config = AppConfig::default();
         // Neither set → error.
         config.policy.tools.deny_arguments = vec![ArgumentRuleConfig::default()];
@@ -465,11 +458,46 @@ mod tests {
 
         // Both set → error.
         config.policy.tools.deny_arguments = vec![ArgumentRuleConfig {
-            tool: None,
             contains: Some("x".to_owned()),
             matches: Some("y".to_owned()),
+            ..ArgumentRuleConfig::default()
         }];
         assert!(config.policy_ruleset().is_err(), "two markers are rejected");
+    }
+
+    #[test]
+    fn a_path_scoped_argument_rule_builds_and_targets_one_field() {
+        let mut config = AppConfig::default();
+        config.policy.tools.deny_arguments = vec![ArgumentRuleConfig {
+            path: Some("url".to_owned()),
+            matches: Some(r"^https?://169\.254".to_owned()),
+            ..ArgumentRuleConfig::default()
+        }];
+        let service = PolicyService::new(config.policy_ruleset().expect("valid"));
+
+        let blocked = service.decide(&InspectedAction::ToolCall {
+            name: "fetch".to_owned(),
+            arguments: r#"{"url":"http://169.254.169.254/"}"#.to_owned(),
+        });
+        assert!(matches!(blocked, PolicyDecision::Deny(_)));
+
+        // Same marker text in a different field does not fire the path rule.
+        let allowed = service.decide(&InspectedAction::ToolCall {
+            name: "fetch".to_owned(),
+            arguments: r#"{"note":"http://169.254.0.1","url":"https://ok"}"#.to_owned(),
+        });
+        assert_eq!(allowed, PolicyDecision::Allow);
+
+        // A bad path aborts the build.
+        config.policy.tools.deny_arguments = vec![ArgumentRuleConfig {
+            path: Some("a..b".to_owned()),
+            contains: Some("x".to_owned()),
+            ..ArgumentRuleConfig::default()
+        }];
+        assert!(
+            config.policy_ruleset().is_err(),
+            "an invalid path is rejected"
+        );
     }
 
     #[test]

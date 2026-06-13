@@ -77,7 +77,7 @@ nothing is redacted**.
 | --- | --- | --- |
 | `[policy.tools].mode` | `allow-all` \| `allowlist` \| `denylist` | How tool calls are authorized. Default `allow-all`. |
 | `[policy.tools].names` | array of tool matchers | Tools governed by `mode` (ignored when `allow-all`). Each entry is matched against the **whole** tool name, case-sensitively, by kind: a bare name is **exact** (`search`); `glob:` is shell-style `*`/`?` (`glob:fs.*`); `regex:` is a regex anchored to the whole name (`regex:db_.*`). So `search` never matches `research`, and `glob:fs.*` covers every `fs.` tool. An invalid glob/regex aborts startup. |
-| `[[policy.tools.deny_arguments]]` | tables of `{ tool?, contains \| matches }` | Argument-level deny rules: a permitted tool call is **blocked** when its arguments match. Each rule sets exactly one of `contains` (case-insensitive literal) or `matches` (regex). `tool` scopes the rule to one tool; omit it for any tool. |
+| `[[policy.tools.deny_arguments]]` | tables of `{ tool?, path?, contains \| matches }` | Argument-level deny rules: a permitted tool call is **blocked** when its arguments match. Each rule sets exactly one of `contains` (case-insensitive literal) or `matches` (regex). `tool` scopes the rule to one tool; omit it for any tool. `path` (a dotted path like `url` or `config.endpoint`) scopes the match to one field of the parsed arguments, so it cannot fire on an unrelated field carrying the same text; omit it to match the whole raw argument string. A path rule does not fire when the arguments are not valid JSON or the path is absent. |
 | `[policy].redact` | array of literal markers | Substrings masked (case-insensitive) in emitted text and tool results before they reach the client. |
 | `[policy].redact_regex` | array of regex patterns | Regex markers masked in emitted text and tool results (full `regex` syntax; prefix `(?i)` for case-insensitivity). An invalid expression aborts startup. |
 | `[policy].fail_mode` | `open` \| `closed` | What to do if a policy decision times out: forward (`open`) or block (`closed`). Default `closed` (safety over availability). |
@@ -201,7 +201,9 @@ names = ["search", "fetch", "glob:fs.*", "regex:db_.*"]
 tool = "search"
 contains = "rm -rf"
 [[policy.tools.deny_arguments]]
-matches = "169\\.254\\.169\\.254"
+tool = "fetch"
+path = "url"
+matches = "^https?://169\\.254\\.169\\.254"
 
 [policy]
 redact = ["sk-", "AKIA"]
