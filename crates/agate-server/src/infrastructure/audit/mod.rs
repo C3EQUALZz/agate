@@ -12,10 +12,14 @@
 //!   forwarding path on the database, and bounds memory under load.
 
 pub mod appender;
+pub mod issuer;
 pub mod outbox;
 pub mod record;
+pub mod scheduler;
 pub mod sink;
 
 pub use appender::{AppendError, RecordAppender};
+pub use issuer::{CheckpointIssuer, IssueError};
 pub use outbox::AuditOutbox;
+pub use scheduler::CheckpointScheduler;
 pub use sink::AuditLogSink;

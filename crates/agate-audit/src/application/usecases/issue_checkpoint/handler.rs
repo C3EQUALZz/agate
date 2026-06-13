@@ -41,11 +41,21 @@ impl RequestHandler<IssueCheckpoint> for IssueCheckpointHandler {
             .await?
             .ok_or(AuditError::LogNotFound(request.log))?;
 
+        let signer = self.keys.signer(&request.key).await?;
+
+        // Idle skip: the tree has not grown since the caller's last checkpoint,
+        // so the checkpoint at this size is already recorded and anchored. Sign
+        // and return the current head, but record no redundant event, re-anchor
+        // nothing, and don't save.
+        if request.previous_size == Some(log.size()) {
+            let head = log.head(self.clock.now());
+            return Ok(CheckpointSigner::sign(signer.as_ref(), &head));
+        }
+
         // Snapshot the head (records a CheckpointIssued domain event).
         let head = log.issue_checkpoint(self.clock.now());
 
         // Sign with the requested key, then publish externally before persisting.
-        let signer = self.keys.signer(&request.key).await?;
         let sth = CheckpointSigner::sign(signer.as_ref(), &head);
         self.anchor.anchor(request.log, &sth).await?;
 

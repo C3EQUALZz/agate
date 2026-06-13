@@ -64,6 +64,18 @@ acquire_timeout_secs = 30
 connect_max_retries = 10
 # Base backoff between connect attempts, in seconds (doubled each retry, capped).
 connect_backoff_secs = 1
+# --- Signed checkpoints (Signed Tree Heads) ---
+# A background task issues a signed STH for the log on this interval, in seconds
+# (0 = disabled, the default). Like a Certificate Transparency log, this is the
+# log's own tamper-evidence cadence; an idle log between ticks is not re-anchored.
+checkpoint_interval_secs = 0
+# The signing key id the issuer requests — must match the key the store loaded.
+checkpoint_key_id = "checkpoint-ed25519"
+# The Ed25519 signing key itself is NEVER in this file. Supply it via the
+# environment (32 bytes, hex), and optionally override the key id:
+#   AUDIT_CHECKPOINT_SEED=<64 hex chars>
+#   AUDIT_CHECKPOINT_KEY_ID=checkpoint-ed25519
+# Without the seed, checkpoint signing is disabled and the interval is moot.
 
 [policy.tools]
 # allow-all | allowlist | denylist

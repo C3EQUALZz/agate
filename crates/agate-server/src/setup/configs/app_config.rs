@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use agate_audit::infrastructure::persistence::postgres::PoolConfig;
 use agate_audit::setup::configs::{PostgresConfig, StorageConfig};
+use agate_crypto::KeyId;
 use agate_policy::domain::common::errors::DomainError;
 use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolMatcher, ToolPolicy};
 use agate_proxy::application::inspection::{MalformedEventMode, ResponseBudget};
@@ -16,6 +17,7 @@ use super::policy_section::{
 };
 use super::proxy_section::ProxySection;
 use super::tls::TlsConfig;
+use crate::setup::bootstrap::CheckpointSettings;
 
 /// The full application configuration — the server's composition root for
 /// on-disk config.
@@ -149,6 +151,17 @@ impl AppConfig {
         Ok(PolicyRuleset::new(tools, argument_rules, secrets).with_result_rules(result_rules))
     }
 
+    /// How the periodic checkpoint issuer should run, or `None` when disabled
+    /// (`checkpoint_interval_secs = 0`). The signing key itself is loaded from
+    /// the environment by the key store; here we only carry its id.
+    #[must_use]
+    pub fn checkpoint_settings(&self) -> Option<CheckpointSettings> {
+        (self.audit.checkpoint_interval_secs > 0).then(|| CheckpointSettings {
+            period: Duration::from_secs(self.audit.checkpoint_interval_secs),
+            key: KeyId(self.audit.checkpoint_key_id.clone()),
+        })
+    }
+
     /// The proxy's fail mode for a policy-decision timeout.
     #[must_use]
     pub fn policy_fail_mode(&self) -> FailMode {
@@ -214,6 +227,18 @@ mod tests {
     fn allow_all_is_the_default_tool_policy() {
         let ruleset = AppConfig::default().policy_ruleset().expect("valid");
         assert_eq!(*ruleset.tools(), ToolPolicy::AllowAll);
+    }
+
+    #[test]
+    fn checkpoints_are_disabled_by_default_and_enabled_by_a_positive_interval() {
+        assert!(AppConfig::default().checkpoint_settings().is_none());
+
+        let mut config = AppConfig::default();
+        config.audit.checkpoint_interval_secs = 3600;
+        config.audit.checkpoint_key_id = "k".to_owned();
+        let settings = config.checkpoint_settings().expect("enabled");
+        assert_eq!(settings.period.as_secs(), 3600);
+        assert_eq!(settings.key.0, "k");
     }
 
     #[test]

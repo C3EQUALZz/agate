@@ -30,6 +30,8 @@ async fn issue_checkpoint(
         .send(IssueCheckpoint {
             log: LogId(id),
             key: KeyId(body.key_id),
+            // The API always issues; idle-skip is for the periodic issuer.
+            previous_size: None,
         })
         .await?;
     Ok((StatusCode::CREATED, Json(to_response(&sth))))
