@@ -1,3 +1,6 @@
+use serde_json::Value;
+
+use super::json_path::JsonPath;
 use super::pattern::Pattern;
 use super::tool_name::ToolName;
 use crate::domain::common::values::ValueObject;
@@ -5,28 +8,50 @@ use crate::domain::common::values::ValueObject;
 /// A rule that denies a tool call when its arguments match a forbidden
 /// [`Pattern`] — the argument-level counterpart to a [`ToolPolicy`] name check.
 ///
-/// The marker is a literal or regex (the shared content matcher); an optional
-/// [`ToolName`] scopes the rule to one tool, and when absent it applies to
-/// every tool call.
+/// The marker is a literal or regex (the shared content matcher). An optional
+/// [`ToolName`] scopes the rule to one tool (absent = every tool). An optional
+/// [`JsonPath`] scopes the *match* to one field of the parsed arguments
+/// (absent = the whole raw argument string): a path rule parses the arguments
+/// as JSON and matches the marker against the value at that path, so
+/// `{ path = "url", matches = "169\.254" }` screens `args.url` without firing on
+/// an unrelated field.
 ///
 /// [`ToolPolicy`]: super::ToolPolicy
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ArgumentRule {
     tool: Option<ToolName>,
+    path: Option<JsonPath>,
     marker: Pattern,
 }
 
 impl ArgumentRule {
-    /// Build a rule. `tool` scopes it to a single tool (`None` = any tool);
-    /// `marker` is the forbidden content matcher.
+    /// Build a whole-arguments rule. `tool` scopes it to a single tool
+    /// (`None` = any tool); `marker` is the forbidden content matcher, matched
+    /// against the raw argument string.
     #[must_use]
     pub fn new(tool: Option<ToolName>, marker: Pattern) -> Self {
-        Self { tool, marker }
+        Self {
+            tool,
+            path: None,
+            marker,
+        }
+    }
+
+    /// Scope the match to one field of the parsed arguments. The marker is then
+    /// matched against the value at `path` rather than the whole argument blob.
+    #[must_use]
+    pub fn with_path(mut self, path: JsonPath) -> Self {
+        self.path = Some(path);
+        self
     }
 
     /// Whether this rule fires for a call to `name` with `arguments`: the tool
-    /// scope matches (or is unscoped) **and** the marker occurs in the
-    /// arguments.
+    /// scope matches (or is unscoped) **and** the marker occurs in the targeted
+    /// text — the value at the rule's path, or the whole argument string when
+    /// the rule has no path.
+    ///
+    /// A path rule on arguments that are not valid JSON, or whose path is
+    /// absent, does not fire: there is nothing at that path to match.
     #[must_use]
     pub fn matches(&self, name: &str, arguments: &str) -> bool {
         if let Some(tool) = &self.tool
@@ -34,13 +59,27 @@ impl ArgumentRule {
         {
             return false;
         }
-        self.marker.matches(arguments)
+        match &self.path {
+            None => self.marker.matches(arguments),
+            Some(path) => match serde_json::from_str::<Value>(arguments) {
+                Ok(value) => path
+                    .get(&value)
+                    .is_some_and(|node| self.marker.matches(&node_text(node))),
+                Err(_) => false,
+            },
+        }
     }
 
     /// The tool this rule is scoped to, if any.
     #[must_use]
     pub fn tool(&self) -> Option<&str> {
         self.tool.as_ref().map(ToolName::as_str)
+    }
+
+    /// The argument path this rule is scoped to, if any.
+    #[must_use]
+    pub fn path(&self) -> Option<&JsonPath> {
+        self.path.as_ref()
     }
 
     /// The forbidden-content matcher this rule fires on.
@@ -52,12 +91,26 @@ impl ArgumentRule {
 
 impl ValueObject for ArgumentRule {}
 
+/// The text a marker matches against for a path node: the inner string for a
+/// JSON string (so `"http://x"` matches as `http://x`), or the node's compact
+/// JSON otherwise (so a number/object/array can still be screened).
+fn node_text(node: &Value) -> String {
+    match node {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ArgumentRule, Pattern, ToolName};
+    use super::{ArgumentRule, JsonPath, Pattern, ToolName};
 
     fn literal(needle: &str) -> Pattern {
         Pattern::literal(needle).expect("valid pattern")
+    }
+
+    fn path(source: &str) -> JsonPath {
+        JsonPath::parse(source).expect("valid path")
     }
 
     #[test]
@@ -86,5 +139,38 @@ mod tests {
         );
         assert!(rule.matches("fetch", r#"{"url":"http://169.254.169.254/"}"#));
         assert!(!rule.matches("fetch", r#"{"url":"https://example.com"}"#));
+    }
+
+    #[test]
+    fn a_path_rule_matches_only_the_targeted_field() {
+        let rule = ArgumentRule::new(None, Pattern::regex(r"^https?://169\.254").expect("valid"))
+            .with_path(path("url"));
+        // The marker is anchored at the start of the `url` value.
+        assert!(rule.matches("fetch", r#"{"url":"http://169.254.169.254/"}"#));
+        // Same text in a different field does not fire the path rule.
+        assert!(!rule.matches(
+            "fetch",
+            r#"{"note":"http://169.254.0.1","url":"https://ok"}"#
+        ));
+    }
+
+    #[test]
+    fn a_path_rule_on_a_nested_field_resolves_the_path() {
+        let rule = ArgumentRule::new(None, literal("evil")).with_path(path("config.endpoint"));
+        assert!(rule.matches("fetch", r#"{"config":{"endpoint":"evil.example"}}"#));
+        assert!(!rule.matches("fetch", r#"{"config":{"endpoint":"ok.example"}}"#));
+    }
+
+    #[test]
+    fn a_path_rule_does_not_fire_on_missing_path_or_non_json() {
+        let rule = ArgumentRule::new(None, literal("x")).with_path(path("url"));
+        assert!(!rule.matches("fetch", r#"{"other":"x"}"#)); // path absent
+        assert!(!rule.matches("fetch", "not json at all")); // unparsable
+    }
+
+    #[test]
+    fn a_path_rule_can_match_a_non_string_node_by_its_json() {
+        let rule = ArgumentRule::new(None, literal("true")).with_path(path("danger"));
+        assert!(rule.matches("tool", r#"{"danger":true}"#));
     }
 }

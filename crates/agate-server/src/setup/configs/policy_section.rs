@@ -1,5 +1,5 @@
 use agate_policy::domain::common::errors::DomainError;
-use agate_policy::domain::decision::{ArgumentRule, Pattern, ToolName};
+use agate_policy::domain::decision::{ArgumentRule, JsonPath, Pattern, ToolName};
 use serde::{Deserialize, Serialize};
 
 /// `[policy]` — content/authorization rules.
@@ -92,11 +92,17 @@ pub struct ToolsSection {
 pub struct ArgumentRuleConfig {
     /// The tool this rule applies to; omit (or leave blank) to apply to any tool.
     pub tool: Option<String>,
+    /// A dotted path into the parsed arguments (`url`, `config.endpoint`) to
+    /// match against. Omit to match the whole raw argument string. With a path,
+    /// the marker is matched against just that field's value, so it cannot fire
+    /// on an unrelated field carrying the same text.
+    pub path: Option<String>,
     /// A literal forbidden in the arguments, folded ASCII-case-insensitively
     /// (not Unicode).
     pub contains: Option<String>,
     /// A regex forbidden in the arguments (full `regex` syntax; prefix `(?i)`
-    /// for case-insensitivity). Matched against the raw argument JSON string.
+    /// for case-insensitivity). Matched against the raw argument JSON string,
+    /// or against the `path` field's value when `path` is set.
     pub matches: Option<String>,
 }
 
@@ -121,7 +127,11 @@ impl ArgumentRuleConfig {
                 ));
             }
         };
-        Ok(ArgumentRule::new(tool, marker))
+        let rule = ArgumentRule::new(tool, marker);
+        match self.path.as_deref().map(str::trim) {
+            Some(path) if !path.is_empty() => Ok(rule.with_path(JsonPath::parse(path)?)),
+            _ => Ok(rule),
+        }
     }
 }
 

@@ -110,10 +110,14 @@ engine — it closes most real cases without new infrastructure or a sandbox.
   in `[policy.tools].names` by a `glob:` / `regex:` prefix (bare = exact);
   matching is anchored to the whole name and case-sensitive, so `search` never
   matches `research`.
-- **Argument predicates:** literal and regex markers are done
-  (`[[policy.tools.deny_arguments]]` `contains` / `matches`). Structured /
-  JSONPath conditions over the *parsed* arguments (e.g. "deny when `args.url`
-  resolves to a private IP") remain, behind the same `ArgumentRule` seam.
+- **Argument predicates:** ✅ literal and regex markers
+  (`[[policy.tools.deny_arguments]]` `contains` / `matches`), and ✅ a `path`
+  scope (a dotted path like `url` / `config.endpoint`) that matches the marker
+  against one field of the *parsed* arguments rather than the whole blob — so
+  `{ tool = "fetch", path = "url", matches = "169\.254" }` screens `args.url`
+  without firing on an unrelated field. Still to come: predicates that go beyond
+  text matching on a field (e.g. "deny when `args.url` *resolves* to a private
+  IP"), behind the same `ArgumentRule` seam — see SSRF hardening in Phase 3.
 - **Result & state rules:** redaction/deny conditions for tool results and
   state mutations.
 - **Per-tool policies:** today the ruleset is flat (one `ToolPolicy` + one

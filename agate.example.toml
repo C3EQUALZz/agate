@@ -76,13 +76,18 @@ names = ["search", "fetch", "glob:fs.*", "regex:db_.*"]
 # Argument-level deny rules: a permitted tool call is still blocked when its
 # arguments match a marker. Each rule sets exactly one of `contains` (a
 # case-insensitive literal) or `matches` (a regex). `tool` scopes the rule to
-# one tool; omit it to apply to any tool. Add as many tables as needed.
+# one tool; omit it to apply to any tool. `path` (a dotted path like `url` or
+# `config.endpoint`) scopes the match to one field of the parsed arguments;
+# omit it to match the whole raw argument string. Add as many tables as needed.
 [[policy.tools.deny_arguments]]
 tool = "search"
 contains = "rm -rf"
 [[policy.tools.deny_arguments]]
-# Regex: block any tool whose arguments point at the cloud metadata IP.
-matches = "169\\.254\\.169\\.254"
+# Regex on a single field: block fetch when its `url` argument points at the
+# cloud metadata IP, without firing on the same text in an unrelated field.
+tool = "fetch"
+path = "url"
+matches = "^https?://169\\.254\\.169\\.254"
 
 [policy]
 # Literal markers redacted from emitted assistant text (case-insensitive).
