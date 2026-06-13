@@ -27,17 +27,20 @@ pub mod middlewares;
 const SKIP_HEADERS: [&str; 4] = ["host", "content-length", "connection", "transfer-encoding"];
 
 /// Build the proxy router, applying the ingress guards from `config`:
-/// a request body-size limit, an optional API-key check, and a concurrency cap
-/// on the proxied route. The `/healthz` liveness probe is added *after* the
-/// layers, so probes are never body-limited, authenticated, or capped.
+/// a request body-size limit, an optional API-key check, a concurrency cap, and
+/// a per-client-IP request-rate limit on the proxied route. The `/healthz`
+/// liveness probe is added *after* the layers, so probes are never body-limited,
+/// authenticated, capped, or rate-limited.
 pub fn router(config: &ProxyConfig) -> Router {
     let mut run = Router::new()
         .route("/", post(proxy_run))
         .layer(DefaultBodyLimit::max(config.max_body_bytes));
 
     run = middlewares::api_key::apply(run, &config.api_keys);
-    // Outermost guard: shed over-capacity requests before any per-request work.
     run = middlewares::concurrency::apply(run, config.max_concurrent_requests);
+    // Outermost guard: shed floods by source IP before any per-request work.
+    run =
+        middlewares::rate_limit::apply(run, config.rate_limit_per_second, config.rate_limit_burst);
 
     run.route("/healthz", get(healthz))
 }

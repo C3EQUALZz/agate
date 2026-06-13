@@ -85,7 +85,11 @@ async fn main() {
         }
     });
 
-    let make_service = server.app.into_make_service();
+    // Carry the connection's peer address into each request so the per-IP rate
+    // limiter can key on it (axum-server populates ConnectInfo on both paths).
+    let make_service = server
+        .app
+        .into_make_service_with_connect_info::<SocketAddr>();
     if let Some(rustls) = tls_acceptor {
         info!(%bind_addr, "agate-server listening (TLS)");
         axum_server::bind_rustls(addr, rustls)

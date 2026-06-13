@@ -69,6 +69,10 @@ impl AppConfig {
                 max_events: self.proxy.max_response_events,
                 max_bytes: self.proxy.max_response_bytes,
             })
+            .with_rate_limit(
+                self.proxy.rate_limit_per_second,
+                self.proxy.rate_limit_burst,
+            )
     }
 
     /// How the response leg treats a recognized-but-malformed event.
@@ -202,6 +206,8 @@ mod tests {
                 api_key: Some("  k  ".to_owned()),
                 api_keys: vec!["k2".to_owned(), "  ".to_owned()],
                 max_concurrent_requests: 64,
+                rate_limit_per_second: 10,
+                rate_limit_burst: 20,
                 ..ProxySection::default()
             },
             ..AppConfig::default()
@@ -216,6 +222,8 @@ mod tests {
         // `api_key` shorthand + `api_keys` array merged, trimmed, blanks dropped.
         assert_eq!(proxy.api_keys, vec!["k".to_owned(), "k2".to_owned()]);
         assert_eq!(proxy.max_concurrent_requests, 64);
+        assert_eq!(proxy.rate_limit_per_second, 10);
+        assert_eq!(proxy.rate_limit_burst, 20);
     }
 
     #[test]

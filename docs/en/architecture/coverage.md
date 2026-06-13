@@ -42,9 +42,12 @@ gaps live in the repository at
 - **Authentication** is off by default (open proxy). Set `[proxy].api_keys`, or
   front Agate with a gateway. See [Configuration](../getting-started/configuration.md).
 - **DoS budgets** today: a global concurrency cap, a request body-size limit,
-  connect/read timeouts, and a **per-run response budget** (`max_response_events`
-  / `max_response_bytes`) that cuts off a runaway agent. There is still **no**
-  per-key/per-session **rate** limit (requests per unit time).
+  connect/read timeouts, a **per-run response budget** (`max_response_events`
+  / `max_response_bytes`) that cuts off a runaway agent, and an optional
+  **per-client-IP request-rate limit** (`rate_limit_per_second` /
+  `rate_limit_burst`, off by default) that sheds floods with `429`. The IP is
+  the connection peer, so it is only meaningful where Agate sees the real
+  client.
 - **Audit completeness:** records are queued to a bounded outbox; under
   sustained backpressure a record can be dropped (logged + counted) without
   stalling the data plane — so a saturated outbox can leave a gap in the
@@ -56,7 +59,7 @@ gaps live in the repository at
 
 Closing the remaining gaps is sequenced in
 [`security-coverage-roadmap.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/security-coverage-roadmap.md):
-per-key/session rate limiting, RFC 6902 JSON-Patch validation, SSRF DNS
+RFC 6902 JSON-Patch validation, SSRF DNS
 resolution, and a richer (regex/glob, structured argument predicates) TOML
 policy language. (Malformed-event fail-closed, tool-argument deny rules, secret
 redaction of tool results and state, and per-run response budgets are now

@@ -30,6 +30,13 @@ pub struct ProxySection {
     /// Per-run ceiling on response bytes streamed to the client (`0` =
     /// unlimited).
     pub max_response_bytes: usize,
+    /// Sustained per-client-IP request rate, in requests per second (`0` =
+    /// disabled). Floods from one source IP over this are shed with `429`.
+    pub rate_limit_per_second: u32,
+    /// Burst depth for the per-IP rate limit — the largest instantaneous burst
+    /// before the sustained rate applies (`0` falls back to
+    /// `rate_limit_per_second`).
+    pub rate_limit_burst: u32,
 }
 
 impl ProxySection {
@@ -56,6 +63,12 @@ impl ProxySection {
         if self.max_concurrent_requests == 0 {
             return Err("proxy.max_concurrent_requests must be greater than 0".into());
         }
+        // A burst without a rate silently disables the limit (the middleware
+        // short-circuits on a zero rate), which would leave DoS protection off
+        // by surprise — fail fast instead.
+        if self.rate_limit_per_second == 0 && self.rate_limit_burst != 0 {
+            return Err("proxy.rate_limit_burst requires proxy.rate_limit_per_second > 0".into());
+        }
         Ok(())
     }
 }
@@ -75,6 +88,58 @@ impl Default for ProxySection {
             // legitimate long run; `0` disables a limit.
             max_response_events: 100_000,
             max_response_bytes: 64 << 20,
+            // Disabled by default: the peer IP is only meaningful when Agate
+            // sees the real client (not behind an unconfigured load balancer),
+            // so opt in once the deployment's ingress is understood.
+            rate_limit_per_second: 0,
+            rate_limit_burst: 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProxySection;
+
+    fn valid() -> ProxySection {
+        ProxySection {
+            agent_endpoint: "http://agent/run".to_owned(),
+            ..ProxySection::default()
+        }
+    }
+
+    #[test]
+    fn a_burst_without_a_rate_is_rejected() {
+        let section = ProxySection {
+            rate_limit_per_second: 0,
+            rate_limit_burst: 20,
+            ..valid()
+        };
+        let error = section
+            .validate()
+            .expect_err("a burst with no rate is invalid");
+        assert!(error.contains("rate_limit_burst"), "{error}");
+    }
+
+    #[test]
+    fn a_rate_with_or_without_a_burst_is_accepted() {
+        let with_burst = ProxySection {
+            rate_limit_per_second: 10,
+            rate_limit_burst: 20,
+            ..valid()
+        };
+        assert!(with_burst.validate().is_ok());
+
+        let rate_only = ProxySection {
+            rate_limit_per_second: 10,
+            rate_limit_burst: 0,
+            ..valid()
+        };
+        assert!(rate_only.validate().is_ok());
+    }
+
+    #[test]
+    fn both_zero_disables_the_limit_and_is_valid() {
+        assert!(valid().validate().is_ok());
     }
 }

@@ -28,6 +28,13 @@ max_concurrent_requests = 256
 # limit. Defaults are generous (catch runaways, not legitimate long runs).
 max_response_events = 100000
 max_response_bytes = 67108864
+# Per-client-IP request-rate limit on the proxied route. A single source IP over
+# `rate_limit_per_second` (sustained) / `rate_limit_burst` (instantaneous) is
+# shed with 429 Too Many Requests + a Retry-After hint. 0 = disabled (the
+# default). The client IP is the connection peer, so enable this only where
+# Agate sees the real client — behind a load balancer it is the balancer's IP.
+rate_limit_per_second = 0
+rate_limit_burst = 0
 # API-key authentication on the `X-API-Key` header. A request is accepted if it
 # matches ANY accepted key; with none set the proxy is open (only sensible
 # behind another gateway).
