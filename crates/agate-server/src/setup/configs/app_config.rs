@@ -1,10 +1,9 @@
-use std::collections::BTreeSet;
 use std::time::Duration;
 
 use agate_audit::infrastructure::persistence::postgres::PoolConfig;
 use agate_audit::setup::configs::{PostgresConfig, StorageConfig};
 use agate_policy::domain::common::errors::DomainError;
-use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolName, ToolPolicy};
+use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolMatcher, ToolPolicy};
 use agate_proxy::application::inspection::{MalformedEventMode, ResponseBudget};
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
@@ -116,11 +115,11 @@ impl AppConfig {
 
     /// Build the policy ruleset, failing on any invalid tool name or pattern.
     pub fn policy_ruleset(&self) -> Result<PolicyRuleset, DomainError> {
-        let names = || tool_set(&self.policy.tools.names);
+        let matchers = || tool_matchers(&self.policy.tools.names);
         let tools = match self.policy.tools.mode {
             ToolMode::AllowAll => ToolPolicy::AllowAll,
-            ToolMode::Allowlist => ToolPolicy::Allowlist(names()?),
-            ToolMode::Denylist => ToolPolicy::Denylist(names()?),
+            ToolMode::Allowlist => ToolPolicy::Allowlist(matchers()?),
+            ToolMode::Denylist => ToolPolicy::Denylist(matchers()?),
         };
         let argument_rules = self
             .policy
@@ -159,11 +158,26 @@ impl AppConfig {
     }
 }
 
-fn tool_set(names: &[String]) -> Result<BTreeSet<ToolName>, DomainError> {
+/// Build the tool matchers from the configured entries. An entry is classified
+/// by an optional prefix: `glob:<pat>` (shell-style `*`/`?`), `regex:<expr>`
+/// (anchored to the whole name), or a bare name (an exact match — the default,
+/// so existing configs are unchanged).
+fn tool_matchers(names: &[String]) -> Result<Vec<ToolMatcher>, DomainError> {
     names
         .iter()
-        .map(|name| ToolName::new(name.clone()))
+        .map(|entry| parse_tool_matcher(entry))
         .collect()
+}
+
+fn parse_tool_matcher(entry: &str) -> Result<ToolMatcher, DomainError> {
+    let entry = entry.trim();
+    if let Some(glob) = entry.strip_prefix("glob:") {
+        ToolMatcher::glob(glob)
+    } else if let Some(regex) = entry.strip_prefix("regex:") {
+        ToolMatcher::regex(regex)
+    } else {
+        ToolMatcher::exact(entry)
+    }
 }
 
 #[cfg(test)]
@@ -361,6 +375,32 @@ mod tests {
     #[test]
     fn a_blank_tool_name_is_rejected() {
         let config = with_policy(ToolMode::Allowlist, &["  "], &[]);
+        assert!(config.policy_ruleset().is_err());
+    }
+
+    #[test]
+    fn tool_entries_are_classified_by_prefix() {
+        // Bare = exact, `glob:` = glob, `regex:` = anchored regex; the resulting
+        // allowlist permits exactly the names each kind should match.
+        let config = with_policy(
+            ToolMode::Allowlist,
+            &["search", "glob:fs.*", "regex:db_.*"],
+            &[],
+        );
+        let ruleset = config.policy_ruleset().expect("valid");
+        let tools = ruleset.tools();
+
+        assert!(tools.permits("search"));
+        assert!(!tools.permits("research")); // exact is anchored
+        assert!(tools.permits("fs.read")); // glob family
+        assert!(tools.permits("db_query")); // regex, anchored
+        assert!(!tools.permits("mydb_query"));
+        assert!(!tools.permits("rm"));
+    }
+
+    #[test]
+    fn an_invalid_tool_regex_is_rejected() {
+        let config = with_policy(ToolMode::Allowlist, &["regex:(unclosed"], &[]);
         assert!(config.policy_ruleset().is_err());
     }
 

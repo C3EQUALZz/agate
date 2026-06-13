@@ -76,7 +76,7 @@ nothing is redacted**.
 | Key | Format | Meaning |
 | --- | --- | --- |
 | `[policy.tools].mode` | `allow-all` \| `allowlist` \| `denylist` | How tool calls are authorized. Default `allow-all`. |
-| `[policy.tools].names` | array of tool names | Tools governed by `mode` (ignored when `allow-all`). |
+| `[policy.tools].names` | array of tool matchers | Tools governed by `mode` (ignored when `allow-all`). Each entry is matched against the **whole** tool name, case-sensitively, by kind: a bare name is **exact** (`search`); `glob:` is shell-style `*`/`?` (`glob:fs.*`); `regex:` is a regex anchored to the whole name (`regex:db_.*`). So `search` never matches `research`, and `glob:fs.*` covers every `fs.` tool. An invalid glob/regex aborts startup. |
 | `[[policy.tools.deny_arguments]]` | tables of `{ tool?, contains \| matches }` | Argument-level deny rules: a permitted tool call is **blocked** when its arguments match. Each rule sets exactly one of `contains` (case-insensitive literal) or `matches` (regex). `tool` scopes the rule to one tool; omit it for any tool. |
 | `[policy].redact` | array of literal markers | Substrings masked (case-insensitive) in emitted text and tool results before they reach the client. |
 | `[policy].redact_regex` | array of regex patterns | Regex markers masked in emitted text and tool results (full `regex` syntax; prefix `(?i)` for case-insensitivity). An invalid expression aborts startup. |
@@ -195,7 +195,7 @@ connect_backoff_secs = 1
 
 [policy.tools]
 mode = "allowlist"
-names = ["search", "fetch"]
+names = ["search", "fetch", "glob:fs.*", "regex:db_.*"]
 
 [[policy.tools.deny_arguments]]
 tool = "search"

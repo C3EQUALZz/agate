@@ -103,10 +103,13 @@ architecture, which is the payoff of the hexagonal layering.
 Chosen direction: **extend the static TOML policy language** before any plugin
 engine — it closes most real cases without new infrastructure or a sandbox.
 
-- **Patterns:** ✅ a shared `Pattern` value object (literal | regex) now backs
-  both secret redaction (`[policy].redact` + `[policy].redact_regex`) and
-  argument deny rules (`contains` | `matches`); literal stays the default. Still
-  to come: regex / glob for **tool names** (`ToolName`).
+- **Patterns:** ✅ a shared `Pattern` value object (literal | regex) backs both
+  secret redaction (`[policy].redact` + `[policy].redact_regex`) and argument
+  deny rules (`contains` | `matches`); literal stays the default. ✅ **Tool
+  names** now match by `ToolMatcher` (exact | glob | regex), selected per entry
+  in `[policy.tools].names` by a `glob:` / `regex:` prefix (bare = exact);
+  matching is anchored to the whole name and case-sensitive, so `search` never
+  matches `research`.
 - **Argument predicates:** literal and regex markers are done
   (`[[policy.tools.deny_arguments]]` `contains` / `matches`). Structured /
   JSONPath conditions over the *parsed* arguments (e.g. "deny when `args.url`

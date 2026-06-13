@@ -76,10 +76,8 @@ fn redacted_verdict(event: &AgentEvent, text: String) -> Verdict<AgentEvent> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use agate_policy::application::PolicyService;
-    use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolName, ToolPolicy};
+    use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolMatcher, ToolPolicy};
     use agate_proxy::application::common::ports::PolicyPort;
     use agate_proxy::application::inspection::InspectionContext;
     use agate_proxy::domain::inspection::{
@@ -98,11 +96,11 @@ mod tests {
     }
 
     fn allowlist(names: &[&str]) -> ToolPolicy {
-        let set: BTreeSet<ToolName> = names
+        let matchers = names
             .iter()
-            .map(|name| ToolName::new(*name).expect("valid tool"))
+            .map(|name| ToolMatcher::exact(*name).expect("valid tool"))
             .collect();
-        ToolPolicy::Allowlist(set)
+        ToolPolicy::Allowlist(matchers)
     }
 
     fn tool(name: &str) -> AgentEvent {
