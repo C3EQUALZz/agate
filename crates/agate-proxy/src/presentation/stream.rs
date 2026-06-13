@@ -9,9 +9,47 @@ use crate::application::common::ports::{AgentResponseStream, InspectionOutcome, 
 use crate::application::inspection::{
     InspectionAction, InspectionContext, InspectionSettings, Inspector, MalformedEventMode,
 };
-use crate::domain::inspection::Run;
-use crate::infrastructure::ag_ui::{to_event, to_fragment};
+use crate::domain::inspection::{Fragment, Run};
+use crate::infrastructure::ag_ui::{AgUiError, to_event, to_fragment};
 use crate::infrastructure::sse::{SseDecoder, encode};
+
+/// What one decoded SSE event resolves to before inspection — the classification
+/// step kept separate from the streaming loop so it can be reasoned about (and
+/// unit-tested) on its own.
+enum Decoded {
+    /// A domain fragment to run through the [`Inspector`].
+    Inspect(Fragment),
+    /// Nothing the proxy inspects (framing marker, unknown type, non-object,
+    /// non-JSON): forward the raw frame unchanged.
+    PassThrough,
+    /// A recognized but malformed event (known `type`, missing/blank field) the
+    /// policy can't see — fail closed by dropping it.
+    MalformedDrop(AgUiError),
+    /// Same, but the configured mode ends the run instead of dropping.
+    MalformedTerminate(AgUiError),
+}
+
+/// Classify one event's `data` payload, applying the malformed-event `mode` to a
+/// recognized-but-malformed event (one a content policy could otherwise be
+/// bypassed by). Pure: no logging, metrics, or I/O.
+fn decode(data: &str, mode: MalformedEventMode) -> Decoded {
+    let Ok(value) = serde_json::from_str::<Value>(data) else {
+        // Not JSON → not inspectable.
+        return Decoded::PassThrough;
+    };
+    match to_fragment(&value) {
+        Ok(Some(fragment)) => Decoded::Inspect(fragment),
+        // Recognized but malformed: it must not slip past the policy, so fail
+        // closed per the configured mode.
+        Err(error) if error.is_malformed_known() => match mode {
+            MalformedEventMode::Forward => Decoded::PassThrough,
+            MalformedEventMode::Drop => Decoded::MalformedDrop(error),
+            MalformedEventMode::Terminate => Decoded::MalformedTerminate(error),
+        },
+        // Not an object / no `type` / unknown type → nothing to inspect.
+        Ok(None) | Err(_) => Decoded::PassThrough,
+    }
+}
 
 /// Stream the agent's SSE response through inspection, yielding the bytes to
 /// forward to the client.
@@ -68,43 +106,29 @@ pub fn inspect_stream(
                     return;
                 }
 
-                let fragment = match serde_json::from_str::<Value>(&event.data) {
-                    Ok(value) => match to_fragment(&value) {
-                        Ok(fragment) => fragment,
-                        // Recognized event type, but a required field is missing
-                        // or blank: it cannot be inspected, so it must not slip
-                        // past the policy. Fail closed per the configured mode.
-                        Err(error) if error.is_malformed_known() => match settings.malformed_mode {
-                            MalformedEventMode::Forward => None,
-                            MalformedEventMode::Drop => {
-                                warn!(run = %context.run, %error, "dropping a malformed known event");
-                                metrics.record_inspected(InspectionOutcome::Deny);
-                                continue;
-                            }
-                            MalformedEventMode::Terminate => {
-                                warn!(run = %context.run, %error, "terminating run on a malformed known event");
-                                metrics.record_inspected(InspectionOutcome::Terminate);
-                                pending.clear();
-                                yield Bytes::from(run_error("malformed protocol event"));
-                                return;
-                            }
-                        },
-                        // Not an object / no `type` → not an AG-UI event we
-                        // inspect; forward like any uninspectable frame.
-                        Err(_) => None,
-                    },
-                    // Not JSON → not inspectable.
-                    Err(_) => None,
-                };
-
-                let Some(fragment) = fragment else {
-                    // not inspectable: forward (preserving order during a hold)
-                    if pending.is_empty() {
-                        yield Bytes::from(event.raw);
-                    } else {
-                        pending.push(event.raw);
+                let fragment = match decode(&event.data, settings.malformed_mode) {
+                    Decoded::Inspect(fragment) => fragment,
+                    Decoded::PassThrough => {
+                        // not inspectable: forward (preserving order during a hold)
+                        if pending.is_empty() {
+                            yield Bytes::from(event.raw);
+                        } else {
+                            pending.push(event.raw);
+                        }
+                        continue;
                     }
-                    continue;
+                    Decoded::MalformedDrop(error) => {
+                        warn!(run = %context.run, %error, "dropping a malformed known event");
+                        metrics.record_inspected(InspectionOutcome::Deny);
+                        continue;
+                    }
+                    Decoded::MalformedTerminate(error) => {
+                        warn!(run = %context.run, %error, "terminating run on a malformed known event");
+                        metrics.record_inspected(InspectionOutcome::Terminate);
+                        pending.clear();
+                        yield Bytes::from(run_error("malformed protocol event"));
+                        return;
+                    }
                 };
 
                 match inspector.inspect(&mut run, &context, fragment).await {
@@ -244,6 +268,49 @@ mod tests {
 
     fn metrics() -> Arc<dyn ProxyMetrics> {
         Arc::new(CountingMetrics::default())
+    }
+
+    #[test]
+    fn decode_classifies_an_inspectable_event() {
+        let decoded = decode("{\"type\":\"RUN_STARTED\"}", MalformedEventMode::Terminate);
+        assert!(matches!(decoded, Decoded::Inspect(_)));
+    }
+
+    #[test]
+    fn decode_passes_through_unknown_non_object_and_non_json() {
+        assert!(matches!(
+            decode(
+                "{\"type\":\"SOME_FUTURE_EVENT\"}",
+                MalformedEventMode::Terminate
+            ),
+            Decoded::PassThrough
+        ));
+        assert!(matches!(
+            decode("[1,2,3]", MalformedEventMode::Terminate),
+            Decoded::PassThrough
+        ));
+        assert!(matches!(
+            decode("not json", MalformedEventMode::Terminate),
+            Decoded::PassThrough
+        ));
+    }
+
+    #[test]
+    fn decode_applies_the_malformed_mode_to_a_recognized_but_malformed_event() {
+        // TOOL_CALL_START with no toolCallName — recognized but malformed.
+        let data = "{\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c1\"}";
+        assert!(matches!(
+            decode(data, MalformedEventMode::Forward),
+            Decoded::PassThrough
+        ));
+        assert!(matches!(
+            decode(data, MalformedEventMode::Drop),
+            Decoded::MalformedDrop(_)
+        ));
+        assert!(matches!(
+            decode(data, MalformedEventMode::Terminate),
+            Decoded::MalformedTerminate(_)
+        ));
     }
 
     /// Run `inspect_stream` with the default budgets/context, a fail-closed
