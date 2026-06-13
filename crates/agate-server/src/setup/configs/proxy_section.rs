@@ -30,6 +30,13 @@ pub struct ProxySection {
     /// Per-run ceiling on response bytes streamed to the client (`0` =
     /// unlimited).
     pub max_response_bytes: usize,
+    /// Sustained per-client-IP request rate, in requests per second (`0` =
+    /// disabled). Floods from one source IP over this are shed with `429`.
+    pub rate_limit_per_second: u32,
+    /// Burst depth for the per-IP rate limit — the largest instantaneous burst
+    /// before the sustained rate applies (`0` falls back to
+    /// `rate_limit_per_second`).
+    pub rate_limit_burst: u32,
 }
 
 impl ProxySection {
@@ -75,6 +82,11 @@ impl Default for ProxySection {
             // legitimate long run; `0` disables a limit.
             max_response_events: 100_000,
             max_response_bytes: 64 << 20,
+            // Disabled by default: the peer IP is only meaningful when Agate
+            // sees the real client (not behind an unconfigured load balancer),
+            // so opt in once the deployment's ingress is understood.
+            rate_limit_per_second: 0,
+            rate_limit_burst: 0,
         }
     }
 }

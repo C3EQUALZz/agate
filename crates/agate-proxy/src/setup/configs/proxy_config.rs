@@ -43,6 +43,12 @@ pub struct ProxyConfig {
     /// Per-run ceiling on the response stream (events / bytes); defaults to
     /// unlimited, the composition root applies the configured limits.
     pub response_budget: ResponseBudget,
+    /// Sustained per-client-IP request rate (requests per second); `0` disables
+    /// rate limiting.
+    pub rate_limit_per_second: u32,
+    /// Burst depth for the per-IP rate limit (largest instantaneous burst); `0`
+    /// falls back to [`rate_limit_per_second`](Self::rate_limit_per_second).
+    pub rate_limit_burst: u32,
 }
 
 impl ProxyConfig {
@@ -59,6 +65,8 @@ impl ProxyConfig {
             max_concurrent_requests: DEFAULT_MAX_CONCURRENT_REQUESTS,
             malformed_event_mode: MalformedEventMode::default(),
             response_budget: ResponseBudget::default(),
+            rate_limit_per_second: 0,
+            rate_limit_burst: 0,
         }
     }
 
@@ -92,6 +100,15 @@ impl ProxyConfig {
     #[must_use]
     pub fn with_concurrency_limit(mut self, max_concurrent_requests: usize) -> Self {
         self.max_concurrent_requests = max_concurrent_requests;
+        self
+    }
+
+    /// Override the per-client-IP request-rate limit (`per_second` = 0 disables
+    /// it; `burst` = 0 falls back to `per_second`).
+    #[must_use]
+    pub fn with_rate_limit(mut self, per_second: u32, burst: u32) -> Self {
+        self.rate_limit_per_second = per_second;
+        self.rate_limit_burst = burst;
         self
     }
 

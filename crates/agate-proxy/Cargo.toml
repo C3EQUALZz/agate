@@ -17,6 +17,7 @@ async-stream = { workspace = true }
 tracing = { workspace = true }
 metrics = { workspace = true }
 axum = { workspace = true }
+governor = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 froodi = { version = "1.0.0-beta.18", features = ["async", "axum"] }
 
