@@ -1,5 +1,6 @@
 use serde_json::Value;
 
+use super::content_match::ContentMatch;
 use super::json_path::JsonPath;
 use super::pattern::Pattern;
 use super::tool_name::ToolName;
@@ -14,15 +15,12 @@ use crate::domain::common::values::ValueObject;
 /// (absent = the whole raw argument string): a path rule parses the arguments
 /// as JSON and matches the marker against the value at that path, so
 /// `{ path = "url", matches = "169\.254" }` screens `args.url` without firing on
-/// an unrelated field.
+/// an unrelated field. A tool call always has a name, so the scope behaves like
+/// a plain equality check.
 ///
 /// [`ToolPolicy`]: super::ToolPolicy
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ArgumentRule {
-    tool: Option<ToolName>,
-    path: Option<JsonPath>,
-    marker: Pattern,
-}
+pub struct ArgumentRule(ContentMatch);
 
 impl ArgumentRule {
     /// Build a whole-arguments rule. `tool` scopes it to a single tool
@@ -30,61 +28,40 @@ impl ArgumentRule {
     /// against the raw argument string.
     #[must_use]
     pub fn new(tool: Option<ToolName>, marker: Pattern) -> Self {
-        Self {
-            tool,
-            path: None,
-            marker,
-        }
+        Self(ContentMatch::new(tool, marker))
     }
 
     /// Scope the match to one field of the parsed arguments. The marker is then
     /// matched against the value at `path` rather than the whole argument blob.
     #[must_use]
-    pub fn with_path(mut self, path: JsonPath) -> Self {
-        self.path = Some(path);
-        self
+    pub fn with_path(self, path: JsonPath) -> Self {
+        Self(self.0.with_path(path))
     }
 
-    /// Whether this rule fires for a call to `name` with `arguments`: the tool
-    /// scope matches (or is unscoped) **and** the marker occurs in the targeted
-    /// text — the value at the rule's path, or the whole argument string when
-    /// the rule has no path.
-    ///
-    /// `parsed` is the arguments deserialized as JSON, supplied by the caller so
-    /// a tool call is parsed once and shared across rules; `None` means the
-    /// arguments were not valid JSON. A path rule on absent/unparsable arguments
-    /// does not fire — there is nothing at that path to match.
+    /// Whether this rule fires for a call to `name` with `arguments`. `parsed`
+    /// is the arguments deserialized as JSON, supplied by the caller so a tool
+    /// call is parsed once across rules; `None` means they were not valid JSON.
     #[must_use]
     pub fn matches(&self, name: &str, arguments: &str, parsed: Option<&Value>) -> bool {
-        if let Some(tool) = &self.tool
-            && tool.as_str() != name
-        {
-            return false;
-        }
-        match &self.path {
-            None => self.marker.matches(arguments),
-            Some(path) => parsed
-                .and_then(|value| path.get_text(value))
-                .is_some_and(|text| self.marker.matches(&text)),
-        }
+        self.0.matches(Some(name), arguments, parsed)
     }
 
     /// The tool this rule is scoped to, if any.
     #[must_use]
     pub fn tool(&self) -> Option<&str> {
-        self.tool.as_ref().map(ToolName::as_str)
+        self.0.tool()
     }
 
     /// The argument path this rule is scoped to, if any.
     #[must_use]
     pub fn path(&self) -> Option<&JsonPath> {
-        self.path.as_ref()
+        self.0.path()
     }
 
     /// The forbidden-content matcher this rule fires on.
     #[must_use]
     pub fn marker(&self) -> &Pattern {
-        &self.marker
+        self.0.marker()
     }
 }
 
@@ -129,20 +106,6 @@ mod tests {
     }
 
     #[test]
-    fn a_regex_marker_matches_structured_arguments() {
-        let rule = ArgumentRule::new(
-            None,
-            Pattern::regex(r#""url"\s*:\s*"https?://169\.254"#).expect("valid"),
-        );
-        assert!(fires(
-            &rule,
-            "fetch",
-            r#"{"url":"http://169.254.169.254/"}"#
-        ));
-        assert!(!fires(&rule, "fetch", r#"{"url":"https://example.com"}"#));
-    }
-
-    #[test]
     fn a_path_rule_matches_only_the_targeted_field() {
         let rule = ArgumentRule::new(None, Pattern::regex(r"^https?://169\.254").expect("valid"))
             .with_path(path("url"));
@@ -161,30 +124,9 @@ mod tests {
     }
 
     #[test]
-    fn a_path_rule_on_a_nested_field_resolves_the_path() {
-        let rule = ArgumentRule::new(None, literal("evil")).with_path(path("config.endpoint"));
-        assert!(fires(
-            &rule,
-            "fetch",
-            r#"{"config":{"endpoint":"evil.example"}}"#
-        ));
-        assert!(!fires(
-            &rule,
-            "fetch",
-            r#"{"config":{"endpoint":"ok.example"}}"#
-        ));
-    }
-
-    #[test]
     fn a_path_rule_does_not_fire_on_missing_path_or_non_json() {
         let rule = ArgumentRule::new(None, literal("x")).with_path(path("url"));
         assert!(!fires(&rule, "fetch", r#"{"other":"x"}"#)); // path absent
         assert!(!fires(&rule, "fetch", "not json at all")); // unparsable
-    }
-
-    #[test]
-    fn a_path_rule_can_match_a_non_string_node_by_its_json() {
-        let rule = ArgumentRule::new(None, literal("true")).with_path(path("danger"));
-        assert!(fires(&rule, "tool", r#"{"danger":true}"#));
     }
 }
