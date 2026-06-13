@@ -1,3 +1,5 @@
+use std::hash::{Hash, Hasher};
+
 use serde_json::Value;
 
 use crate::domain::common::errors::DomainError;
@@ -9,19 +11,22 @@ use crate::domain::common::values::ValueObject;
 /// without a rule also firing on an unrelated field that happens to contain the
 /// same text.
 ///
-/// Object keys only (no array indexing yet); a blank path or a blank segment is
-/// rejected at construction.
+/// Object keys only (no array indexing); a blank path, a blank segment, or an
+/// index-style segment (`items[0]`) is rejected at construction so a path that
+/// could never match array-shaped JSON can't silently weaken a deny rule.
 ///
 /// [`ArgumentRule`]: super::ArgumentRule
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 pub struct JsonPath {
     segments: Vec<String>,
-    /// The original dotted text, kept for display and round-tripping.
+    /// The original dotted text, kept for display only — *not* part of identity
+    /// (`a.b` and `a . b` parse to the same segments and must compare equal).
     source: String,
 }
 
 impl JsonPath {
-    /// Parse a dotted path, rejecting a blank path or any blank segment (`a..b`).
+    /// Parse a dotted path, rejecting a blank path, a blank segment (`a..b`,
+    /// `a.`), or an index-style segment (`items[0]`).
     pub fn parse(source: impl Into<String>) -> Result<Self, DomainError> {
         let source = source.into();
         let trimmed = source.trim();
@@ -32,6 +37,12 @@ impl JsonPath {
         if segments.iter().any(String::is_empty) {
             return Err(DomainError::Field(format!(
                 "argument path '{trimmed}' has an empty segment"
+            )));
+        }
+        if segments.iter().any(|s| s.contains('[') || s.contains(']')) {
+            return Err(DomainError::Field(format!(
+                "argument path '{trimmed}' uses array indexing, which is not supported \
+                 (object keys only)"
             )));
         }
         Ok(Self {
@@ -57,6 +68,22 @@ impl JsonPath {
     }
 }
 
+// Identity is the resolved segments, not the author's source text: `a.b` and
+// `a . b` denote the same path and must compare (and hash) equal.
+impl PartialEq for JsonPath {
+    fn eq(&self, other: &Self) -> bool {
+        self.segments == other.segments
+    }
+}
+
+impl Eq for JsonPath {}
+
+impl Hash for JsonPath {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.segments.hash(state);
+    }
+}
+
 impl ValueObject for JsonPath {}
 
 #[cfg(test)]
@@ -70,6 +97,22 @@ mod tests {
         assert!(JsonPath::parse("   ").is_err());
         assert!(JsonPath::parse("a..b").is_err());
         assert!(JsonPath::parse(".a").is_err());
+        assert!(JsonPath::parse("a.").is_err()); // trailing dot
+    }
+
+    #[test]
+    fn an_index_style_segment_is_rejected() {
+        assert!(JsonPath::parse("items[0]").is_err());
+        assert!(JsonPath::parse("a.b[1].c").is_err());
+    }
+
+    #[test]
+    fn identity_ignores_surrounding_whitespace_in_the_source() {
+        // Same segments, different source spelling → equal value objects.
+        assert_eq!(
+            JsonPath::parse("a.b").unwrap(),
+            JsonPath::parse("a . b").unwrap()
+        );
     }
 
     #[test]

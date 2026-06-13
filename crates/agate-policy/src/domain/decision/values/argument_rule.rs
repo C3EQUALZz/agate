@@ -50,10 +50,12 @@ impl ArgumentRule {
     /// text — the value at the rule's path, or the whole argument string when
     /// the rule has no path.
     ///
-    /// A path rule on arguments that are not valid JSON, or whose path is
-    /// absent, does not fire: there is nothing at that path to match.
+    /// `parsed` is the arguments deserialized as JSON, supplied by the caller so
+    /// a tool call is parsed once and shared across rules; `None` means the
+    /// arguments were not valid JSON. A path rule on absent/unparsable arguments
+    /// does not fire — there is nothing at that path to match.
     #[must_use]
-    pub fn matches(&self, name: &str, arguments: &str) -> bool {
+    pub fn matches(&self, name: &str, arguments: &str, parsed: Option<&Value>) -> bool {
         if let Some(tool) = &self.tool
             && tool.as_str() != name
         {
@@ -61,12 +63,9 @@ impl ArgumentRule {
         }
         match &self.path {
             None => self.marker.matches(arguments),
-            Some(path) => match serde_json::from_str::<Value>(arguments) {
-                Ok(value) => path
-                    .get(&value)
-                    .is_some_and(|node| self.marker.matches(&node_text(node))),
-                Err(_) => false,
-            },
+            Some(path) => parsed
+                .and_then(|value| path.get(value))
+                .is_some_and(|node| self.marker.matches(&node_text(node))),
         }
     }
 
@@ -103,6 +102,8 @@ fn node_text(node: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::Value;
+
     use super::{ArgumentRule, JsonPath, Pattern, ToolName};
 
     fn literal(needle: &str) -> Pattern {
@@ -113,12 +114,18 @@ mod tests {
         JsonPath::parse(source).expect("valid path")
     }
 
+    /// Match as the inspector would: parse the arguments once, then check.
+    fn fires(rule: &ArgumentRule, name: &str, arguments: &str) -> bool {
+        let parsed = serde_json::from_str::<Value>(arguments).ok();
+        rule.matches(name, arguments, parsed.as_ref())
+    }
+
     #[test]
     fn an_unscoped_rule_matches_any_tool_by_marker() {
         let rule = ArgumentRule::new(None, literal("rm -rf"));
-        assert!(rule.matches("shell", r#"{"cmd":"rm -rf /"}"#));
-        assert!(rule.matches("exec", "RM -RF everything")); // case-insensitive
-        assert!(!rule.matches("shell", r#"{"cmd":"ls"}"#));
+        assert!(fires(&rule, "shell", r#"{"cmd":"rm -rf /"}"#));
+        assert!(fires(&rule, "exec", "RM -RF everything")); // case-insensitive
+        assert!(!fires(&rule, "shell", r#"{"cmd":"ls"}"#));
     }
 
     #[test]
@@ -127,8 +134,8 @@ mod tests {
             Some(ToolName::new("shell").expect("valid")),
             literal("curl"),
         );
-        assert!(rule.matches("shell", r#"{"cmd":"curl evil"}"#));
-        assert!(!rule.matches("search", r#"{"q":"curl"}"#)); // wrong tool, no match
+        assert!(fires(&rule, "shell", r#"{"cmd":"curl evil"}"#));
+        assert!(!fires(&rule, "search", r#"{"q":"curl"}"#)); // wrong tool, no match
     }
 
     #[test]
@@ -137,8 +144,12 @@ mod tests {
             None,
             Pattern::regex(r#""url"\s*:\s*"https?://169\.254"#).expect("valid"),
         );
-        assert!(rule.matches("fetch", r#"{"url":"http://169.254.169.254/"}"#));
-        assert!(!rule.matches("fetch", r#"{"url":"https://example.com"}"#));
+        assert!(fires(
+            &rule,
+            "fetch",
+            r#"{"url":"http://169.254.169.254/"}"#
+        ));
+        assert!(!fires(&rule, "fetch", r#"{"url":"https://example.com"}"#));
     }
 
     #[test]
@@ -146,9 +157,14 @@ mod tests {
         let rule = ArgumentRule::new(None, Pattern::regex(r"^https?://169\.254").expect("valid"))
             .with_path(path("url"));
         // The marker is anchored at the start of the `url` value.
-        assert!(rule.matches("fetch", r#"{"url":"http://169.254.169.254/"}"#));
+        assert!(fires(
+            &rule,
+            "fetch",
+            r#"{"url":"http://169.254.169.254/"}"#
+        ));
         // Same text in a different field does not fire the path rule.
-        assert!(!rule.matches(
+        assert!(!fires(
+            &rule,
             "fetch",
             r#"{"note":"http://169.254.0.1","url":"https://ok"}"#
         ));
@@ -157,20 +173,28 @@ mod tests {
     #[test]
     fn a_path_rule_on_a_nested_field_resolves_the_path() {
         let rule = ArgumentRule::new(None, literal("evil")).with_path(path("config.endpoint"));
-        assert!(rule.matches("fetch", r#"{"config":{"endpoint":"evil.example"}}"#));
-        assert!(!rule.matches("fetch", r#"{"config":{"endpoint":"ok.example"}}"#));
+        assert!(fires(
+            &rule,
+            "fetch",
+            r#"{"config":{"endpoint":"evil.example"}}"#
+        ));
+        assert!(!fires(
+            &rule,
+            "fetch",
+            r#"{"config":{"endpoint":"ok.example"}}"#
+        ));
     }
 
     #[test]
     fn a_path_rule_does_not_fire_on_missing_path_or_non_json() {
         let rule = ArgumentRule::new(None, literal("x")).with_path(path("url"));
-        assert!(!rule.matches("fetch", r#"{"other":"x"}"#)); // path absent
-        assert!(!rule.matches("fetch", "not json at all")); // unparsable
+        assert!(!fires(&rule, "fetch", r#"{"other":"x"}"#)); // path absent
+        assert!(!fires(&rule, "fetch", "not json at all")); // unparsable
     }
 
     #[test]
     fn a_path_rule_can_match_a_non_string_node_by_its_json() {
         let rule = ArgumentRule::new(None, literal("true")).with_path(path("danger"));
-        assert!(rule.matches("tool", r#"{"danger":true}"#));
+        assert!(fires(&rule, "tool", r#"{"danger":true}"#));
     }
 }
