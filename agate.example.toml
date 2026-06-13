@@ -68,8 +68,10 @@ connect_backoff_secs = 1
 [policy.tools]
 # allow-all | allowlist | denylist
 mode = "allowlist"
-# Tools governed by `mode` (ignored when mode = "allow-all").
-names = ["search", "fetch"]
+# Tools governed by `mode` (ignored when mode = "allow-all"). Each entry matches
+# the whole tool name, case-sensitively: a bare name is exact, `glob:` is
+# shell-style (*/?), `regex:` is a regex anchored to the whole name.
+names = ["search", "fetch", "glob:fs.*", "regex:db_.*"]
 
 # Argument-level deny rules: a permitted tool call is still blocked when its
 # arguments match a marker. Each rule sets exactly one of `contains` (a

@@ -1,10 +1,8 @@
 //! Assert the policy adapter enforces redaction and tool denial through the
 //! full proxy → audit path, observable in the client's stream.
 
-use std::collections::BTreeSet;
-
 use agate_audit::domain::merkle::LeafIndex;
-use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolName, ToolPolicy};
+use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolMatcher, ToolPolicy};
 
 use crate::fixture::{self, spawn};
 
@@ -20,9 +18,7 @@ const SSE: &str = concat!(
 
 /// Permit only `search` (so `rm_rf` is denied) and redact the literal `sk-LEAK`.
 fn ruleset() -> PolicyRuleset {
-    let allowlist: BTreeSet<ToolName> = [ToolName::new("search").expect("valid tool")]
-        .into_iter()
-        .collect();
+    let allowlist = vec![ToolMatcher::exact("search").expect("valid tool")];
     PolicyRuleset::new(
         ToolPolicy::Allowlist(allowlist),
         vec![],

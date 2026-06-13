@@ -1,18 +1,19 @@
-use std::collections::BTreeSet;
-
-use super::tool_name::ToolName;
+use super::tool_matcher::ToolMatcher;
 use crate::domain::common::values::ValueObject;
 
 /// How tool invocations are authorized.
 ///
 /// - `AllowAll` — no tool restriction (the permissive default).
-/// - `Allowlist` — only the listed tools may run; everything else is denied.
-/// - `Denylist` — every tool may run except the listed ones.
+/// - `Allowlist` — only tools matching an entry may run; everything else is denied.
+/// - `Denylist` — every tool may run except those matching an entry.
+///
+/// Each entry is a [`ToolMatcher`] (exact, glob, or regex), so a list can name a
+/// single tool or a whole family (`fs.*`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ToolPolicy {
     AllowAll,
-    Allowlist(BTreeSet<ToolName>),
-    Denylist(BTreeSet<ToolName>),
+    Allowlist(Vec<ToolMatcher>),
+    Denylist(Vec<ToolMatcher>),
 }
 
 impl ToolPolicy {
@@ -21,14 +22,43 @@ impl ToolPolicy {
     pub fn permits(&self, name: &str) -> bool {
         match self {
             ToolPolicy::AllowAll => true,
-            ToolPolicy::Allowlist(set) => contains(set, name),
-            ToolPolicy::Denylist(set) => !contains(set, name),
+            ToolPolicy::Allowlist(matchers) => matches_any(matchers, name),
+            ToolPolicy::Denylist(matchers) => !matches_any(matchers, name),
         }
     }
 }
 
-fn contains(set: &BTreeSet<ToolName>, name: &str) -> bool {
-    set.iter().any(|tool| tool.as_str() == name)
+fn matches_any(matchers: &[ToolMatcher], name: &str) -> bool {
+    matchers.iter().any(|matcher| matcher.matches(name))
 }
 
 impl ValueObject for ToolPolicy {}
+
+#[cfg(test)]
+mod tests {
+    use super::{ToolMatcher, ToolPolicy};
+
+    #[test]
+    fn allow_all_permits_everything() {
+        assert!(ToolPolicy::AllowAll.permits("anything"));
+    }
+
+    #[test]
+    fn an_allowlist_permits_only_matching_tools() {
+        let policy = ToolPolicy::Allowlist(vec![
+            ToolMatcher::exact("search").unwrap(),
+            ToolMatcher::glob("fs.*").unwrap(),
+        ]);
+        assert!(policy.permits("search"));
+        assert!(policy.permits("fs.read"));
+        assert!(!policy.permits("rm"));
+        assert!(!policy.permits("research"));
+    }
+
+    #[test]
+    fn a_denylist_blocks_only_matching_tools() {
+        let policy = ToolPolicy::Denylist(vec![ToolMatcher::glob("fs.*").unwrap()]);
+        assert!(!policy.permits("fs.delete"));
+        assert!(policy.permits("search"));
+    }
+}

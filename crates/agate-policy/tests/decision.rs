@@ -1,19 +1,17 @@
 //! Scenario tests over the policy context's public API: build a ruleset, decide
 //! an action, assert the verdict. Pure and deterministic — no I/O.
 
-use std::collections::BTreeSet;
-
 use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::services::REDACTION_MASK;
 use agate_policy::domain::decision::{
-    ArgumentRule, DenyReason, InspectedAction, Pattern, PolicyDecision, PolicyRuleset, ToolName,
-    ToolPolicy,
+    ArgumentRule, DenyReason, InspectedAction, Pattern, PolicyDecision, PolicyRuleset, ToolMatcher,
+    ToolName, ToolPolicy,
 };
 
-fn tool_names(names: &[&str]) -> BTreeSet<ToolName> {
+fn tool_names(names: &[&str]) -> Vec<ToolMatcher> {
     names
         .iter()
-        .map(|name| ToolName::new(*name).expect("valid tool name"))
+        .map(|name| ToolMatcher::exact(*name).expect("valid tool name"))
         .collect()
 }
 
