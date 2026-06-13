@@ -14,7 +14,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use governor::clock::{Clock, DefaultClock};
 use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
-use tracing::warn;
+use tracing::debug;
 
 /// How often the background task prunes rate-limiter entries for IPs that have
 /// gone quiet, bounding the keyed map so a spray of distinct source IPs cannot
@@ -58,7 +58,9 @@ async fn limit(
                 .wait_time_from(DefaultClock::default().now())
                 .as_secs()
                 .max(1);
-            warn!(%ip, retry_after, "rate limit exceeded; rejecting with 429");
+            // debug, not warn: a flood would otherwise turn throttling into a
+            // secondary DoS through log volume. Rate is a metrics concern.
+            debug!(%ip, retry_after, "rate limit exceeded; rejecting with 429");
             (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(RETRY_AFTER, retry_after.to_string())],

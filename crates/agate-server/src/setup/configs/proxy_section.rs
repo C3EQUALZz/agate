@@ -63,6 +63,12 @@ impl ProxySection {
         if self.max_concurrent_requests == 0 {
             return Err("proxy.max_concurrent_requests must be greater than 0".into());
         }
+        // A burst without a rate silently disables the limit (the middleware
+        // short-circuits on a zero rate), which would leave DoS protection off
+        // by surprise — fail fast instead.
+        if self.rate_limit_per_second == 0 && self.rate_limit_burst != 0 {
+            return Err("proxy.rate_limit_burst requires proxy.rate_limit_per_second > 0".into());
+        }
         Ok(())
     }
 }
@@ -88,5 +94,52 @@ impl Default for ProxySection {
             rate_limit_per_second: 0,
             rate_limit_burst: 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProxySection;
+
+    fn valid() -> ProxySection {
+        ProxySection {
+            agent_endpoint: "http://agent/run".to_owned(),
+            ..ProxySection::default()
+        }
+    }
+
+    #[test]
+    fn a_burst_without_a_rate_is_rejected() {
+        let section = ProxySection {
+            rate_limit_per_second: 0,
+            rate_limit_burst: 20,
+            ..valid()
+        };
+        let error = section
+            .validate()
+            .expect_err("a burst with no rate is invalid");
+        assert!(error.contains("rate_limit_burst"), "{error}");
+    }
+
+    #[test]
+    fn a_rate_with_or_without_a_burst_is_accepted() {
+        let with_burst = ProxySection {
+            rate_limit_per_second: 10,
+            rate_limit_burst: 20,
+            ..valid()
+        };
+        assert!(with_burst.validate().is_ok());
+
+        let rate_only = ProxySection {
+            rate_limit_per_second: 10,
+            rate_limit_burst: 0,
+            ..valid()
+        };
+        assert!(rate_only.validate().is_ok());
+    }
+
+    #[test]
+    fn both_zero_disables_the_limit_and_is_valid() {
+        assert!(valid().validate().is_ok());
     }
 }
