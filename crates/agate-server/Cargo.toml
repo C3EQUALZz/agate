@@ -9,6 +9,8 @@ description = "Composition root: wires the proxy data plane to the audit transpa
 agate-proxy = { workspace = true }
 agate-audit = { workspace = true }
 agate-policy = { workspace = true }
+# For KeyId when wiring the periodic checkpoint issuer.
+agate-crypto = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "signal"] }

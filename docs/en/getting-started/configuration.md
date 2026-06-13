@@ -63,6 +63,15 @@ aborts startup — fail fast on misconfiguration rather than running degraded.
 | `acquire_timeout_secs` | no | `30` | How long to wait for a free pooled connection before erroring. |
 | `connect_max_retries` | no | `10` | Initial-connect retries before startup gives up (`0` = try once). Rides out a database still starting beside Agate (compose/Kubernetes) instead of crashing on the first failed connect. |
 | `connect_backoff_secs` | no | `1` | Base backoff between connect attempts (doubled each retry, capped). |
+| `checkpoint_interval_secs` | no | `0` | How often a background task issues a signed checkpoint (STH) for the log, in seconds (`0` = disabled). The log's own tamper-evidence cadence (like a CT log's STH frequency); an idle log between ticks is signed but not re-anchored. Requires a signing key (see below). |
+| `checkpoint_key_id` | no | `checkpoint-ed25519` | The signing key id the periodic issuer requests; must match the key the store loaded (`AUDIT_CHECKPOINT_KEY_ID`). |
+
+### Checkpoint signing key
+
+The Ed25519 key is supplied **only** through the environment, never the config file:
+
+- **`AUDIT_CHECKPOINT_SEED`** — 32-byte seed as 64 hex chars. Without it, checkpoint signing is disabled (a periodic interval then has nothing to sign).
+- **`AUDIT_CHECKPOINT_KEY_ID`** — optional key id (default `checkpoint-ed25519`); keep it equal to `[audit].checkpoint_key_id`.
 
 The transparency log to append to is pinned by the **`AUDIT_LOG_ID`** environment
 variable (a UUID). If unset, a fresh log is created on startup and its id is
@@ -193,6 +202,8 @@ max_connections = 10
 acquire_timeout_secs = 30
 connect_max_retries = 10
 connect_backoff_secs = 1
+checkpoint_interval_secs = 0   # 0 = disabled; set with AUDIT_CHECKPOINT_SEED
+checkpoint_key_id = "checkpoint-ed25519"
 
 [policy.tools]
 mode = "allowlist"

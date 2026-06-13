@@ -81,6 +81,7 @@ pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer
         ruleset,
         FailMode::Closed,
         Duration::from_secs(5),
+        None,
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

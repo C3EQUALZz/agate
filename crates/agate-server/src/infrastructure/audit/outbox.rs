@@ -6,7 +6,8 @@ use tracing::{debug, error};
 use agate_audit::application::common::ports::AuditMetrics;
 use agate_audit::domain::merkle::LogId;
 
-use super::appender::{AppendError, RecordAppender};
+use super::appender::RecordAppender;
+use super::scope::ScopeError;
 
 /// Drains the audit channel, appending each record to one transparency log.
 ///
@@ -50,11 +51,11 @@ impl AuditOutbox {
         // one drop only the outbox can count.
         match self.appender.append(self.log, record).await {
             Ok(index) => debug!(log = %self.log.0, index = index.0, "appended audit record"),
-            Err(AppendError::ScopeUnavailable(error)) => {
+            Err(ScopeError::Unavailable(error)) => {
                 error!(%error, "audit outbox: cannot open request scope");
                 self.metrics.record_dropped();
             }
-            Err(AppendError::Pipeline(error)) => error!(?error, "audit outbox: append failed"),
+            Err(ScopeError::Pipeline(error)) => error!(?error, "audit outbox: append failed"),
         }
     }
 }
@@ -73,7 +74,7 @@ mod tests {
     use agate_audit::application::errors::AuditError;
     use agate_audit::domain::merkle::{LeafIndex, LogId};
 
-    use super::{AppendError, AuditOutbox, RecordAppender};
+    use super::{AuditOutbox, RecordAppender, ScopeError};
 
     #[derive(Default)]
     struct CountingMetrics {
@@ -109,7 +110,7 @@ mod tests {
 
     #[async_trait]
     impl RecordAppender for FakeAppender {
-        async fn append(&self, log: LogId, record: Vec<u8>) -> Result<LeafIndex, AppendError> {
+        async fn append(&self, log: LogId, record: Vec<u8>) -> Result<LeafIndex, ScopeError> {
             match self.outcome {
                 Outcome::Appended => {
                     let mut appended = self.appended.lock().unwrap();
@@ -117,11 +118,9 @@ mod tests {
                     Ok(LeafIndex(appended.len() as u64 - 1))
                 }
                 Outcome::ScopeUnavailable => {
-                    Err(AppendError::ScopeUnavailable("container closed".into()))
+                    Err(ScopeError::Unavailable("container closed".into()))
                 }
-                Outcome::PipelineFailure => {
-                    Err(AppendError::Pipeline(AuditError::LogNotFound(log)))
-                }
+                Outcome::PipelineFailure => Err(ScopeError::Pipeline(AuditError::LogNotFound(log))),
             }
         }
     }

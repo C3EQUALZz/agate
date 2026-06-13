@@ -72,6 +72,7 @@ async fn main() {
         ruleset,
         config.policy_fail_mode(),
         config.policy_decision_timeout(),
+        config.checkpoint_settings(),
     );
 
     // Drive graceful shutdown through an axum-server Handle: on SIGINT/SIGTERM
@@ -104,6 +105,13 @@ async fn main() {
             .serve(make_service)
             .await
             .expect("serve");
+    }
+
+    // The checkpoint scheduler is a timer loop with no natural end; stop it now
+    // that we're shutting down (an in-flight issue runs in its own transaction,
+    // so aborting between ticks is safe).
+    if let Some(checkpoint) = server.checkpoint {
+        checkpoint.abort();
     }
 
     // `serve` has returned, so the served app — and the audit sink inside it —

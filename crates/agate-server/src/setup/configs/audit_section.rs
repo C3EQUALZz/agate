@@ -16,6 +16,13 @@ pub struct AuditSection {
     pub connect_max_retries: u32,
     /// Base backoff between connect attempts, in seconds (doubled each retry).
     pub connect_backoff_secs: u64,
+    /// How often a signed checkpoint (STH) is issued for the log, in seconds
+    /// (`0` = disabled, the default). Requires a signing key in
+    /// `AUDIT_CHECKPOINT_SEED`; an idle log between ticks is not re-anchored.
+    pub checkpoint_interval_secs: u64,
+    /// The signing key id the periodic issuer asks for — must match the key the
+    /// store loaded (`AUDIT_CHECKPOINT_KEY_ID`, same default).
+    pub checkpoint_key_id: String,
 }
 
 impl AuditSection {
@@ -60,6 +67,10 @@ impl Default for AuditSection {
             acquire_timeout_secs: 30,
             connect_max_retries: 10,
             connect_backoff_secs: 1,
+            // Off by default: periodic checkpoints need a signing key, so opt in
+            // once `AUDIT_CHECKPOINT_SEED` is set.
+            checkpoint_interval_secs: 0,
+            checkpoint_key_id: "checkpoint-ed25519".into(),
         }
     }
 }
