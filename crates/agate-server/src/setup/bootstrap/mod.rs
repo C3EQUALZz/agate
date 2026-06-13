@@ -2,6 +2,7 @@
 
 pub mod appender;
 pub mod checkpoint_issuer;
+pub mod scope;
 pub mod server;
 
 pub use appender::ScopedAppender;

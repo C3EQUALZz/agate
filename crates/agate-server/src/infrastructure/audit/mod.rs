@@ -16,10 +16,12 @@ pub mod issuer;
 pub mod outbox;
 pub mod record;
 pub mod scheduler;
+pub mod scope;
 pub mod sink;
 
-pub use appender::{AppendError, RecordAppender};
-pub use issuer::{CheckpointIssuer, IssueError};
+pub use appender::RecordAppender;
+pub use issuer::CheckpointIssuer;
 pub use outbox::AuditOutbox;
 pub use scheduler::CheckpointScheduler;
+pub use scope::ScopeError;
 pub use sink::AuditLogSink;

@@ -6,7 +6,8 @@ use tracing::{debug, error, info, warn};
 
 use agate_audit::domain::merkle::{LogId, TreeSize};
 
-use super::issuer::{CheckpointIssuer, IssueError};
+use super::issuer::CheckpointIssuer;
+use super::scope::ScopeError;
 
 /// Periodically issues a signed checkpoint (STH) for one log — the log's own
 /// tamper-evidence cadence, the way a transparency log publishes tree heads on a
@@ -52,10 +53,10 @@ impl CheckpointScheduler {
                     }
                     last_size = Some(size);
                 }
-                Err(IssueError::ScopeUnavailable(error)) => {
+                Err(ScopeError::Unavailable(error)) => {
                     warn!(log = %self.log.0, %error, "checkpoint scheduler: cannot open request scope");
                 }
-                Err(IssueError::Pipeline(error)) => {
+                Err(ScopeError::Pipeline(error)) => {
                     error!(log = %self.log.0, ?error, "checkpoint scheduler: issue failed");
                 }
             }
@@ -75,7 +76,8 @@ mod tests {
 
     use agate_audit::domain::merkle::{LogId, SignedTreeHead, TreeSize};
 
-    use super::super::issuer::{CheckpointIssuer, IssueError};
+    use super::super::issuer::CheckpointIssuer;
+    use super::super::scope::ScopeError;
     use super::CheckpointScheduler;
 
     /// Records the `previous_size` of each issue and signals once, so the test
@@ -91,14 +93,12 @@ mod tests {
             &self,
             _log: LogId,
             previous_size: Option<TreeSize>,
-        ) -> Result<SignedTreeHead, IssueError> {
+        ) -> Result<SignedTreeHead, ScopeError> {
             self.calls.lock().unwrap().push(previous_size);
             self.issued.notify_one();
             // The scope is genuinely unavailable in this unit test (no
             // container) — exercise the error path the scheduler tolerates.
-            Err(IssueError::ScopeUnavailable(
-                "no container under test".into(),
-            ))
+            Err(ScopeError::Unavailable("no container under test".into()))
         }
     }
 
