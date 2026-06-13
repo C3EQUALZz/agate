@@ -8,7 +8,7 @@ use agate_audit::application::usecases::issue_checkpoint::IssueCheckpoint;
 use agate_audit::domain::merkle::{LogId, SignedTreeHead, TreeSize};
 use agate_crypto::KeyId;
 
-use super::scope::dispatch_in_scope;
+use super::scope::ScopedDispatcher;
 use crate::infrastructure::audit::{CheckpointIssuer, ScopeError};
 
 /// The composition-root [`CheckpointIssuer`]: issues each checkpoint in its own
@@ -16,8 +16,7 @@ use crate::infrastructure::audit::{CheckpointIssuer, ScopeError};
 /// Knowing the container, the scope lifecycle, and the key id is exactly what
 /// the scheduler must not.
 pub struct ScopedIssuer {
-    container: Container,
-    registry: Arc<Registry<Container>>,
+    dispatcher: ScopedDispatcher,
     key: KeyId,
 }
 
@@ -25,8 +24,7 @@ impl ScopedIssuer {
     #[must_use]
     pub fn new(container: Container, registry: Arc<Registry<Container>>, key: KeyId) -> Self {
         Self {
-            container,
-            registry,
+            dispatcher: ScopedDispatcher::new(container, registry),
             key,
         }
     }
@@ -39,15 +37,12 @@ impl CheckpointIssuer for ScopedIssuer {
         log: LogId,
         previous_size: Option<TreeSize>,
     ) -> Result<SignedTreeHead, ScopeError> {
-        dispatch_in_scope::<IssueCheckpoint, SignedTreeHead>(
-            &self.container,
-            &self.registry,
-            IssueCheckpoint {
+        self.dispatcher
+            .dispatch::<IssueCheckpoint, SignedTreeHead>(IssueCheckpoint {
                 log,
                 key: self.key.clone(),
                 previous_size,
-            },
-        )
-        .await
+            })
+            .await
     }
 }
