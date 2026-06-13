@@ -13,6 +13,8 @@ use super::scope::ScopeError;
 /// same split as [`RecordAppender`](super::RecordAppender).
 #[async_trait]
 pub trait CheckpointIssuer: Send + Sync {
+    /// Issue a signed checkpoint for `log`. `previous_size` skips re-anchoring
+    /// when the tree has not grown since the caller's last checkpoint.
     async fn issue(
         &self,
         log: LogId,

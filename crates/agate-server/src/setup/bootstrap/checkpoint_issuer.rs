@@ -21,6 +21,7 @@ pub struct ScopedIssuer {
 }
 
 impl ScopedIssuer {
+    /// Build an issuer over the audit `container`/`registry`, signing with `key`.
     #[must_use]
     pub fn new(container: Container, registry: Arc<Registry<Container>>, key: KeyId) -> Self {
         Self {

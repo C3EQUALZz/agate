@@ -11,5 +11,6 @@ use super::scope::ScopeError;
 /// at the composition root (`setup`); the outbox stays container-agnostic.
 #[async_trait]
 pub trait RecordAppender: Send + Sync {
+    /// Append one encoded `record` to `log`, returning the assigned leaf index.
     async fn append(&self, log: LogId, record: Vec<u8>) -> Result<LeafIndex, ScopeError>;
 }

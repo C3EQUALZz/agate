@@ -16,6 +16,7 @@ use crate::infrastructure::audit::{RecordAppender, ScopeError};
 pub struct ScopedAppender(ScopedDispatcher);
 
 impl ScopedAppender {
+    /// Build an appender over the audit `container`/`registry`.
     #[must_use]
     pub fn new(container: Container, registry: Arc<Registry<Container>>) -> Self {
         Self(ScopedDispatcher::new(container, registry))
