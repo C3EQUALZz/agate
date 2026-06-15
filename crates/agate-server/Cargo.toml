@@ -41,7 +41,7 @@ testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 axum = { workspace = true }
 agate-crypto = { workspace = true, features = ["ed25519"] }
-rcgen = "0.13"
+rcgen = "0.14"
 tempfile = "3"
 
 [[test]]
