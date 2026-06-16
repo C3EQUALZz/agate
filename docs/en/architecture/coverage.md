@@ -12,17 +12,16 @@ gaps live in the repository at
     **argument** deny rules), secret redaction across emitted text, tool
     results, and state, and fail-closed handling of malformed events. Some
     threats named in the threat model are not yet enforced (below) — notably
-    JSON-Patch validation and response-leg URL screening. Treat Agate as one
-    layer, not a complete agent firewall, until the remaining roadmap items
-    land.
+    RFC 6902 JSON-Patch validation. Treat Agate as one layer, not a complete
+    agent firewall, until the remaining roadmap items land.
 
 ## What is inspected
 
 | Event / input | What happens | Policy can act? |
 |---|---|---|
-| `TOOL_CALL_*` (assembled) | buffered into a complete tool call, then judged | **Yes** — allow/deny by tool **name** and by **argument** deny rules (`[[policy.tools.deny_arguments]]`) |
-| `TEXT_MESSAGE_CONTENT` | scanned for secret patterns | **Yes** — redact (literal or regex) |
-| `TOOL_CALL_RESULT` | tool-result content scanned for secret patterns | **Yes** — redact (literal or regex; the indirect-injection / exfiltration surface) |
+| `TOOL_CALL_*` (assembled) | buffered into a complete tool call, then judged; arguments screened for SSRF URLs | **Yes** — allow/deny by tool **name** and by **argument** deny rules (`[[policy.tools.deny_arguments]]`); an SSRF URL in the arguments drops the call |
+| `TEXT_MESSAGE_CONTENT` | scanned for secret patterns and SSRF URLs | **Yes** — redact (literal or regex); an SSRF URL drops the chunk |
+| `TOOL_CALL_RESULT` | tool-result content scanned for secret patterns and SSRF URLs | **Yes** — redact (literal or regex; the indirect-injection / exfiltration surface); an SSRF URL drops the result |
 | `STATE_SNAPSHOT` / `STATE_DELTA` | size/op-count budget **and** payload scanned for secret markers | **Yes** — denied if a marker is found (a structured payload can't be masked, so it's blocked, not leaked) |
 | Lifecycle (`RUN_*`, `STEP_*`) | ordering enforced by the `Run` state machine | structural only (no policy verdict) |
 | Request leg (`RunAgentInput`) | `tools[*].name` authorized; `user` message text screened for SSRF URLs — a domain host is **resolved** and its addresses re-checked, closing DNS-rebinding | **Yes** — reject before forwarding |
@@ -59,8 +58,7 @@ gaps live in the repository at
 
 Closing the remaining gaps is sequenced in
 [`security-coverage-roadmap.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/security-coverage-roadmap.md):
-RFC 6902 JSON-Patch validation and response-leg URL
-screening. (Malformed-event fail-closed, tool-argument deny rules, secret
-redaction of tool results and state, per-run response budgets, and request-leg
-SSRF with DNS-rebinding resolution are now
-implemented.)
+RFC 6902 JSON-Patch validation. (Malformed-event fail-closed, tool-argument
+deny rules, secret redaction of tool results and state, per-run response
+budgets, and SSRF screening on both legs — with DNS-rebinding resolution — are
+now implemented.)

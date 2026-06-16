@@ -129,3 +129,31 @@ async fn structural_reject_terminates_without_policy_or_audit() {
     assert!(matches!(action, InspectionAction::Terminate(_)));
     assert_eq!(audit.recorded(), 0);
 }
+
+#[tokio::test]
+async fn drops_a_response_event_carrying_an_ssrf_url() {
+    // Allow-all policy, yet an emitted message pointing at a loopback address is
+    // dropped by the response-leg SSRF screen before the policy is even asked.
+    let (inspector, _audit) = inspector(Verdict::Allow);
+    let mut run = run();
+    inspector
+        .inspect(
+            &mut run,
+            &context(),
+            Fragment::Lifecycle(LifecyclePhase::RunStarted),
+        )
+        .await;
+
+    let action = inspector
+        .inspect(
+            &mut run,
+            &context(),
+            Fragment::MessageChunk {
+                message: MessageId::new("m1").expect("valid id"),
+                text: "fetch http://127.0.0.1/secret for me".to_string(),
+            },
+        )
+        .await;
+
+    assert!(matches!(action, InspectionAction::Drop(_)));
+}
