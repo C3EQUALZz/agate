@@ -8,10 +8,15 @@ use crate::domain::common::values::ValueObject;
 pub enum StateMutation {
     /// Full state replacement (AG-UI `STATE_SNAPSHOT`).
     Snapshot { byte_size: usize, payload: String },
-    /// Incremental change as an RFC 6902 JSON Patch (AG-UI `STATE_DELTA`).
+    /// Incremental change as an RFC 6902 JSON Patch (AG-UI `STATE_DELTA`). The
+    /// adapter validates each op is well-formed (a known op kind with a path)
+    /// and measures the bounds the domain budgets: op count, deepest pointer,
+    /// and the largest single op `value`.
     Delta {
         op_count: usize,
         byte_size: usize,
+        max_path_depth: usize,
+        max_value_bytes: usize,
         payload: String,
     },
 }
@@ -23,6 +28,21 @@ impl StateMutation {
             StateMutation::Snapshot { byte_size, .. } | StateMutation::Delta { byte_size, .. } => {
                 *byte_size
             }
+        }
+    }
+
+    /// The per-patch bounds the domain checks, for a delta: `(op_count,
+    /// max_path_depth, max_value_bytes)`. `None` for a snapshot (no ops).
+    #[must_use]
+    pub fn patch_bounds(&self) -> Option<(usize, usize, usize)> {
+        match self {
+            StateMutation::Delta {
+                op_count,
+                max_path_depth,
+                max_value_bytes,
+                ..
+            } => Some((*op_count, *max_path_depth, *max_value_bytes)),
+            StateMutation::Snapshot { .. } => None,
         }
     }
 

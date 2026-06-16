@@ -32,7 +32,7 @@ enforce it. File references are to `crates/` on `main`.
 | **A1 — tool authorization** | verdict on tool **and arguments** | name authorized by `ToolAuthorizer` (exact/glob/regex); arguments checked by `ArgumentInspector` against `[[policy.tools.deny_arguments]]` literal/regex markers, optionally scoped to one parsed field by `path` (`agate-policy/.../argument_inspector.rs`) | text matching on a field or the raw blob — value-aware predicates (e.g. URL resolves to a private IP) still to come (P3 SSRF) |
 | **A2 — sensitive-data exfiltration** | redact text, screen URLs | literal-or-regex redaction across `TEXT_MESSAGE_CONTENT` **and** tool results; a secret in a state payload is denied (can't be masked); SSRF screen on **both legs** (request `user` messages and response-leg tool-call arguments, messages, and tool results) that **resolves** domain hosts and re-checks the addresses (closes DNS-rebinding) | — |
 | **A3 — instruction integrity / prompt injection** | resist injection incl. indirect (URL content, tool results) | tool **results** now reach the policy and are secret-redacted; broader injection heuristics still absent | partial — no anti-injection heuristics yet |
-| **A4 — shared-state integrity** | verdict on state-mutating events; validate & bound JSON Patch | `STATE_*` payload now reaches the policy (a secret marker in it is denied) plus `byte_size`/`op_count` budgets | partial — RFC 6902 ops still unvalidated/unbounded |
+| **A4 — shared-state integrity** | verdict on state-mutating events; validate & bound JSON Patch | `STATE_*` payload reaches the policy (a secret marker is denied); a `STATE_DELTA` is validated as well-formed RFC 6902 (known op kinds, present path) and bounded by op count, pointer depth, and per-op value size | done at the structural level — semantic path-allowlisting (which paths an op may touch) is future |
 | **A5 — availability / DoS** | size/time **and rate** budgets per run and per connection | global concurrency cap, body-size limit, connect/read timeouts, **per-run response budget** (`max_response_events`/`max_response_bytes`), **per-client-IP rate limit** (`rate_limit_per_second`/`rate_limit_burst`, `429`) | done for the request leg; per-session (sub-IP) limits still open |
 | **A6 — audit tamper-evidence** | every inspected event + verdict recorded | recorded via a bounded outbox channel | **silent drop under backpressure** — `record()` returns `()`, data plane never learns of a lost record |
 
@@ -82,10 +82,11 @@ architecture, which is the payoff of the hexagonal layering.
    `InspectedAction` gained `ToolResult` and `StateMutation` variants, so both
    reach the policy instead of `auto-allow`. Tool-result content is
    secret-redacted in place (`Verdict::Transform`); a state payload cannot be
-   masked, so a secret marker found in it is **denied** rather than leaked.
-   Still to come: bounding/validating `STATE_DELTA` RFC 6902 operations (op
-   kinds, path depth, value size) and richer anti-injection heuristics on tool
-   results.
+   masked, so a secret marker found in it is **denied** rather than leaked. ✅ A
+   `STATE_DELTA` is now also validated as a well-formed RFC 6902 patch (known op
+   kinds, present path) and bounded by op count, pointer depth, and per-op value
+   size (the adapter measures; the domain budgets). Still to come: richer
+   anti-injection heuristics on tool results, and semantic path-allowlisting.
 4. **Rate & output budgets (A5).** ✅ **Done.** A per-run `ResponseBudget`
    (`max_response_events` / `max_response_bytes`, `0` = unlimited) caps the SSE
    leg: crossing it ends the run with a `RUN_ERROR`, so a runaway/hostile agent
@@ -121,8 +122,9 @@ engine — it closes most real cases without new infrastructure or a sandbox.
 - **Result & state rules:** ✅ tool results are secret-redacted and now also
   screened by `[[policy.tools.deny_results]]` deny rules (a forbidden result is
   blocked before the client, optionally scoped by `tool`/`path`); state
-  mutations carrying a secret are denied (they cannot be masked in place). Still
-  open: structured RFC 6902 validation of `STATE_DELTA` operations (Phase 3).
+  mutations carrying a secret are denied (they cannot be masked in place). ✅ A
+  `STATE_DELTA` is validated as a well-formed RFC 6902 patch and bounded (op
+  count, pointer depth, per-op value size).
 - **Per-tool policies:** ✅ argument and result deny rules are tool-scoped (an
   optional `tool` on each rule; result rules correlate the tool name from the
   call's start). The redaction secret list stays global by design (content-based,

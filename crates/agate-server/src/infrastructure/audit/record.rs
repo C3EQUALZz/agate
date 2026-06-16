@@ -82,11 +82,15 @@ fn encode_state_mutation(mutation: &StateMutation) -> Value {
         StateMutation::Delta {
             op_count,
             byte_size,
+            max_path_depth,
+            max_value_bytes,
             payload,
         } => json!({
             "kind": "state_delta",
             "op_count": op_count,
             "byte_size": byte_size,
+            "max_path_depth": max_path_depth,
+            "max_value_bytes": max_value_bytes,
             "payload": payload,
         }),
     }
@@ -195,6 +199,8 @@ mod tests {
                 AgentEvent::StateMutation(StateMutation::Delta {
                     op_count: 1,
                     byte_size: 2,
+                    max_path_depth: 1,
+                    max_value_bytes: 0,
                     payload: "[]".into(),
                 }),
                 "state_delta",

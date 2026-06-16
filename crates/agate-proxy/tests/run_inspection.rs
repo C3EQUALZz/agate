@@ -2,8 +2,8 @@
 //! assembly, lifecycle ordering, and resource budgets.
 
 use agate_proxy::domain::inspection::values::{
-    AgentEvent, Budgets, Fragment, LifecyclePhase, OpaqueKind, StateMutation, StructuralOutcome,
-    ToolCallId,
+    AgentEvent, Budgets, Fragment, LifecyclePhase, OpaqueKind, PatchBudget, StateMutation,
+    StructuralOutcome, ToolCallId,
 };
 use agate_proxy::domain::inspection::{Run, RunId};
 use uuid::Uuid;
@@ -118,4 +118,34 @@ fn enforces_the_state_mutation_budget() {
         payload: "{\"big\":\"value\"}".to_string(),
     }));
     assert!(matches!(outcome, StructuralOutcome::Reject(_)));
+}
+
+#[test]
+fn enforces_the_patch_bounds() {
+    let tight = Budgets::default().with_patch(PatchBudget {
+        max_ops: 4,
+        max_path_depth: 4,
+        max_value_bytes: 64,
+    });
+    // Each delta on its own would pass byte_size, but one bound is exceeded.
+    let cases = [
+        (5, 1, 0, "too many ops"),
+        (1, 9, 0, "path too deep"),
+        (1, 1, 256, "value too big"),
+    ];
+    for (op_count, max_path_depth, max_value_bytes, label) in cases {
+        let mut run = Run::new(RunId::new(Uuid::nil()), tight);
+        run.inspect(Fragment::Lifecycle(LifecyclePhase::RunStarted));
+        let outcome = run.inspect(Fragment::StateMutation(StateMutation::Delta {
+            op_count,
+            byte_size: 8,
+            max_path_depth,
+            max_value_bytes,
+            payload: "[]".to_string(),
+        }));
+        assert!(
+            matches!(outcome, StructuralOutcome::Reject(_)),
+            "expected reject: {label}"
+        );
+    }
 }

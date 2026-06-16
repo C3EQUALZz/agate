@@ -11,6 +11,21 @@ pub struct Budgets {
     pub max_state_bytes: usize,
     /// Cap on tool calls open (started, not yet ended) at once.
     pub max_open_tool_calls: usize,
+    /// Bounds on a single RFC 6902 state-delta patch (anti-poisoning).
+    pub patch: PatchBudget,
+}
+
+/// Per-patch bounds on a `STATE_DELTA` (an RFC 6902 JSON Patch): caps that stop
+/// one delta from poisoning shared state with an unbounded number of ops, a
+/// pathologically deep pointer, or an oversized value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PatchBudget {
+    /// Cap on the number of operations in one patch.
+    pub max_ops: usize,
+    /// Cap on the depth (reference-token count) of any op's JSON Pointer path.
+    pub max_path_depth: usize,
+    /// Cap on the encoded byte size of any single op's `value`.
+    pub max_value_bytes: usize,
 }
 
 impl Budgets {
@@ -23,7 +38,15 @@ impl Budgets {
             max_tool_args_bytes,
             max_state_bytes,
             max_open_tool_calls,
+            patch: PatchBudget::default(),
         }
+    }
+
+    /// Override the per-patch bounds.
+    #[must_use]
+    pub fn with_patch(mut self, patch: PatchBudget) -> Self {
+        self.patch = patch;
+        self
     }
 }
 
@@ -35,4 +58,16 @@ impl Default for Budgets {
     }
 }
 
+impl Default for PatchBudget {
+    /// Conservative defaults: 256 ops, pointer depth 32, 64 KiB per value.
+    fn default() -> Self {
+        Self {
+            max_ops: 256,
+            max_path_depth: 32,
+            max_value_bytes: 64 * 1024,
+        }
+    }
+}
+
 impl ValueObject for Budgets {}
+impl ValueObject for PatchBudget {}
