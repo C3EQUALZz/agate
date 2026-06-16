@@ -106,6 +106,20 @@ impl Run {
                 if mutation.byte_size() > self.budgets.max_state_bytes {
                     return reject("state mutation exceeds budget");
                 }
+                // Bound the RFC 6902 patch (anti-poisoning): op count, pointer
+                // depth, and the largest single value.
+                if let Some((op_count, path_depth, value_bytes)) = mutation.patch_bounds() {
+                    let patch = &self.budgets.patch;
+                    if op_count > patch.max_ops {
+                        return reject("state delta has too many operations");
+                    }
+                    if path_depth > patch.max_path_depth {
+                        return reject("state delta operation path is too deep");
+                    }
+                    if value_bytes > patch.max_value_bytes {
+                        return reject("state delta operation value exceeds budget");
+                    }
+                }
                 StructuralOutcome::Ready(AgentEvent::StateMutation(mutation))
             }
             Fragment::Opaque(kind) => StructuralOutcome::Ready(AgentEvent::Opaque(kind)),

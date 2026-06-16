@@ -10,7 +10,7 @@ pub mod structural_outcome;
 pub mod verdict;
 
 pub use agent_event::AgentEvent;
-pub use budgets::Budgets;
+pub use budgets::{Budgets, PatchBudget};
 pub use deny_reason::DenyReason;
 pub use fragment::Fragment;
 pub use identifiers::{MessageId, RunId, SessionId, ToolCallId};

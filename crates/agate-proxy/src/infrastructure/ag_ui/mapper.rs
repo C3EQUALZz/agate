@@ -61,11 +61,13 @@ pub fn to_fragment(value: &Value) -> Result<Option<Fragment>, AgUiError> {
         }
         et::STATE_DELTA => {
             let delta = value.get("delta").ok_or(missing(kind, "delta"))?;
-            let op_count = delta.as_array().map_or(0, Vec::len);
+            let measured = measure_delta(delta, kind)?;
             let payload = delta.to_string();
             Fragment::StateMutation(StateMutation::Delta {
-                op_count,
+                op_count: measured.op_count,
                 byte_size: payload.len(),
+                max_path_depth: measured.max_path_depth,
+                max_value_bytes: measured.max_value_bytes,
                 payload,
             })
         }
@@ -115,6 +117,74 @@ fn message_id(value: &Value, kind: &str) -> Result<MessageId, AgUiError> {
 /// Extract a validated `toolCallId` — present and non-blank.
 fn tool_call_id(value: &Value, kind: &str) -> Result<ToolCallId, AgUiError> {
     ToolCallId::new(string(value, kind, "toolCallId")?).map_err(|_| blank(kind, "toolCallId"))
+}
+
+/// The RFC 6902 operation kinds — a closed set; any other `op` is not valid
+/// JSON Patch and is rejected as malformed.
+const PATCH_OPS: [&str; 6] = ["add", "remove", "replace", "move", "copy", "test"];
+
+/// The bounds the domain budgets, measured over a delta's ops.
+struct DeltaMeasure {
+    op_count: usize,
+    max_path_depth: usize,
+    max_value_bytes: usize,
+}
+
+/// Validate a `STATE_DELTA` is a well-formed RFC 6902 patch and measure the
+/// per-patch bounds. Each op must be an object with a known `op` kind and a
+/// string `path`; anything else is a malformed (recognized) event so the
+/// configured fail-closed mode applies. The domain enforces the bounds.
+fn measure_delta(delta: &Value, kind: &str) -> Result<DeltaMeasure, AgUiError> {
+    let ops = delta.as_array().ok_or_else(|| missing(kind, "delta"))?;
+    let mut max_path_depth = 0;
+    let mut max_value_bytes = 0;
+    for op in ops {
+        let fields = op.as_object().ok_or_else(|| missing(kind, "delta"))?;
+        let op_kind = fields
+            .get("op")
+            .and_then(Value::as_str)
+            .ok_or_else(|| missing(kind, "op"))?;
+        if !PATCH_OPS.contains(&op_kind) {
+            return Err(missing(kind, "op"));
+        }
+        let path = fields
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| missing(kind, "path"))?;
+        max_path_depth = max_path_depth.max(pointer_depth(path));
+        // RFC 6902 requires the per-op operand: `value` for add/replace/test,
+        // a `from` pointer for move/copy. A missing operand is malformed.
+        match op_kind {
+            "add" | "replace" | "test" => {
+                let value = fields.get("value").ok_or_else(|| missing(kind, "value"))?;
+                max_value_bytes = max_value_bytes.max(value.to_string().len());
+            }
+            "move" | "copy" => {
+                // `from` is itself a JSON Pointer into the document, so it
+                // counts toward the depth budget too — a shallow `path` with a
+                // deep `from` must not slip past.
+                let from = fields
+                    .get("from")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| missing(kind, "from"))?;
+                max_path_depth = max_path_depth.max(pointer_depth(from));
+            }
+            _ => {} // remove: path only
+        }
+    }
+    Ok(DeltaMeasure {
+        op_count: ops.len(),
+        max_path_depth,
+        max_value_bytes,
+    })
+}
+
+/// Depth of a JSON Pointer: its number of reference tokens, i.e. the count of
+/// `/` separators (`/a/b/c` = 3, `/` = 1 the empty-named key, `` = 0 the whole
+/// document). An escaped slash (`~1`) lives *inside* a token, so it does not
+/// add depth.
+fn pointer_depth(path: &str) -> usize {
+    path.bytes().filter(|&byte| byte == b'/').count()
 }
 
 fn missing(kind: &str, field: &'static str) -> AgUiError {
@@ -217,6 +287,80 @@ mod tests {
             })) => {
                 assert_eq!(op_count, 2);
                 assert!(byte_size > 0);
+            }
+            other => panic!("expected a state delta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn measures_delta_path_depth_and_value_size() {
+        let fragment = to_fragment(&json!({
+            "type": "STATE_DELTA",
+            "delta": [
+                { "op": "replace", "path": "/a/b/c", "value": "xy" },
+                { "op": "remove", "path": "/d" },
+            ],
+        }))
+        .unwrap();
+        match fragment {
+            Some(Fragment::StateMutation(StateMutation::Delta {
+                max_path_depth,
+                max_value_bytes,
+                ..
+            })) => {
+                assert_eq!(max_path_depth, 3); // /a/b/c
+                assert_eq!(max_value_bytes, 4); // "xy" serialized incl. quotes
+            }
+            other => panic!("expected a state delta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_a_malformed_json_patch() {
+        // delta is not an array.
+        assert!(to_fragment(&json!({ "type": "STATE_DELTA", "delta": {} })).is_err());
+        // unknown op kind.
+        assert!(
+            to_fragment(&json!({
+                "type": "STATE_DELTA", "delta": [{ "op": "explode", "path": "/a" }]
+            }))
+            .is_err()
+        );
+        // op missing its path.
+        assert!(
+            to_fragment(&json!({
+                "type": "STATE_DELTA", "delta": [{ "op": "add", "value": 1 }]
+            }))
+            .is_err()
+        );
+        // add/replace/test without the required `value`.
+        assert!(
+            to_fragment(&json!({
+                "type": "STATE_DELTA", "delta": [{ "op": "replace", "path": "/a" }]
+            }))
+            .is_err()
+        );
+        // move/copy without the required `from` pointer.
+        assert!(
+            to_fragment(&json!({
+                "type": "STATE_DELTA", "delta": [{ "op": "move", "path": "/a" }]
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn pointer_depth_counts_tokens_including_empty_and_the_from_pointer() {
+        // Empty reference tokens count (`/a//b` = 3), and a `move`'s deep `from`
+        // is measured even when `path` is shallow.
+        let fragment = to_fragment(&json!({
+            "type": "STATE_DELTA",
+            "delta": [{ "op": "move", "path": "/x", "from": "/a//b/c" }],
+        }))
+        .unwrap();
+        match fragment {
+            Some(Fragment::StateMutation(StateMutation::Delta { max_path_depth, .. })) => {
+                assert_eq!(max_path_depth, 4); // /a//b/c → 4 slashes
             }
             other => panic!("expected a state delta, got {other:?}"),
         }
