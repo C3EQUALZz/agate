@@ -48,10 +48,10 @@ enforce it. File references are to `crates/` on `main`.
 - **G2 — no cross-run / per-session state.** `SessionId` is threaded through but
   the policy is stateless: a denied action can be retried in a fresh run within
   the same session; there are no per-session or per-key quotas.
-- **G3 — hidden request fields uninspected.** The request leg extracts only
-  `offered_tools` and `user` message text. `system` prompt, `forwardedProps`,
-  `context.value`, and inbound `state` are not inspected, so injection into
-  those fields is never screened.
+- **G3 — hidden request fields uninspected.** ✅ **Closed.** The request leg
+  now also screens `system` message content and the `context`,
+  `forwardedProps`, and inbound `state` JSON (`RequestContent.hidden_fields`),
+  applying the same secret-marker + SSRF screen as `user` messages.
 - **G4 — opaque & unknown events are pass-through only.** `RAW`, `CUSTOM`,
   `REASONING_ENCRYPTED_VALUE`, and any unknown/future AG-UI type forward raw.
   The threat model says "pass-through **or drop**"; there is no drop option in
@@ -150,8 +150,9 @@ the proxy.
   with a loud alert) so a gap in the tamper-evident log is never silent.
 - **Per-session memory (G2):** optional session-scoped state so a denied action
   cannot be replayed across runs.
-- **Hidden-field screening (G3):** extract and inspect `system`,
-  `forwardedProps`, `context`, and inbound `state` on the request leg.
+- **Hidden-field screening (G3):** ✅ done — `system` content and the
+  `context` / `forwardedProps` / inbound `state` JSON are extracted into
+  `RequestContent.hidden_fields` and screened on the request leg.
 
 ## 3. Non-goals (unchanged from the threat model)
 

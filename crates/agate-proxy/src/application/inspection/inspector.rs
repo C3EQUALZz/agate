@@ -98,23 +98,32 @@ impl Inspector {
             }
         }
 
-        for text in &request.user_messages {
-            let event = AgentEvent::MessageChunk {
-                message: MessageId::new(REQUEST_ORIGIN).expect("the synthetic origin is not blank"),
-                text: text.clone(),
-            };
-            if let Some(reason) = first_disallowed_url(text, self.resolver.as_ref()).await {
-                self.audit
-                    .record(context, &event, &Verdict::Deny(reason.clone()))
-                    .await;
-                return RequestDecision::Reject(reason);
-            }
-            if let Some(reason) = self.reject_reason(context, &event).await {
+        // User messages and the otherwise-hidden fields (system prompt,
+        // context, forwardedProps, inbound state) get the same text screen.
+        for text in request.user_messages.iter().chain(&request.hidden_fields) {
+            if let Some(reason) = self.screen_text(context, text).await {
                 return RequestDecision::Reject(reason);
             }
         }
 
         RequestDecision::Allow
+    }
+
+    /// Screen one request-leg text blob: the SSRF URL guard first, then the same
+    /// policy as the response leg (projected onto a message). Returns the reason
+    /// on rejection, recording it as a denial.
+    async fn screen_text(&self, context: &InspectionContext, text: &str) -> Option<DenyReason> {
+        let event = AgentEvent::MessageChunk {
+            message: MessageId::new(REQUEST_ORIGIN).expect("the synthetic origin is not blank"),
+            text: text.to_owned(),
+        };
+        if let Some(reason) = first_disallowed_url(text, self.resolver.as_ref()).await {
+            self.audit
+                .record(context, &event, &Verdict::Deny(reason.clone()))
+                .await;
+            return Some(reason);
+        }
+        self.reject_reason(context, &event).await
     }
 
     /// Ask the policy about `event`; on any non-`Allow` verdict, record it as a
@@ -207,6 +216,7 @@ mod tests {
         let content = RequestContent {
             offered_tools: vec!["search".to_owned()],
             user_messages: vec!["find the readme please".to_owned()],
+            ..RequestContent::default()
         };
         let decision = inspector(Arc::new(AllowAll))
             .inspect_request(&context(), &content)
@@ -218,7 +228,7 @@ mod tests {
     async fn rejects_a_denied_offered_tool() {
         let content = RequestContent {
             offered_tools: vec!["search".to_owned(), "delete_file".to_owned()],
-            user_messages: Vec::new(),
+            ..RequestContent::default()
         };
         let decision = inspector(Arc::new(DenyDelete))
             .inspect_request(&context(), &content)
@@ -229,8 +239,22 @@ mod tests {
     #[tokio::test]
     async fn rejects_an_ssrf_url_even_under_allow_all() {
         let content = RequestContent {
-            offered_tools: Vec::new(),
             user_messages: vec!["fetch http://169.254.169.254/latest/meta-data".to_owned()],
+            ..RequestContent::default()
+        };
+        let decision = inspector(Arc::new(AllowAll))
+            .inspect_request(&context(), &content)
+            .await;
+        assert!(matches!(decision, RequestDecision::Reject(_)));
+    }
+
+    #[tokio::test]
+    async fn rejects_an_ssrf_url_hidden_in_a_request_field() {
+        // No user message — the SSRF URL is buried in a hidden field (e.g. the
+        // JSON of `state`/`context`), which is now screened too.
+        let content = RequestContent {
+            hidden_fields: vec!["fetch http://127.0.0.1/secret".to_owned()],
+            ..RequestContent::default()
         };
         let decision = inspector(Arc::new(AllowAll))
             .inspect_request(&context(), &content)

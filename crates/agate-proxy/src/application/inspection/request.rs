@@ -22,6 +22,11 @@ pub struct RequestContent {
     pub offered_tools: Vec<String>,
     /// Text of the user messages.
     pub user_messages: Vec<String>,
+    /// Text of the otherwise-hidden request fields — `system` message content
+    /// and the JSON of `context`, `forwardedProps`, and inbound `state` — so an
+    /// injection (a secret marker or SSRF URL) hidden there is screened too,
+    /// not just `user` messages.
+    pub hidden_fields: Vec<String>,
 }
 
 /// The outcome of inspecting a request before forwarding.
