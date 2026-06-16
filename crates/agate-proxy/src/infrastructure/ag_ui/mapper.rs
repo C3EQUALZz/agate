@@ -152,8 +152,20 @@ fn measure_delta(delta: &Value, kind: &str) -> Result<DeltaMeasure, AgUiError> {
             .and_then(Value::as_str)
             .ok_or_else(|| missing(kind, "path"))?;
         max_path_depth = max_path_depth.max(pointer_depth(path));
-        if let Some(value) = fields.get("value") {
-            max_value_bytes = max_value_bytes.max(value.to_string().len());
+        // RFC 6902 requires the per-op operand: `value` for add/replace/test,
+        // a `from` pointer for move/copy. A missing operand is malformed.
+        match op_kind {
+            "add" | "replace" | "test" => {
+                let value = fields.get("value").ok_or_else(|| missing(kind, "value"))?;
+                max_value_bytes = max_value_bytes.max(value.to_string().len());
+            }
+            "move" | "copy" => {
+                fields
+                    .get("from")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| missing(kind, "from"))?;
+            }
+            _ => {} // remove: path only
         }
     }
     Ok(DeltaMeasure {
@@ -312,6 +324,20 @@ mod tests {
         assert!(
             to_fragment(&json!({
                 "type": "STATE_DELTA", "delta": [{ "op": "add", "value": 1 }]
+            }))
+            .is_err()
+        );
+        // add/replace/test without the required `value`.
+        assert!(
+            to_fragment(&json!({
+                "type": "STATE_DELTA", "delta": [{ "op": "replace", "path": "/a" }]
+            }))
+            .is_err()
+        );
+        // move/copy without the required `from` pointer.
+        assert!(
+            to_fragment(&json!({
+                "type": "STATE_DELTA", "delta": [{ "op": "move", "path": "/a" }]
             }))
             .is_err()
         );
