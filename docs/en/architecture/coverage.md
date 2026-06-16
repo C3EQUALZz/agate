@@ -24,7 +24,7 @@ gaps live in the repository at
 | `TOOL_CALL_RESULT` | tool-result content scanned for secret patterns and SSRF URLs | **Yes** — redact (literal or regex; the indirect-injection / exfiltration surface); an SSRF URL drops the result |
 | `STATE_SNAPSHOT` / `STATE_DELTA` | size/op-count budget **and** payload scanned for secret markers | **Yes** — denied if a marker is found (a structured payload can't be masked, so it's blocked, not leaked) |
 | Lifecycle (`RUN_*`, `STEP_*`) | ordering enforced by the `Run` state machine | structural only (no policy verdict) |
-| Request leg (`RunAgentInput`) | `tools[*].name` authorized; `user` message text screened for SSRF URLs — a domain host is **resolved** and its addresses re-checked, closing DNS-rebinding | **Yes** — reject before forwarding |
+| Request leg (`RunAgentInput`) | `tools[*].name` authorized; `user` **and `system`** message text, plus the `context` / `forwardedProps` / inbound `state` JSON, screened for secret markers and SSRF URLs (domain hosts **resolved** and re-checked, closing DNS-rebinding) | **Yes** — reject before forwarding |
 | Malformed **known** events | a recognized type with a missing/blank required field cannot be inspected → handled per `[policy].on_malformed_event` (default `terminate`) | **Yes** — fails closed by default |
 
 ## What is forwarded uninspected
