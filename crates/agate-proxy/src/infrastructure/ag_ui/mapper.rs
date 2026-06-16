@@ -160,10 +160,14 @@ fn measure_delta(delta: &Value, kind: &str) -> Result<DeltaMeasure, AgUiError> {
                 max_value_bytes = max_value_bytes.max(value.to_string().len());
             }
             "move" | "copy" => {
-                fields
+                // `from` is itself a JSON Pointer into the document, so it
+                // counts toward the depth budget too — a shallow `path` with a
+                // deep `from` must not slip past.
+                let from = fields
                     .get("from")
                     .and_then(Value::as_str)
                     .ok_or_else(|| missing(kind, "from"))?;
+                max_path_depth = max_path_depth.max(pointer_depth(from));
             }
             _ => {} // remove: path only
         }
@@ -175,10 +179,12 @@ fn measure_delta(delta: &Value, kind: &str) -> Result<DeltaMeasure, AgUiError> {
     })
 }
 
-/// Depth of a JSON Pointer: the number of non-empty reference tokens
-/// (`/a/b/c` = 3, `` = 0 = the whole document).
+/// Depth of a JSON Pointer: its number of reference tokens, i.e. the count of
+/// `/` separators (`/a/b/c` = 3, `/` = 1 the empty-named key, `` = 0 the whole
+/// document). An escaped slash (`~1`) lives *inside* a token, so it does not
+/// add depth.
 fn pointer_depth(path: &str) -> usize {
-    path.split('/').filter(|token| !token.is_empty()).count()
+    path.bytes().filter(|&byte| byte == b'/').count()
 }
 
 fn missing(kind: &str, field: &'static str) -> AgUiError {
@@ -341,6 +347,23 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn pointer_depth_counts_tokens_including_empty_and_the_from_pointer() {
+        // Empty reference tokens count (`/a//b` = 3), and a `move`'s deep `from`
+        // is measured even when `path` is shallow.
+        let fragment = to_fragment(&json!({
+            "type": "STATE_DELTA",
+            "delta": [{ "op": "move", "path": "/x", "from": "/a//b/c" }],
+        }))
+        .unwrap();
+        match fragment {
+            Some(Fragment::StateMutation(StateMutation::Delta { max_path_depth, .. })) => {
+                assert_eq!(max_path_depth, 4); // /a//b/c → 4 slashes
+            }
+            other => panic!("expected a state delta, got {other:?}"),
+        }
     }
 
     #[test]
