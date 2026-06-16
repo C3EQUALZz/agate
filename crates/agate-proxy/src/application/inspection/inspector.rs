@@ -49,6 +49,18 @@ impl Inspector {
             StructuralOutcome::Buffering => InspectionAction::Hold,
             StructuralOutcome::Reject(reason) => InspectionAction::Terminate(reason),
             StructuralOutcome::Ready(event) => {
+                // SSRF screen on any URL the event carries (a tool-call argument,
+                // an emitted message, or a tool result), resolving domain hosts —
+                // the response-leg counterpart to the request-leg guard. A hit
+                // drops the one event rather than terminating the run.
+                if let Some(text) = url_bearing_text(&event)
+                    && let Some(reason) = first_disallowed_url(text, self.resolver.as_ref()).await
+                {
+                    self.audit
+                        .record(context, &event, &Verdict::Deny(reason.clone()))
+                        .await;
+                    return InspectionAction::Drop(reason);
+                }
                 let verdict = self.policy.decide(context, &event).await;
                 self.audit.record(context, &event, &verdict).await;
                 match verdict {
@@ -123,6 +135,21 @@ impl Inspector {
             .record(context, event, &Verdict::Deny(reason.clone()))
             .await;
         Some(reason)
+    }
+}
+
+/// The text of an event that may carry a URL worth SSRF-screening: a tool call's
+/// arguments, an emitted message chunk, or a tool result. Lifecycle, state, and
+/// opaque events carry none.
+///
+/// Screening is per-event, so a URL split across streamed message chunks is not
+/// reassembled — best-effort, like the per-chunk redaction.
+fn url_bearing_text(event: &AgentEvent) -> Option<&str> {
+    match event {
+        AgentEvent::ToolCall { arguments, .. } => Some(arguments),
+        AgentEvent::MessageChunk { text, .. } => Some(text),
+        AgentEvent::ToolResult { content, .. } => Some(content),
+        AgentEvent::StateMutation(_) | AgentEvent::Lifecycle(_) | AgentEvent::Opaque(_) => None,
     }
 }
 
