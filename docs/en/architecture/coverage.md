@@ -34,7 +34,6 @@ gaps live in the repository at
 | **State** RFC 6902 patch operations | the payload is scanned for secret markers, but the JSON Patch operations themselves are not validated/bounded for poisoning |
 | `RAW`, `CUSTOM`, `REASONING_ENCRYPTED_VALUE` | opaque — forwarded as-is, never inspected |
 | Unknown / future AG-UI event types | forwarded raw |
-| Hidden request fields (`system`, `forwardedProps`, `context`, inbound `state`) | not extracted, so injection into them is not screened |
 
 ## Operational limits
 

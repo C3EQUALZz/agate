@@ -20,12 +20,13 @@ pub fn parse_request(body: &[u8]) -> Result<RequestContent, AgUiError> {
 
     let (user_messages, system_messages) = parse_messages(object)?;
     let mut hidden_fields = system_messages;
-    // The structured fields an injection can hide in: screen each as its JSON
-    // text (a secret marker or URL inside is still caught). Absent fields add
+    // The structured fields an injection can hide in. Collect their string
+    // *leaves* (not the compact JSON blob) so a nested URL becomes a token the
+    // SSRF guard can parse — `{"url":"http://h/x"}` would not. Absent fields add
     // nothing.
     for key in ["context", "forwardedProps", "state"] {
         if let Some(value) = object.get(key) {
-            hidden_fields.push(value.to_string());
+            collect_string_leaves(value, &mut hidden_fields);
         }
     }
 
@@ -50,6 +51,27 @@ fn parse_offered_tools(object: &Map<String, Value>) -> Result<Vec<String>, AgUiE
                 .ok_or(AgUiError::MalformedRequest)
         })
         .collect()
+}
+
+/// Gather every string leaf of a JSON value into `out` (recursing through
+/// arrays and objects). Numbers, booleans, and null carry no injectable text,
+/// so they are skipped. Screening leaves individually lets the SSRF guard parse
+/// a URL that would be unreachable inside a compact JSON blob.
+fn collect_string_leaves(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::String(text) => out.push(text.clone()),
+        Value::Array(items) => {
+            for item in items {
+                collect_string_leaves(item, out);
+            }
+        }
+        Value::Object(fields) => {
+            for field in fields.values() {
+                collect_string_leaves(field, out);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
 }
 
 /// Split message content by role into `(user, system)` texts — both are
@@ -111,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn collects_system_message_and_structured_fields_as_hidden() {
+    fn collects_system_message_and_structured_field_leaves_as_hidden() {
         let body = br#"{
             "messages": [
                 {"id": "s1", "role": "system", "content": "you are a helpful agent"},
@@ -119,16 +141,32 @@ mod tests {
             ],
             "context": [{"description": "env", "value": "prod"}],
             "forwardedProps": {"trace": "abc"},
-            "state": {"counter": 1}
+            "state": {"counter": 1, "note": "xyz"}
         }"#;
         let content = parse_request(body).expect("valid body");
         assert_eq!(content.user_messages, vec!["hi"]);
-        // system content + the JSON of context/forwardedProps/state, in order.
-        assert_eq!(content.hidden_fields.len(), 4);
+        // System content plus every string leaf of context/forwardedProps/state;
+        // the numeric `counter` carries no text and is dropped.
         assert_eq!(content.hidden_fields[0], "you are a helpful agent");
-        assert!(content.hidden_fields[1].contains("prod"));
-        assert!(content.hidden_fields[2].contains("abc"));
-        assert!(content.hidden_fields[3].contains("counter"));
+        for leaf in ["env", "prod", "abc", "xyz"] {
+            assert!(
+                content.hidden_fields.iter().any(|f| f == leaf),
+                "expected leaf {leaf:?} in {:?}",
+                content.hidden_fields
+            );
+        }
+    }
+
+    #[test]
+    fn extracts_a_nested_url_leaf_so_the_ssrf_guard_can_parse_it() {
+        // A URL nested in a compact object must surface as its own token.
+        let body = br#"{"forwardedProps": {"callback": "http://127.0.0.1/x"}}"#;
+        let content = parse_request(body).expect("valid body");
+        assert!(
+            content
+                .hidden_fields
+                .contains(&"http://127.0.0.1/x".to_owned())
+        );
     }
 
     #[test]
