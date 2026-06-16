@@ -11,5 +11,8 @@ use async_trait::async_trait;
 /// checks still apply, and a host the agent cannot resolve it cannot reach.
 #[async_trait]
 pub trait HostResolver: Send + Sync {
+    /// Resolve `host` to its IP addresses. An empty vector means the host is
+    /// unknown or resolution failed/timed out — the SSRF guard treats that as
+    /// non-blocking (it never rejects purely because a host did not resolve).
     async fn resolve(&self, host: &str) -> Vec<IpAddr>;
 }
