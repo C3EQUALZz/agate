@@ -134,7 +134,7 @@ async fn structural_reject_terminates_without_policy_or_audit() {
 async fn drops_a_response_event_carrying_an_ssrf_url() {
     // Allow-all policy, yet an emitted message pointing at a loopback address is
     // dropped by the response-leg SSRF screen before the policy is even asked.
-    let (inspector, _audit) = inspector(Verdict::Allow);
+    let (inspector, audit) = inspector(Verdict::Allow);
     let mut run = run();
     inspector
         .inspect(
@@ -156,4 +156,6 @@ async fn drops_a_response_event_carrying_an_ssrf_url() {
         .await;
 
     assert!(matches!(action, InspectionAction::Drop(_)));
+    // The SSRF hit is recorded as a denial (the run started + this drop).
+    assert_eq!(audit.recorded(), 2);
 }
