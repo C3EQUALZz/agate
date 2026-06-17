@@ -166,7 +166,20 @@ pub async fn poll_inclusion(
     log: LogId,
     index: LeafIndex,
 ) -> bool {
-    for _ in 0..POLL_ATTEMPTS {
+    poll_inclusion_within(container, registry, log, index, POLL_ATTEMPTS).await
+}
+
+/// Like [`poll_inclusion`] but with an explicit attempt budget (× 100ms), for
+/// tests that queue many records and so need a longer drain window than the
+/// default — a slow CI runner appends the outbox serially.
+pub async fn poll_inclusion_within(
+    container: &Container,
+    registry: &Arc<Registry<Container>>,
+    log: LogId,
+    index: LeafIndex,
+    attempts: usize,
+) -> bool {
+    for _ in 0..attempts {
         if dispatch(container, registry, GetInclusionProof { log, index })
             .await
             .is_ok()

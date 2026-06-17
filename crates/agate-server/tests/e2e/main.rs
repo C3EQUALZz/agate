@@ -6,3 +6,4 @@
 mod fixture;
 mod policy;
 mod server;
+mod stress;
