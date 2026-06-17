@@ -2,8 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio::task::JoinHandle;
+use tracing::warn;
 
 use agate_audit::application::common::ports::AuditMetrics;
 use agate_audit::domain::merkle::LogId;
@@ -43,6 +44,28 @@ pub struct CheckpointSettings {
     pub key: KeyId,
 }
 
+/// A running checkpoint scheduler and the signal that stops it gracefully.
+///
+/// Stopping is cooperative: [`stop`](Self::stop) signals the loop, which returns
+/// at its next boundary, so the scheduler never dies in the middle of an issue
+/// (which would abandon a half-open audit scope/transaction, as an abrupt
+/// `abort()` could).
+pub struct CheckpointHandle {
+    task: JoinHandle<()>,
+    shutdown: Arc<Notify>,
+}
+
+impl CheckpointHandle {
+    /// Signal the scheduler to stop and wait for it to finish any in-flight
+    /// issue and exit.
+    pub async fn stop(self) {
+        self.shutdown.notify_one();
+        if let Err(error) = self.task.await {
+            warn!(%error, "checkpoint scheduler task did not stop cleanly");
+        }
+    }
+}
+
 /// The wired server: the proxy HTTP app to serve, the audit outbox task draining
 /// records into the transparency log, and an optional periodic checkpoint task.
 ///
@@ -50,11 +73,12 @@ pub struct CheckpointSettings {
 /// once `serve` returns, dropping `app` drops the audit sink and closes the
 /// outbox channel, so awaiting `outbox` flushes the records still queued before
 /// the process exits (see `main`). The `checkpoint` task is a timer loop with no
-/// natural end, so the caller aborts it on shutdown.
+/// natural end, so the caller stops it cooperatively on shutdown via
+/// [`CheckpointHandle::stop`].
 pub struct Server {
     pub app: Router,
     pub outbox: JoinHandle<()>,
-    pub checkpoint: Option<JoinHandle<()>>,
+    pub checkpoint: Option<CheckpointHandle>,
 }
 
 /// Everything the server is wired from, beyond the connected `storage`: the
@@ -103,7 +127,11 @@ pub fn build_server(storage: &Storage, config: ServerConfig) -> Server {
     let checkpoint = checkpoint.map(|settings| {
         let issuer: Arc<dyn CheckpointIssuer> =
             Arc::new(ScopedIssuer::new(container, registry, settings.key));
-        tokio::spawn(CheckpointScheduler::new(issuer, log, settings.period).run())
+        let shutdown = Arc::new(Notify::new());
+        let task = tokio::spawn(
+            CheckpointScheduler::new(issuer, log, settings.period).run(shutdown.clone()),
+        );
+        CheckpointHandle { task, shutdown }
     });
 
     // The real policy, wrapped so a slow/hung decision falls back to the

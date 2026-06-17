@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::Notify;
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{debug, error, info, warn};
 
@@ -33,16 +34,30 @@ impl CheckpointScheduler {
         }
     }
 
-    /// Run until aborted: issue immediately, then once per `period`. Ticks
-    /// missed while an issue runs long are coalesced (we only need the latest).
-    pub async fn run(self) {
+    /// Run until `shutdown` is signaled: issue immediately, then once per
+    /// `period`. Ticks missed while an issue runs long are coalesced (we only
+    /// need the latest).
+    ///
+    /// Shutdown is cooperative and checked only at the loop boundary, so the
+    /// scheduler never stops in the middle of an issue — it never abandons a
+    /// half-open audit scope/transaction the way an abrupt `abort()` could.
+    pub async fn run(self, shutdown: Arc<Notify>) {
         let mut tick = interval(self.period);
         tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
         debug!(log = %self.log.0, period_secs = self.period.as_secs(), "checkpoint scheduler started");
 
         let mut last_size: Option<TreeSize> = None;
         loop {
-            tick.tick().await;
+            tokio::select! {
+                // Bias the shutdown branch so a pending stop wins over a ready
+                // tick, ending promptly without one more issue.
+                biased;
+                () = shutdown.notified() => {
+                    debug!(log = %self.log.0, "checkpoint scheduler stopping");
+                    return;
+                }
+                _ = tick.tick() => {}
+            }
             match self.issuer.issue(self.log, last_size).await {
                 Ok(sth) => {
                     let size = sth.head.size;
@@ -103,18 +118,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn issues_on_the_first_tick_with_no_previous_size() {
+    async fn issues_on_the_first_tick_then_stops_cleanly_on_signal() {
         let issuer = Arc::new(FakeIssuer {
             calls: Mutex::new(Vec::new()),
             issued: Notify::new(),
         });
-        // A long period: only the immediate first tick fires before we abort.
+        // A long period: only the immediate first tick fires before we stop.
         let scheduler =
             CheckpointScheduler::new(issuer.clone(), LogId(Uuid::nil()), Duration::from_hours(1));
-        let handle = tokio::spawn(scheduler.run());
+        let shutdown = Arc::new(Notify::new());
+        let handle = tokio::spawn(scheduler.run(shutdown.clone()));
 
         issuer.issued.notified().await;
-        handle.abort();
+        // Cooperative stop: the loop returns at its next boundary, so the task
+        // joins cleanly rather than being aborted mid-flight.
+        shutdown.notify_one();
+        handle.await.expect("scheduler stops cleanly on signal");
 
         let calls = issuer.calls.lock().unwrap();
         assert_eq!(

@@ -110,11 +110,11 @@ async fn main() {
             .expect("serve");
     }
 
-    // The checkpoint scheduler is a timer loop with no natural end; stop it now
-    // that we're shutting down (an in-flight issue runs in its own transaction,
-    // so aborting between ticks is safe).
+    // The checkpoint scheduler is a timer loop with no natural end; stop it
+    // cooperatively now that we're shutting down, so it finishes any in-flight
+    // issue and never abandons a half-open audit scope.
     if let Some(checkpoint) = server.checkpoint {
-        checkpoint.abort();
+        checkpoint.stop().await;
     }
 
     // `serve` has returned, so the served app — and the audit sink inside it —

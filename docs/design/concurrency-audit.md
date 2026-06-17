@@ -39,8 +39,8 @@ correctness:
 
 | Severity | Finding | Disposition |
 |---|---|---|
-| Med | `main` calls `handle.graceful_shutdown(None)` — no deadline, so one hung upstream stalls process exit. | Mitigated in practice by the upstream **read timeout** (a stalled stream ends within `read_timeout`, default 1 min). A configurable shutdown grace deadline is a possible follow-up. |
-| Med | The checkpoint task is stopped with `.abort()`, which can land mid-`dispatch` and abandon an open audit scope/transaction (it rolls back, so no data loss, but it is an abrupt cancel holding a DB connection). | Follow-up: stop the loop **cooperatively** at a tick boundary (a `Notify` / cancellation token) instead of aborting. |
+| Med | The checkpoint task was stopped with `.abort()`, which could land mid-`dispatch` and abandon an open audit scope/transaction (it rolls back, so no data loss, but it is an abrupt cancel holding a DB connection). | **Fixed.** `CheckpointScheduler::run` now takes a `Notify` and `tokio::select!`s it against the tick (biased to shutdown); `CheckpointHandle::stop` signals it and joins. The loop only checks shutdown at its boundary, so it never stops mid-issue. |
+| Med | `main` calls `handle.graceful_shutdown(None)` — no deadline, so a hung upstream could stall process exit. | **Kept by design.** An agent run can legitimately stream for a long time; a hard deadline would truncate it and lose the tail of its audit trail. A genuinely *hung* (not slow) upstream is already bounded by the upstream **read timeout** (default 1 min), so "wait for in-flight" is the correct completeness-over-availability choice. |
 | Low | The outbox depth gauge `capacity - tx.capacity()` is racy under concurrent producers. | Accepted: it is observation-only and never drives the shed decision (that uses `try_send`'s own atomic result). Documented in the A6 work. |
 
 ## Stress test
