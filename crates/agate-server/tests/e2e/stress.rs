@@ -50,12 +50,15 @@ async fn many_concurrent_runs_all_land_in_the_log() {
 
     // The outbox has a single consumer draining a FIFO channel, so if the last
     // leaf is present then every one of the RUNS * EVENTS_PER_RUN records was
-    // drained in order with none lost under concurrent producers.
+    // drained in order with none lost under concurrent producers. The consumer
+    // appends serially, so give it a generous window — a slow CI runner takes
+    // longer than the default poll to drain this many records.
     let container = fixture::audit_container(app.pool.clone());
     let registry = fixture::audit_registry();
     let total = RUNS * EVENTS_PER_RUN;
     let recorded =
-        fixture::poll_inclusion(&container, &registry, app.log, LeafIndex(total - 1)).await;
+        fixture::poll_inclusion_within(&container, &registry, app.log, LeafIndex(total - 1), 300)
+            .await;
     assert!(
         recorded,
         "all {total} records landed in the log under concurrent load"
