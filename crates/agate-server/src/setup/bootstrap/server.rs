@@ -157,3 +157,28 @@ pub fn build_server(storage: &Storage, config: ServerConfig) -> Server {
         checkpoint,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::sync::Notify;
+
+    use super::CheckpointHandle;
+
+    #[tokio::test]
+    async fn stopping_a_checkpoint_handle_signals_and_joins_the_task() {
+        // A stand-in scheduler task that exits once its shutdown is signaled,
+        // exactly as `CheckpointScheduler::run` does at its loop boundary.
+        let shutdown = Arc::new(Notify::new());
+        let task = tokio::spawn({
+            let shutdown = shutdown.clone();
+            async move { shutdown.notified().await }
+        });
+        let handle = CheckpointHandle { task, shutdown };
+
+        // Returns only once the task observed the signal and exited — a hang
+        // here would fail the test, proving the cooperative stop joins cleanly.
+        handle.stop().await;
+    }
+}
