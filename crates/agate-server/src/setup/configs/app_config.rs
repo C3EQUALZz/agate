@@ -10,14 +10,15 @@ use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
 use serde::{Deserialize, Serialize};
 
-use super::audit_section::{AuditBackend, AuditSection};
+use super::audit_section::{AuditBackend, AuditSection, OnFull};
 use super::observability::ObservabilityConfig;
 use super::policy_section::{
     ArgumentRuleConfig, MalformedMode, PolicyFailMode, PolicySection, ResultRuleConfig, ToolMode,
 };
 use super::proxy_section::ProxySection;
 use super::tls::TlsConfig;
-use crate::setup::bootstrap::CheckpointSettings;
+use crate::infrastructure::audit::FullPolicy;
+use crate::setup::bootstrap::{CheckpointSettings, OutboxSettings};
 
 /// The full application configuration — the server's composition root for
 /// on-disk config.
@@ -151,6 +152,18 @@ impl AppConfig {
         Ok(PolicyRuleset::new(tools, argument_rules, secrets).with_result_rules(result_rules))
     }
 
+    /// How the audit outbox is sized and behaves when full.
+    #[must_use]
+    pub fn outbox_settings(&self) -> OutboxSettings {
+        OutboxSettings {
+            capacity: self.audit.outbox_capacity,
+            on_full: match self.audit.outbox_on_full {
+                OnFull::Block => FullPolicy::Block,
+                OnFull::Shed => FullPolicy::Shed,
+            },
+        }
+    }
+
     /// How the periodic checkpoint issuer should run, or `None` when disabled
     /// (`checkpoint_interval_secs = 0`). The signing key itself is loaded from
     /// the environment by the key store; here we only carry its id.
@@ -206,6 +219,7 @@ mod tests {
     use agate_policy::domain::decision::{InspectedAction, PolicyDecision, ToolPolicy};
 
     use super::super::policy_section::{ArgumentRuleConfig, ToolsSection};
+    use super::FullPolicy;
     use super::{AppConfig, FailMode, PolicySection, ProxySection, ToolMode};
 
     fn with_policy(mode: ToolMode, names: &[&str], redact: &[&str]) -> AppConfig {
@@ -239,6 +253,32 @@ mod tests {
         let settings = config.checkpoint_settings().expect("enabled");
         assert_eq!(settings.period.as_secs(), 3600);
         assert_eq!(settings.key.0, "k");
+    }
+
+    #[test]
+    fn outbox_settings_default_to_block_and_map_shed() {
+        use super::super::audit_section::OnFull;
+
+        let blocking = AppConfig::default().outbox_settings();
+        assert_eq!(blocking.capacity, 1024);
+        assert_eq!(blocking.on_full, FullPolicy::Block);
+
+        let mut config = AppConfig::default();
+        config.audit.outbox_capacity = 8;
+        config.audit.outbox_on_full = OnFull::Shed;
+        let shedding = config.outbox_settings();
+        assert_eq!(shedding.capacity, 8);
+        assert_eq!(shedding.on_full, FullPolicy::Shed);
+    }
+
+    #[test]
+    fn a_zero_outbox_capacity_is_rejected() {
+        let mut config = AppConfig::default();
+        config.proxy.agent_endpoint = "http://agent/run".into();
+        config.audit.database_url = "postgres://db".into();
+        assert!(config.validate().is_ok());
+        config.audit.outbox_capacity = 0;
+        assert!(config.validate().is_err());
     }
 
     #[test]

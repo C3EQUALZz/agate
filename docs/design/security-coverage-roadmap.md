@@ -34,7 +34,7 @@ enforce it. File references are to `crates/` on `main`.
 | **A3 — instruction integrity / prompt injection** | resist injection incl. indirect (URL content, tool results) | tool **results** now reach the policy and are secret-redacted; broader injection heuristics still absent | partial — no anti-injection heuristics yet |
 | **A4 — shared-state integrity** | verdict on state-mutating events; validate & bound JSON Patch | `STATE_*` payload reaches the policy (a secret marker is denied); a `STATE_DELTA` is validated as well-formed RFC 6902 (known op kinds, present path) and bounded by op count, pointer depth, and per-op value size | done at the structural level — semantic path-allowlisting (which paths an op may touch) is future |
 | **A5 — availability / DoS** | size/time **and rate** budgets per run and per connection | global concurrency cap, body-size limit, connect/read timeouts, **per-run response budget** (`max_response_events`/`max_response_bytes`), **per-client-IP rate limit** (`rate_limit_per_second`/`rate_limit_burst`, `429`) | done for the request leg; per-session (sub-IP) limits still open |
-| **A6 — audit tamper-evidence** | every inspected event + verdict recorded | recorded via a bounded outbox channel | **silent drop under backpressure** — `record()` returns `()`, data plane never learns of a lost record |
+| **A6 — audit tamper-evidence** | every inspected event + verdict recorded | recorded via a bounded outbox; fill exported as `agate_audit_outbox_depth`/`_capacity`; on a full outbox the `[audit].outbox_on_full` policy applies — `block` (backpressure, never drop) or `shed` (drop, loudly logged + counted) | a drop is no longer silent (gauge + counter + log); periodic signed checkpoints (PR #72) bound how much an undetected gap could hide |
 
 ### Cross-cutting gaps (not a single asset)
 
@@ -147,9 +147,10 @@ the proxy.
   results — and a domain host is resolved through the `HostResolver` port with
   its addresses re-checked (DNS-rebinding closed). Response-leg screening is
   per-event (a URL split across streamed chunks is not reassembled).
-- **Audit completeness (A6):** surface outbox backpressure to operators
-  (a saturation metric + a configurable policy: block the data plane, or shed
-  with a loud alert) so a gap in the tamper-evident log is never silent.
+- **Audit completeness (A6):** ✅ done — the outbox fill is exported
+  (`agate_audit_outbox_depth`/`_capacity`) and `[audit].outbox_on_full` chooses
+  `block` (backpressure the data plane) or `shed` (drop with a loud
+  log + drop counter), so a gap in the tamper-evident log is never silent.
 - **Per-session memory (G2):** optional session-scoped state so a denied action
   cannot be replayed across runs.
 - **Hidden-field screening (G3):** ✅ done — `system` content and the

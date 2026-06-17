@@ -66,6 +66,8 @@ docker run --rm \
 | `connect_backoff_secs` | нет | `1` | Базовый бэкофф между попытками подключения (удваивается каждый повтор, с потолком). |
 | `checkpoint_interval_secs` | нет | `0` | Как часто фоновая задача выпускает подписанный чекпоинт (STH) для журнала, в секундах (`0` = выключено). Собственная каденция доказуемости журнала (как частота STH в CT-логе); неизменное между тиками дерево подписывается, но повторно не якорится. Требует ключ подписи (ниже). |
 | `checkpoint_key_id` | нет | `checkpoint-ed25519` | Идентификатор ключа подписи, который запрашивает периодический издатель; должен совпадать с загруженным в хранилище (`AUDIT_CHECKPOINT_KEY_ID`). |
+| `outbox_capacity` | нет | `1024` | Сколько инспектированных записей может стоять в очереди в журнал прозрачности до заполнения outbox. Ограничено, чтобы медленная БД не растила память без предела. |
+| `outbox_on_full` | нет | `block` | Что делает прокси при полном outbox: `block` (backpressure — медленная БД замедляет прокси, но запись не теряется; по умолчанию) или `shed` (отбросить запись, с громким логом и счётчиком, чтобы прокси продолжал работать ценой пробела в журнале). |
 
 ### Ключ подписи чекпоинтов
 
@@ -129,6 +131,7 @@ Ed25519-ключ задаётся **только** через окружение
 - `agate_events_inspected_total{outcome="forward|buffer|transform|deny|terminate"}` — проинспектированные события по исходу (разбивка по вердиктам).
 - `agate_upstream_errors_total{kind="connect|timeout|status|stream"}` — ошибки запроса/потока к вышестоящему агенту по видам.
 - `agate_audit_records_appended_total` / `agate_audit_records_dropped_total` — записи в журнал прозрачности против дропов (ненулевой drop-rate = аудит не успевает, ставьте алерт).
+- `agate_audit_outbox_depth` / `agate_audit_outbox_capacity` — gauge'и заполненности outbox; depth у capacity = растёт backpressure (прокси вот-вот замедлится при `block` или начнёт шедить при `shed`). Алерт до насыщения.
 
 Готовый стек Prometheus + Grafana с преднастроенным дашбордом — в
 [`deploy/observability/`](https://github.com/C3EQUALZz/agate/tree/main/deploy/observability).
@@ -206,6 +209,8 @@ connect_max_retries = 10
 connect_backoff_secs = 1
 checkpoint_interval_secs = 0   # 0 = выключено; включить вместе с AUDIT_CHECKPOINT_SEED
 checkpoint_key_id = "checkpoint-ed25519"
+outbox_capacity = 1024
+outbox_on_full = "block"   # block (backpressure) | shed (drop + alert)
 
 [policy.tools]
 mode = "allowlist"

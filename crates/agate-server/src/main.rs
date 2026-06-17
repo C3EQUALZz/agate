@@ -17,7 +17,7 @@ use agate_audit::application::usecases::create_log::CreateLog;
 use agate_audit::domain::merkle::LogId;
 use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_audit::setup::storage::Storage;
-use agate_server::setup::bootstrap::build_server;
+use agate_server::setup::bootstrap::{ServerConfig, build_server};
 use agate_server::setup::configs::load;
 use agate_server::setup::observability::{init_logging, init_metrics};
 use agate_server::setup::tls::load_tls;
@@ -66,13 +66,16 @@ async fn main() {
     let log = resolve_log(&storage, pinned_log_id).await;
     info!(log = %log.0, "recording to transparency log");
     let server = build_server(
-        proxy,
         &storage,
-        log,
-        ruleset,
-        config.policy_fail_mode(),
-        config.policy_decision_timeout(),
-        config.checkpoint_settings(),
+        ServerConfig {
+            proxy,
+            log,
+            ruleset,
+            fail_mode: config.policy_fail_mode(),
+            decision_timeout: config.policy_decision_timeout(),
+            checkpoint: config.checkpoint_settings(),
+            outbox: config.outbox_settings(),
+        },
     );
 
     // Drive graceful shutdown through an axum-server Handle: on SIGINT/SIGTERM

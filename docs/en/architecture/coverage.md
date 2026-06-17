@@ -46,10 +46,11 @@ gaps live in the repository at
   `rate_limit_burst`, off by default) that sheds floods with `429`. The IP is
   the connection peer, so it is only meaningful where Agate sees the real
   client.
-- **Audit completeness:** records are queued to a bounded outbox; under
-  sustained backpressure a record can be dropped (logged + counted) without
-  stalling the data plane — so a saturated outbox can leave a gap in the
-  transparency log. Monitor the audit drop metric.
+- **Audit completeness:** records are queued to a bounded outbox whose fill is
+  exported (`agate_audit_outbox_depth` / `_capacity`). On a full outbox the
+  `[audit].outbox_on_full` policy decides: `block` (default — backpressure the
+  proxy, never lose a record) or `shed` (drop, loudly logged and counted, never
+  silent). Monitor the depth gauge and the drop counter.
 - **TLS** is terminated at the proxy (required to inspect plaintext); it is off
   by default and configured under `[tls]`.
 
@@ -57,8 +58,8 @@ gaps live in the repository at
 
 Closing the remaining gaps is sequenced in
 [`security-coverage-roadmap.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/security-coverage-roadmap.md):
-audit-completeness signalling and per-session memory. (Malformed-event
+per-session memory. (Malformed-event
 fail-closed, tool-argument deny rules, secret redaction of tool results and
 state, per-run response budgets, SSRF screening on both legs with
-DNS-rebinding resolution, and RFC 6902 patch validation/bounding are now
-implemented.)
+DNS-rebinding resolution, RFC 6902 patch validation/bounding, and audit-outbox
+backpressure signalling with a block/shed policy are now implemented.)

@@ -19,16 +19,21 @@ use agate_proxy::setup::bootstrap::build_app_with;
 use agate_proxy::setup::configs::ProxyConfig;
 
 use crate::infrastructure::audit::{
-    AuditLogSink, AuditOutbox, CheckpointIssuer, CheckpointScheduler, RecordAppender,
+    AuditLogSink, AuditOutbox, CheckpointIssuer, CheckpointScheduler, FullPolicy, RecordAppender,
 };
 use crate::infrastructure::policy::PolicyAdapter;
 use crate::presentation::http::readiness;
 use crate::setup::bootstrap::{ScopedAppender, ScopedIssuer};
 
-/// How many inspected records may queue before the forwarding path feels
-/// backpressure from the audit write. Bounded so a slow database cannot grow
-/// memory without limit.
-const OUTBOX_CAPACITY: usize = 1024;
+/// How the audit outbox is sized and behaves when full. Bounded so a slow
+/// database cannot grow memory without limit; `on_full` is the operator's
+/// completeness-vs-availability choice for a saturated queue.
+pub struct OutboxSettings {
+    /// How many inspected records may queue before the channel is full.
+    pub capacity: usize,
+    /// What to do when the queue is full: block (backpressure) or shed.
+    pub on_full: FullPolicy,
+}
 
 /// How a periodic signed checkpoint (STH) is issued for the log.
 pub struct CheckpointSettings {
@@ -52,30 +57,45 @@ pub struct Server {
     pub checkpoint: Option<JoinHandle<()>>,
 }
 
-/// Wire the proxy to the policy `ruleset` and the audit log identified by `log`,
-/// backed by `pool`.
+/// Everything the server is wired from, beyond the connected `storage`: the
+/// proxy data-plane config, the transparency log to record into, the policy
+/// ruleset, the policy-decision fail mode and deadline, the optional checkpoint
+/// cadence, and the audit-outbox sizing/backpressure policy.
+pub struct ServerConfig {
+    pub proxy: ProxyConfig,
+    pub log: LogId,
+    pub ruleset: PolicyRuleset,
+    pub fail_mode: FailMode,
+    pub decision_timeout: Duration,
+    pub checkpoint: Option<CheckpointSettings>,
+    pub outbox: OutboxSettings,
+}
+
+/// Wire the proxy to the policy ruleset and the audit log, backed by `storage`.
 ///
 /// Policy decisions come from `agate-policy` (via [`PolicyAdapter`]); the audit
 /// sink is the real bridge to the transparency log. Must be called from within a
 /// Tokio runtime — it spawns the outbox task.
 #[must_use]
-pub fn build_server(
-    proxy: ProxyConfig,
-    storage: &Storage,
-    log: LogId,
-    ruleset: PolicyRuleset,
-    fail_mode: FailMode,
-    decision_timeout: Duration,
-    checkpoint: Option<CheckpointSettings>,
-) -> Server {
+pub fn build_server(storage: &Storage, config: ServerConfig) -> Server {
+    let ServerConfig {
+        proxy,
+        log,
+        ruleset,
+        fail_mode,
+        decision_timeout,
+        checkpoint,
+        outbox,
+    } = config;
+
     let container = build_container(storage);
     let registry = Arc::new(build_registry());
     let metrics: Arc<dyn AuditMetrics> = Arc::new(AuditMetricsRecorder);
 
     let appender: Arc<dyn RecordAppender> =
         Arc::new(ScopedAppender::new(container.clone(), registry.clone()));
-    let (tx, rx) = mpsc::channel::<Vec<u8>>(OUTBOX_CAPACITY);
-    let outbox = tokio::spawn(AuditOutbox::new(appender, log, metrics.clone()).run(rx));
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(outbox.capacity);
+    let outbox_task = tokio::spawn(AuditOutbox::new(appender, log, metrics.clone()).run(rx));
 
     // The transparency log's own STH cadence: a background task signs the head
     // on an interval (disabled unless configured). It reuses the same audit
@@ -95,7 +115,7 @@ pub fn build_server(
         fail_mode,
         decision_timeout,
     ));
-    let audit: Arc<dyn AuditSink> = Arc::new(AuditLogSink::new(tx, metrics));
+    let audit: Arc<dyn AuditSink> = Arc::new(AuditLogSink::new(tx, metrics, outbox.on_full));
 
     // Readiness is reported through the store's HealthCheck port, supplied by
     // the connected backend — so swapping the store touches neither this nor the
@@ -105,7 +125,7 @@ pub fn build_server(
 
     Server {
         app,
-        outbox,
+        outbox: outbox_task,
         checkpoint,
     }
 }

@@ -8,4 +8,4 @@ pub mod server;
 
 pub use appender::ScopedAppender;
 pub use checkpoint_issuer::ScopedIssuer;
-pub use server::{CheckpointSettings, Server, build_server};
+pub use server::{CheckpointSettings, OutboxSettings, Server, ServerConfig, build_server};
