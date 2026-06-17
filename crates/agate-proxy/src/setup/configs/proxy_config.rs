@@ -49,6 +49,10 @@ pub struct ProxyConfig {
     /// Burst depth for the per-IP rate limit (largest instantaneous burst); `0`
     /// falls back to [`rate_limit_per_second`](Self::rate_limit_per_second).
     pub rate_limit_burst: u32,
+    /// Cross-run replay memory: `Some(ttl)` quarantines a tool denied in one run
+    /// for the rest of the session (forgotten after `ttl` of inactivity); `None`
+    /// disables it (the policy is judged afresh every run).
+    pub session_memory_ttl: Option<Duration>,
 }
 
 impl ProxyConfig {
@@ -67,6 +71,7 @@ impl ProxyConfig {
             response_budget: ResponseBudget::default(),
             rate_limit_per_second: 0,
             rate_limit_burst: 0,
+            session_memory_ttl: None,
         }
     }
 
@@ -109,6 +114,14 @@ impl ProxyConfig {
     pub fn with_rate_limit(mut self, per_second: u32, burst: u32) -> Self {
         self.rate_limit_per_second = per_second;
         self.rate_limit_burst = burst;
+        self
+    }
+
+    /// Override the cross-run session-replay memory (`Some(ttl)` enables it with
+    /// that inactivity TTL; `None` disables it).
+    #[must_use]
+    pub fn with_session_memory(mut self, ttl: Option<Duration>) -> Self {
+        self.session_memory_ttl = ttl;
         self
     }
 

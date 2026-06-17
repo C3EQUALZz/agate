@@ -14,5 +14,5 @@ pub use agent::ReqwestAgentClient;
 pub use audit::NoopAuditSink;
 pub use dns::{NoopHostResolver, TokioHostResolver};
 pub use fail_mode_policy::{FailMode, FailModePolicy};
-pub use policy::AllowAllPolicy;
+pub use policy::{AllowAllPolicy, InMemorySessionMemory, NoopSessionMemory};
 pub use proxy_metrics::ProxyMetricsRecorder;

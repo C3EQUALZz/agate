@@ -95,6 +95,8 @@ nothing is redacted**.
 | `[policy].fail_mode` | `open` \| `closed` | What to do if a policy decision times out: forward (`open`) or block (`closed`). Default `closed` (safety over availability). |
 | `[policy].decision_timeout_ms` | integer (ms) | Deadline for one policy decision. Default `5000`; must be > 0. |
 | `[policy].on_malformed_event` | `forward` \| `drop` \| `terminate` | What to do with a recognized response event that is malformed (a known type missing a required field), so it cannot be inspected. `forward` passes the raw frame, `drop` discards it, `terminate` ends the run. Default `terminate` (it must not bypass the policy). |
+| `[policy.session_memory].enabled` | bool | Cross-run replay memory: once a tool is denied in a run, refuse it (by name) for the rest of the session, so the agent cannot retry it with varied arguments in a later run. Defense-in-depth over the stateless policy. Default `false`. |
+| `[policy.session_memory].ttl_secs` | integer (s) | How long a session's quarantine survives without activity. A session idle longer than this is forgotten. Default `3600`; must be > 0 when enabled. State is process-local — front several replicas with a shared backend when a session may span instances. |
 
 !!! warning "Invalid policy aborts startup"
     A blank or invalid tool name, or an empty redaction pattern, **aborts
@@ -230,6 +232,10 @@ redact_regex = ["sk-[A-Za-z0-9]{20,}", "AKIA[0-9A-Z]{16}"]
 fail_mode = "closed"
 decision_timeout_ms = 5000
 on_malformed_event = "terminate"
+
+[policy.session_memory]
+enabled = false
+ttl_secs = 3600
 
 [observability.logging]
 enabled = true
