@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::action::InspectionAction;
 use super::context::InspectionContext;
 use super::request::{RequestContent, RequestDecision, first_disallowed_url};
-use crate::application::common::ports::{AuditSink, HostResolver, PolicyPort};
+use crate::application::common::ports::{AuditSink, HostResolver, PolicyPort, SessionMemory};
 use crate::domain::inspection::{
     AgentEvent, DenyReason, Fragment, MessageId, Run, StructuralOutcome, ToolCallId, Verdict,
 };
@@ -24,6 +24,7 @@ pub struct Inspector {
     policy: Arc<dyn PolicyPort>,
     audit: Arc<dyn AuditSink>,
     resolver: Arc<dyn HostResolver>,
+    memory: Arc<dyn SessionMemory>,
 }
 
 impl Inspector {
@@ -31,11 +32,13 @@ impl Inspector {
         policy: Arc<dyn PolicyPort>,
         audit: Arc<dyn AuditSink>,
         resolver: Arc<dyn HostResolver>,
+        memory: Arc<dyn SessionMemory>,
     ) -> Self {
         Self {
             policy,
             audit,
             resolver,
+            memory,
         }
     }
 
@@ -49,6 +52,16 @@ impl Inspector {
             StructuralOutcome::Buffering => InspectionAction::Hold,
             StructuralOutcome::Reject(reason) => InspectionAction::Terminate(reason),
             StructuralOutcome::Ready(event) => {
+                // Replay guard: a tool quarantined by an earlier denial in this
+                // session is refused across runs, before any fresh evaluation.
+                if let Some(name) = tool_name(&event)
+                    && let Some(reason) = self.memory.recall(context.session, name).await
+                {
+                    self.audit
+                        .record(context, &event, &Verdict::Deny(reason.clone()))
+                        .await;
+                    return InspectionAction::Drop(reason);
+                }
                 // SSRF screen on any URL the event carries (a tool-call argument,
                 // an emitted message, or a tool result), resolving domain hosts —
                 // the response-leg counterpart to the request-leg guard. A hit
@@ -59,10 +72,14 @@ impl Inspector {
                     self.audit
                         .record(context, &event, &Verdict::Deny(reason.clone()))
                         .await;
+                    self.remember_tool_denial(context, &event, &reason).await;
                     return InspectionAction::Drop(reason);
                 }
                 let verdict = self.policy.decide(context, &event).await;
                 self.audit.record(context, &event, &verdict).await;
+                if let Verdict::Deny(reason) = &verdict {
+                    self.remember_tool_denial(context, &event, reason).await;
+                }
                 match verdict {
                     Verdict::Allow => InspectionAction::Forward,
                     Verdict::Transform(replacement) => {
@@ -93,7 +110,16 @@ impl Inspector {
                 name: name.clone(),
                 arguments: String::new(),
             };
+            // Replay guard first: a tool quarantined earlier in this session is
+            // refused without re-evaluating it.
+            if let Some(reason) = self.memory.recall(context.session, name).await {
+                self.audit
+                    .record(context, &event, &Verdict::Deny(reason.clone()))
+                    .await;
+                return RequestDecision::Reject(reason);
+            }
             if let Some(reason) = self.reject_reason(context, &event).await {
+                self.memory.remember(context.session, name, &reason).await;
                 return RequestDecision::Reject(reason);
             }
         }
@@ -145,6 +171,20 @@ impl Inspector {
             .await;
         Some(reason)
     }
+
+    /// Quarantine the tool behind `event` for the rest of the session when it is
+    /// denied, so the agent cannot replay it (with varied arguments) in a later
+    /// run. A no-op for non-tool events and when memory is disabled.
+    async fn remember_tool_denial(
+        &self,
+        context: &InspectionContext,
+        event: &AgentEvent,
+        reason: &DenyReason,
+    ) {
+        if let Some(name) = tool_name(event) {
+            self.memory.remember(context.session, name, reason).await;
+        }
+    }
 }
 
 /// The text of an event that may carry a URL worth SSRF-screening: a tool call's
@@ -162,18 +202,32 @@ fn url_bearing_text(event: &AgentEvent) -> Option<&str> {
     }
 }
 
+/// The tool name behind `event` if it is a tool call — the unit the session
+/// ledger quarantines. `None` for every other event kind.
+fn tool_name(event: &AgentEvent) -> Option<&str> {
+    match event {
+        AgentEvent::ToolCall { name, .. } => Some(name),
+        AgentEvent::MessageChunk { .. }
+        | AgentEvent::ToolResult { .. }
+        | AgentEvent::StateMutation(_)
+        | AgentEvent::Lifecycle(_)
+        | AgentEvent::Opaque(_) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use async_trait::async_trait;
     use uuid::Uuid;
 
     use super::{Inspector, RequestContent, RequestDecision};
-    use crate::application::common::ports::{AuditSink, PolicyPort};
+    use crate::application::common::ports::{AuditSink, PolicyPort, SessionMemory};
     use crate::application::inspection::InspectionContext;
     use crate::domain::inspection::{AgentEvent, DenyReason, RunId, SessionId, Verdict};
-    use crate::infrastructure::NoopHostResolver;
+    use crate::infrastructure::{InMemorySessionMemory, NoopHostResolver, NoopSessionMemory};
 
     struct NoopAudit;
     #[async_trait]
@@ -208,7 +262,19 @@ mod tests {
     }
 
     fn inspector(policy: Arc<dyn PolicyPort>) -> Inspector {
-        Inspector::new(policy, Arc::new(NoopAudit), Arc::new(NoopHostResolver))
+        inspector_with_memory(policy, Arc::new(NoopSessionMemory))
+    }
+
+    fn inspector_with_memory(
+        policy: Arc<dyn PolicyPort>,
+        memory: Arc<dyn SessionMemory>,
+    ) -> Inspector {
+        Inspector::new(
+            policy,
+            Arc::new(NoopAudit),
+            Arc::new(NoopHostResolver),
+            memory,
+        )
     }
 
     #[tokio::test]
@@ -260,5 +326,30 @@ mod tests {
             .inspect_request(&context(), &content)
             .await;
         assert!(matches!(decision, RequestDecision::Reject(_)));
+    }
+
+    #[tokio::test]
+    async fn a_tool_denied_in_one_run_is_quarantined_for_the_whole_session() {
+        let memory: Arc<dyn SessionMemory> =
+            Arc::new(InMemorySessionMemory::new(Duration::from_hours(1)));
+        let offered = RequestContent {
+            offered_tools: vec!["delete_file".to_owned()],
+            ..RequestContent::default()
+        };
+
+        // Run 1: the policy denies `delete_file`, which the session remembers.
+        let run_one = inspector_with_memory(Arc::new(DenyDelete), memory.clone());
+        assert!(matches!(
+            run_one.inspect_request(&context(), &offered).await,
+            RequestDecision::Reject(_)
+        ));
+
+        // Run 2 (same session): an allow-all policy would permit the tool, but
+        // the session ledger refuses the replay regardless.
+        let run_two = inspector_with_memory(Arc::new(AllowAll), memory);
+        assert!(matches!(
+            run_two.inspect_request(&context(), &offered).await,
+            RequestDecision::Reject(_)
+        ));
     }
 }

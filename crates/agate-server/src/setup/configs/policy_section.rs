@@ -21,13 +21,23 @@ pub struct PolicySection {
     /// type with a missing/blank required field, so it cannot be inspected):
     /// `forward`, `drop`, or `terminate`. Defaults to the secure `terminate`.
     pub on_malformed_event: MalformedMode,
+    /// Cross-run replay memory: once a tool is denied in a run, refuse it for
+    /// the rest of the session (across runs). Off by default — the policy is
+    /// otherwise stateless.
+    pub session_memory: SessionMemorySection,
 }
 
 impl PolicySection {
-    /// Fail fast on a zeroed decision deadline.
+    /// Fail fast on a zeroed decision deadline or, when session memory is on, a
+    /// zeroed TTL.
     pub fn validate(&self) -> Result<(), String> {
         if self.decision_timeout_ms == 0 {
             return Err("policy.decision_timeout_ms must be greater than 0".into());
+        }
+        if self.session_memory.enabled && self.session_memory.ttl_secs == 0 {
+            return Err(
+                "policy.session_memory.ttl_secs must be greater than 0 when enabled".into(),
+            );
         }
         Ok(())
     }
@@ -42,6 +52,29 @@ impl Default for PolicySection {
             fail_mode: PolicyFailMode::default(),
             decision_timeout_ms: 5000,
             on_malformed_event: MalformedMode::default(),
+            session_memory: SessionMemorySection::default(),
+        }
+    }
+}
+
+/// `[policy.session_memory]` — cross-run replay protection. When enabled, a tool
+/// denied in one run is quarantined (by name) for the rest of the session, so
+/// the agent cannot retry it with varied arguments in a later run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionMemorySection {
+    /// Enable the per-session replay ledger. Off by default (stateless policy).
+    pub enabled: bool,
+    /// How long a session's quarantine survives without activity, in seconds.
+    /// A session idle longer than this is forgotten. Must be > 0 when enabled.
+    pub ttl_secs: u64,
+}
+
+impl Default for SessionMemorySection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ttl_secs: 3600,
         }
     }
 }

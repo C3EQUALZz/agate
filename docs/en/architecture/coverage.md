@@ -11,9 +11,10 @@ gaps live in the repository at
     Agate currently enforces tool-call authorization (by **name** and by
     **argument** deny rules), secret redaction across emitted text, tool
     results, and state, SSRF screening on both legs, RFC 6902 patch
-    validation/bounding, and fail-closed handling of malformed events. It is
-    still one layer, not a complete agent firewall (it does not model state
-    semantics or per-session history) — see the roadmap for what remains.
+    validation/bounding, fail-closed handling of malformed events, and optional
+    cross-run replay memory. It is still one layer, not a complete agent
+    firewall (it does not model state semantics) — see the roadmap for what
+    remains.
 
 ## What is inspected
 
@@ -51,15 +52,24 @@ gaps live in the repository at
   `[audit].outbox_on_full` policy decides: `block` (default — backpressure the
   proxy, never lose a record) or `shed` (drop, loudly logged and counted, never
   silent). Monitor the depth gauge and the drop counter.
+- **Cross-run replay memory:** off by default; enable `[policy.session_memory]`
+  to quarantine a tool (by name) for the rest of a session once it is denied,
+  so the agent cannot retry it with varied arguments in a later run. It only
+  ever *adds* a denial over the stateless policy. State is process-local with a
+  sliding TTL — front several replicas with a shared backend (e.g. Redis) when a
+  session may span instances.
 - **TLS** is terminated at the proxy (required to inspect plaintext); it is off
   by default and configured under `[tls]`.
 
 ## Roadmap
 
-Closing the remaining gaps is sequenced in
-[`security-coverage-roadmap.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/security-coverage-roadmap.md):
-per-session memory. (Malformed-event
-fail-closed, tool-argument deny rules, secret redaction of tool results and
-state, per-run response budgets, SSRF screening on both legs with
-DNS-rebinding resolution, RFC 6902 patch validation/bounding, and audit-outbox
-backpressure signalling with a block/shed policy are now implemented.)
+The remaining work is forward-looking — semantic state-path allowlisting, a
+plugin policy engine, sub-IP / per-API-key rate limits, and a shared
+(e.g. Redis-backed) session memory for multi-replica deployments — and is
+sequenced in
+[`security-coverage-roadmap.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/security-coverage-roadmap.md).
+(Malformed-event fail-closed, tool-argument deny rules, secret redaction of tool
+results and state, per-run response budgets, SSRF screening on both legs with
+DNS-rebinding resolution, RFC 6902 patch validation/bounding, audit-outbox
+backpressure signalling with a block/shed policy, and cross-run per-session
+replay memory are now implemented.)

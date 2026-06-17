@@ -249,6 +249,7 @@ mod tests {
             policy,
             Arc::new(NoopAudit),
             Arc::new(crate::infrastructure::NoopHostResolver),
+            Arc::new(crate::infrastructure::NoopSessionMemory),
         ))
     }
 

@@ -4,10 +4,11 @@ use froodi::{
     DefaultScope::App, Inject, async_impl::Container, async_registry, instance, registry,
 };
 
-use crate::application::common::ports::{AuditSink, HostResolver, PolicyPort};
+use crate::application::common::ports::{AuditSink, HostResolver, PolicyPort, SessionMemory};
 use crate::application::inspection::Inspector;
 use crate::infrastructure::{
-    AllowAllPolicy, NoopAuditSink, ProxyMetricsRecorder, ReqwestAgentClient, TokioHostResolver,
+    AllowAllPolicy, InMemorySessionMemory, NoopAuditSink, NoopSessionMemory, ProxyMetricsRecorder,
+    ReqwestAgentClient, TokioHostResolver,
 };
 use crate::setup::configs::ProxyConfig;
 use crate::setup::ioc::handles::{ProxyMetricsHandle, UpstreamAgentClientHandle};
@@ -24,6 +25,10 @@ pub fn build_container(config: ProxyConfig) -> Container {
 /// App-scoped: the proxy holds no per-request state). The `froodi` axum layer
 /// opens a request scope per request and resolves these singletons from the App
 /// parent.
+///
+/// The session-replay ledger is assembled here from [`ProxyConfig`] (a no-op
+/// unless a TTL is configured), since the in-memory adapter is proxy-internal —
+/// only the cross-context policy and audit adapters are injected.
 #[must_use]
 pub fn build_container_with(
     config: ProxyConfig,
@@ -45,9 +50,13 @@ pub fn build_container_with(
                     )))
                 }),
                 provide(|| Ok(ProxyMetricsHandle(Arc::new(ProxyMetricsRecorder)))),
-                provide(move || {
+                provide(move |Inject(config): Inject<ProxyConfig>| {
                     let resolver: Arc<dyn HostResolver> = Arc::new(TokioHostResolver);
-                    Ok(Inspector::new(policy.clone(), audit.clone(), resolver))
+                    let memory: Arc<dyn SessionMemory> = match config.session_memory_ttl {
+                        Some(ttl) => Arc::new(InMemorySessionMemory::new(ttl)),
+                        None => Arc::new(NoopSessionMemory),
+                    };
+                    Ok(Inspector::new(policy.clone(), audit.clone(), resolver, memory))
                 }),
             ]
         })

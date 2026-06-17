@@ -75,6 +75,7 @@ impl AppConfig {
                 self.proxy.rate_limit_per_second,
                 self.proxy.rate_limit_burst,
             )
+            .with_session_memory(self.session_memory_ttl())
     }
 
     /// How the response leg treats a recognized-but-malformed event.
@@ -84,6 +85,15 @@ impl AppConfig {
             MalformedMode::Drop => MalformedEventMode::Drop,
             MalformedMode::Terminate => MalformedEventMode::Terminate,
         }
+    }
+
+    /// The cross-run replay-memory TTL when `[policy.session_memory]` is enabled,
+    /// else `None` (the proxy then judges every run statelessly).
+    fn session_memory_ttl(&self) -> Option<Duration> {
+        self.policy
+            .session_memory
+            .enabled
+            .then(|| Duration::from_secs(self.policy.session_memory.ttl_secs))
     }
 
     /// The set of accepted API keys: the `api_keys` array plus the single

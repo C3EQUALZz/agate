@@ -11,7 +11,7 @@ use agate_proxy::domain::inspection::{
     AgentEvent, Budgets, DenyReason, Fragment, LifecyclePhase, MessageId, OpaqueKind, Run, RunId,
     SessionId, ToolCallId, Verdict,
 };
-use agate_proxy::infrastructure::NoopHostResolver;
+use agate_proxy::infrastructure::{NoopHostResolver, NoopSessionMemory};
 
 use crate::common::fakes::{CountingAudit, FixedPolicy};
 
@@ -31,6 +31,7 @@ fn inspector(verdict: Verdict<AgentEvent>) -> (Inspector, Arc<CountingAudit>) {
         Arc::new(FixedPolicy(verdict)),
         audit.clone(),
         Arc::new(NoopHostResolver),
+        Arc::new(NoopSessionMemory),
     );
     (inspector, audit)
 }

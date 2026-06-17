@@ -45,9 +45,14 @@ enforce it. File references are to `crates/` on `main`.
   `[policy].on_malformed_event` (`forward` | `drop` | `terminate`), defaulting
   to the secure `terminate`. An unknown type / non-object / non-JSON frame still
   forwards unchanged.
-- **G2 — no cross-run / per-session state.** `SessionId` is threaded through but
-  the policy is stateless: a denied action can be retried in a fresh run within
-  the same session; there are no per-session or per-key quotas.
+- **G2 — no cross-run / per-session state.** ✅ **Closed (replay memory).** An
+  optional per-session ledger (`[policy.session_memory]`, off by default)
+  quarantines a tool by name once it is denied, so the agent cannot retry it —
+  with varied arguments — in a later run of the same session. It only *adds* a
+  denial over the stateless policy (a backend outage degrades to "no memory",
+  never to a wrong allow). The default adapter is process-local with a sliding
+  TTL; a shared backend (e.g. Redis) for multi-replica deployments, and broader
+  per-key quotas, remain future work.
 - **G3 — hidden request fields uninspected.** ✅ **Closed.** The request leg
   now also screens `system` message content and the `context`,
   `forwardedProps`, and inbound `state` JSON (`RequestContent.hidden_fields`),
@@ -151,8 +156,11 @@ the proxy.
   (`agate_audit_outbox_depth`/`_capacity`) and `[audit].outbox_on_full` chooses
   `block` (backpressure the data plane) or `shed` (drop with a loud
   log + drop counter), so a gap in the tamper-evident log is never silent.
-- **Per-session memory (G2):** optional session-scoped state so a denied action
-  cannot be replayed across runs.
+- **Per-session memory (G2):** ✅ done — `[policy.session_memory]` (off by
+  default) keeps a per-session ledger so a tool denied in one run is refused
+  (by name) for the rest of the session. A new `SessionMemory` port with a
+  process-local sliding-TTL adapter; a shared (Redis) backend for multi-replica
+  deployments is the next step.
 - **Hidden-field screening (G3):** ✅ done — `system` content and the
   `context` / `forwardedProps` / inbound `state` JSON are extracted into
   `RequestContent.hidden_fields` and screened on the request leg.
