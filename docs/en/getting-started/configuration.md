@@ -65,6 +65,8 @@ aborts startup — fail fast on misconfiguration rather than running degraded.
 | `connect_backoff_secs` | no | `1` | Base backoff between connect attempts (doubled each retry, capped). |
 | `checkpoint_interval_secs` | no | `0` | How often a background task issues a signed checkpoint (STH) for the log, in seconds (`0` = disabled). The log's own tamper-evidence cadence (like a CT log's STH frequency); an idle log between ticks is signed but not re-anchored. Requires a signing key (see below). |
 | `checkpoint_key_id` | no | `checkpoint-ed25519` | The signing key id the periodic issuer requests; must match the key the store loaded (`AUDIT_CHECKPOINT_KEY_ID`). |
+| `outbox_capacity` | no | `1024` | How many inspected records may queue for the transparency log before the outbox is full. Bounded so a slow database cannot grow memory without limit. |
+| `outbox_on_full` | no | `block` | What the proxy does when the outbox is full: `block` (apply backpressure — a slow DB slows the proxy, never loses a record; the default) or `shed` (drop the record, loudly logged and counted, so the proxy keeps serving at the cost of a transparency-log gap). |
 
 ### Checkpoint signing key
 
@@ -128,6 +130,7 @@ Exposed metrics:
 - `agate_events_inspected_total{outcome="forward|buffer|transform|deny|terminate"}` — inspected events by outcome (the verdict breakdown).
 - `agate_upstream_errors_total{kind="connect|timeout|status|stream"}` — upstream agent request/stream failures by kind.
 - `agate_audit_records_appended_total` / `agate_audit_records_dropped_total` — transparency-log writes vs. drops (a non-zero drop rate means audit is falling behind — alert on it).
+- `agate_audit_outbox_depth` / `agate_audit_outbox_capacity` — gauges of how full the audit outbox is; depth approaching capacity is backpressure building (the proxy is about to slow down under `block`, or shed under `shed`). Alert before it saturates.
 
 A ready-to-run Prometheus + Grafana stack with a pre-built dashboard lives in
 [`deploy/observability/`](https://github.com/C3EQUALZz/agate/tree/main/deploy/observability).
@@ -204,6 +207,8 @@ connect_max_retries = 10
 connect_backoff_secs = 1
 checkpoint_interval_secs = 0   # 0 = disabled; set with AUDIT_CHECKPOINT_SEED
 checkpoint_key_id = "checkpoint-ed25519"
+outbox_capacity = 1024
+outbox_on_full = "block"   # block (backpressure) | shed (drop + alert)
 
 [policy.tools]
 mode = "allowlist"

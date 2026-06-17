@@ -23,6 +23,24 @@ pub struct AuditSection {
     /// The signing key id the periodic issuer asks for — must match the key the
     /// store loaded (`AUDIT_CHECKPOINT_KEY_ID`, same default).
     pub checkpoint_key_id: String,
+    /// How many inspected records may queue for the audit log before the outbox
+    /// is full. Bounded so a slow database cannot grow memory without limit.
+    pub outbox_capacity: usize,
+    /// What the proxy does when the outbox is full: `block` (apply backpressure,
+    /// never lose a record — the default) or `shed` (drop with a loud alert so
+    /// the proxy keeps serving, accepting a transparency-log gap).
+    pub outbox_on_full: OnFull,
+}
+
+/// The full-outbox policy — completeness (`block`) vs availability (`shed`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OnFull {
+    /// Apply backpressure and never drop — the secure default for a log.
+    #[default]
+    Block,
+    /// Drop the record (loudly logged + counted) to keep the proxy serving.
+    Shed,
 }
 
 impl AuditSection {
@@ -31,6 +49,11 @@ impl AuditSection {
     /// requirements, not generic audit ones — a future backend validates its
     /// own variant here.
     pub fn validate(&self) -> Result<(), String> {
+        // A zero-capacity outbox would reject every record (or, unbounded, defeat
+        // the backpressure that protects memory) — require a real bound.
+        if self.outbox_capacity == 0 {
+            return Err("audit.outbox_capacity must be greater than 0".into());
+        }
         match self.backend {
             AuditBackend::Postgres => self.validate_postgres(),
         }
@@ -71,6 +94,8 @@ impl Default for AuditSection {
             // once `AUDIT_CHECKPOINT_SEED` is set.
             checkpoint_interval_secs: 0,
             checkpoint_key_id: "checkpoint-ed25519".into(),
+            outbox_capacity: 1024,
+            outbox_on_full: OnFull::Block,
         }
     }
 }

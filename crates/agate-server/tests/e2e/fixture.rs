@@ -30,7 +30,8 @@ use agate_audit::setup::storage::Storage;
 use agate_policy::domain::decision::PolicyRuleset;
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
-use agate_server::setup::bootstrap::{Server, build_server};
+use agate_server::infrastructure::audit::FullPolicy;
+use agate_server::setup::bootstrap::{OutboxSettings, Server, ServerConfig, build_server};
 use froodi::async_impl::Container;
 
 /// A run the proxy inspects into three recordable events: a lifecycle start, a
@@ -75,13 +76,19 @@ pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer
     // audit sink inside it) keeps the channel open.
     let storage = Storage::postgres(pool.clone());
     let Server { app, .. } = build_server(
-        proxy,
         &storage,
-        log,
-        ruleset,
-        FailMode::Closed,
-        Duration::from_secs(5),
-        None,
+        ServerConfig {
+            proxy,
+            log,
+            ruleset,
+            fail_mode: FailMode::Closed,
+            decision_timeout: Duration::from_secs(5),
+            checkpoint: None,
+            outbox: OutboxSettings {
+                capacity: 1024,
+                on_full: FullPolicy::Block,
+            },
+        },
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -24,4 +24,4 @@ pub use issuer::CheckpointIssuer;
 pub use outbox::AuditOutbox;
 pub use scheduler::CheckpointScheduler;
 pub use scope::ScopeError;
-pub use sink::AuditLogSink;
+pub use sink::{AuditLogSink, FullPolicy};

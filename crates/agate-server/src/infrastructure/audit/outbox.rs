@@ -86,6 +86,7 @@ mod tests {
         fn record_dropped(&self) {
             self.dropped.fetch_add(1, Ordering::SeqCst);
         }
+        fn observe_outbox_depth(&self, _used: usize, _capacity: usize) {}
     }
 
     enum Outcome {

@@ -76,6 +76,18 @@ checkpoint_key_id = "checkpoint-ed25519"
 #   AUDIT_CHECKPOINT_SEED=<64 hex chars>
 #   AUDIT_CHECKPOINT_KEY_ID=checkpoint-ed25519
 # Without the seed, checkpoint signing is disabled and the interval is moot.
+# --- Audit outbox (records queued for the transparency log) ---
+# How many inspected records may queue before the outbox is full. Bounded so a
+# slow database cannot grow memory without limit.
+outbox_capacity = 1024
+# What to do when the outbox is full:
+#   block — apply backpressure, never lose a record (the default; a transparency
+#           log values completeness, so a slow DB slows the proxy instead).
+#   shed  — drop the record (loudly logged + counted via agate_audit_records_
+#           dropped_total) so the proxy keeps serving, accepting a log gap.
+# Either way the queue depth is exported as agate_audit_outbox_depth /
+# agate_audit_outbox_capacity gauges so saturation is visible.
+outbox_on_full = "block"
 
 [policy.tools]
 # allow-all | allowlist | denylist
