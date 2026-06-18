@@ -24,17 +24,23 @@ class AgentProvider(Provider):
 
     @provide(scope=AG2Scope.APP)
     def provide_openai_config(self, settings: Settings) -> OpenAIConfig:
-        """Build the OpenAI config (optionally through an HTTP proxy)."""
+        """Build the OpenAI config (optionally through an HTTP proxy).
+
+        ``openai_base_url`` retargets any OpenAI-compatible provider (e.g.
+        Mistral); ``None`` leaves the OpenAI default.
+        """
         if settings.openai_proxy_url is None:
             return OpenAIConfig(
                 model=settings.openai_model,
                 api_key=settings.openai_api_key.get_secret_value(),
+                base_url=settings.openai_base_url,
             )
         # OpenAIConfig forwards http_client to the OpenAI SDK -- the proxy path
         # the reference uses (entrypoint builds OpenAIConfig the same way).
         return OpenAIConfig(
             model=settings.openai_model,
             api_key=settings.openai_api_key.get_secret_value(),
+            base_url=settings.openai_base_url,
             http_client=httpx.AsyncClient(proxy=settings.openai_proxy_url),
         )
 

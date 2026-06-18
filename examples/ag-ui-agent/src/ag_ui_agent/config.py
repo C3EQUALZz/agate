@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr
     openai_model: str = "gpt-4o-mini"
     openai_proxy_url: str | None = None
+    # Override the API base URL to target any OpenAI-compatible provider (e.g.
+    # Mistral at https://api.mistral.ai/v1). None uses OpenAI's default.
+    openai_base_url: str | None = None
 
     log_level: str = "INFO"
     log_json: bool = False
