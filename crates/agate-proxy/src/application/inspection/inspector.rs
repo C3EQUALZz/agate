@@ -57,9 +57,7 @@ impl Inspector {
                 if let Some(name) = tool_name(&event)
                     && let Some(reason) = self.memory.recall(context.session, name).await
                 {
-                    self.audit
-                        .record(context, &event, &Verdict::Deny(reason.clone()))
-                        .await;
+                    self.record_deny(context, &event, &reason).await;
                     return InspectionAction::Drop(reason);
                 }
                 // SSRF screen on any URL the event carries (a tool-call argument,
@@ -69,9 +67,7 @@ impl Inspector {
                 if let Some(text) = url_bearing_text(&event)
                     && let Some(reason) = first_disallowed_url(text, self.resolver.as_ref()).await
                 {
-                    self.audit
-                        .record(context, &event, &Verdict::Deny(reason.clone()))
-                        .await;
+                    self.record_deny(context, &event, &reason).await;
                     self.remember_tool_denial(context, &event, &reason).await;
                     return InspectionAction::Drop(reason);
                 }
@@ -113,9 +109,7 @@ impl Inspector {
             // Replay guard first: a tool quarantined earlier in this session is
             // refused without re-evaluating it.
             if let Some(reason) = self.memory.recall(context.session, name).await {
-                self.audit
-                    .record(context, &event, &Verdict::Deny(reason.clone()))
-                    .await;
+                self.record_deny(context, &event, &reason).await;
                 return RequestDecision::Reject(reason);
             }
             if let Some(reason) = self.reject_reason(context, &event).await {
@@ -144,9 +138,7 @@ impl Inspector {
             text: text.to_owned(),
         };
         if let Some(reason) = first_disallowed_url(text, self.resolver.as_ref()).await {
-            self.audit
-                .record(context, &event, &Verdict::Deny(reason.clone()))
-                .await;
+            self.record_deny(context, &event, &reason).await;
             return Some(reason);
         }
         self.reject_reason(context, &event).await
@@ -166,10 +158,22 @@ impl Inspector {
             Verdict::Deny(reason) | Verdict::Terminate(reason) => reason.clone(),
             Verdict::Transform(_) => DenyReason::new("request content matched a redaction rule"),
         };
+        self.record_deny(context, event, &reason).await;
+        Some(reason)
+    }
+
+    /// Record `event` as denied for `reason` — the audit-trail entry behind
+    /// every drop/reject the inspector emits (a replay refusal, an SSRF hit, or
+    /// a policy denial), so all of them are logged through one path.
+    async fn record_deny(
+        &self,
+        context: &InspectionContext,
+        event: &AgentEvent,
+        reason: &DenyReason,
+    ) {
         self.audit
             .record(context, event, &Verdict::Deny(reason.clone()))
             .await;
-        Some(reason)
     }
 
     /// Quarantine the tool behind `event` for the rest of the session when it is
