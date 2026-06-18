@@ -136,13 +136,13 @@ impl Run {
         }
         self.tool_names.insert(id.clone(), name.clone());
         self.open_tool_calls.insert(
-            id,
+            id.clone(),
             ToolCallBuffer {
                 name,
                 arguments: String::new(),
             },
         );
-        StructuralOutcome::Buffering
+        StructuralOutcome::Buffering(id)
     }
 
     fn tool_call_args(&mut self, id: &ToolCallId, delta: &str) -> StructuralOutcome {
@@ -154,18 +154,41 @@ impl Run {
             return reject("tool call arguments exceed budget");
         }
         buffer.arguments.push_str(delta);
-        StructuralOutcome::Buffering
+        StructuralOutcome::Buffering(id.clone())
     }
 
     fn tool_call_ended(&mut self, id: &ToolCallId) -> StructuralOutcome {
         match self.open_tool_calls.remove(id) {
-            Some(buffer) => StructuralOutcome::Ready(AgentEvent::ToolCall {
+            Some(buffer) => StructuralOutcome::ResolvedCall {
                 id: id.clone(),
-                name: buffer.name,
-                arguments: buffer.arguments,
-            }),
+                event: AgentEvent::ToolCall {
+                    id: id.clone(),
+                    name: buffer.name,
+                    arguments: buffer.arguments,
+                },
+            },
             None => reject("end of an unknown tool call"),
         }
+    }
+
+    /// Assemble every tool call still open (one that streamed `START`/`ARGS` but
+    /// no `TOOL_CALL_END`) into a [`ToolCall`](AgentEvent::ToolCall), draining the
+    /// buffer. The caller authorizes each so a call an agent never closed cannot
+    /// escape inspection — its held wire frames are flushed or dropped on that
+    /// verdict, never relayed unjudged. Returns them id-tagged so presentation
+    /// can key the flush/drop.
+    pub fn drain_open(&mut self) -> Vec<(ToolCallId, AgentEvent)> {
+        self.open_tool_calls
+            .drain()
+            .map(|(id, buffer)| {
+                let event = AgentEvent::ToolCall {
+                    id: id.clone(),
+                    name: buffer.name,
+                    arguments: buffer.arguments,
+                };
+                (id, event)
+            })
+            .collect()
     }
 }
 

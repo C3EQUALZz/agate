@@ -49,44 +49,83 @@ impl Inspector {
         fragment: Fragment,
     ) -> InspectionAction {
         match run.inspect(fragment) {
-            StructuralOutcome::Buffering => InspectionAction::Hold,
+            // A START/ARGS frame of tool call `id`: hold it under that id so the
+            // call's eventual verdict governs only its own frames.
+            StructuralOutcome::Buffering(id) => InspectionAction::Hold(id),
             StructuralOutcome::Reject(reason) => InspectionAction::Terminate(reason),
-            StructuralOutcome::Ready(event) => {
-                // Replay guard: a tool quarantined by an earlier denial in this
-                // session is refused across runs, before any fresh evaluation.
-                if let Some(name) = tool_name(&event)
-                    && let Some(reason) = self.memory.recall(context.session, name).await
-                {
-                    self.record_deny(context, &event, &reason).await;
-                    return InspectionAction::Drop(reason);
+            // A standalone event (message, result, state, lifecycle): the verdict
+            // governs this one frame.
+            StructuralOutcome::Ready(event) => match self.judge(context, &event).await {
+                // `Buffer` has no call id to hold a standalone event under, and
+                // the real policy ports never return it for one — forward.
+                Verdict::Allow | Verdict::Buffer => InspectionAction::Forward,
+                Verdict::Transform(replacement) => {
+                    InspectionAction::ForwardTransformed(replacement)
                 }
-                // SSRF screen on any URL the event carries (a tool-call argument,
-                // an emitted message, or a tool result), resolving domain hosts —
-                // the response-leg counterpart to the request-leg guard. A hit
-                // drops the one event rather than terminating the run.
-                if let Some(text) = url_bearing_text(&event)
-                    && let Some(reason) = first_disallowed_url(text, self.resolver.as_ref()).await
-                {
-                    self.record_deny(context, &event, &reason).await;
-                    self.remember_tool_denial(context, &event, &reason).await;
-                    return InspectionAction::Drop(reason);
-                }
-                let verdict = self.policy.decide(context, &event).await;
-                self.audit.record(context, &event, &verdict).await;
-                if let Verdict::Deny(reason) = &verdict {
-                    self.remember_tool_denial(context, &event, reason).await;
-                }
-                match verdict {
-                    Verdict::Allow => InspectionAction::Forward,
-                    Verdict::Transform(replacement) => {
-                        InspectionAction::ForwardTransformed(replacement)
-                    }
-                    Verdict::Deny(reason) => InspectionAction::Drop(reason),
-                    Verdict::Terminate(reason) => InspectionAction::Terminate(reason),
-                    Verdict::Buffer => InspectionAction::Hold,
-                }
+                Verdict::Deny(reason) => InspectionAction::Drop(reason),
+                Verdict::Terminate(reason) => InspectionAction::Terminate(reason),
+            },
+            // An assembled tool call (its `TOOL_CALL_END` arrived): the verdict
+            // governs the call's buffered `START`/`ARGS`(/`END`) frames.
+            StructuralOutcome::ResolvedCall { id, event } => {
+                self.authorize_call(context, id, &event).await
             }
         }
+    }
+
+    /// Judge an assembled tool call and key the verdict to its buffered wire
+    /// frames: allow → flush the held frames, deny → drop them. Reused for a call
+    /// closed by `TOOL_CALL_END` and for one swept open at run end ([`drain_open`]
+    /// — a call the agent never closed must still be judged, never relayed
+    /// unjudged).
+    ///
+    /// [`drain_open`]: Run::drain_open
+    pub(crate) async fn authorize_call(
+        &self,
+        context: &InspectionContext,
+        id: ToolCallId,
+        event: &AgentEvent,
+    ) -> InspectionAction {
+        match self.judge(context, event).await {
+            // Tool calls are not redacted, so `Transform`/`Buffer` cannot arise
+            // for one; treat any non-deny as allow and relay the original frames.
+            Verdict::Allow | Verdict::Transform(_) | Verdict::Buffer => {
+                InspectionAction::FlushCall(id)
+            }
+            Verdict::Deny(reason) => InspectionAction::DropCall(id, reason),
+            Verdict::Terminate(reason) => InspectionAction::Terminate(reason),
+        }
+    }
+
+    /// Run the full content pipeline for one complete event — the replay guard,
+    /// the SSRF screen, the policy decision, the audit record, and the
+    /// quarantine bookkeeping — and return the verdict. Shared by standalone
+    /// events and assembled tool calls so both are judged identically.
+    async fn judge(&self, context: &InspectionContext, event: &AgentEvent) -> Verdict<AgentEvent> {
+        // Replay guard: a tool quarantined by an earlier denial in this session
+        // is refused across runs, before any fresh evaluation.
+        if let Some(name) = tool_name(event)
+            && let Some(reason) = self.memory.recall(context.session, name).await
+        {
+            self.record_deny(context, event, &reason).await;
+            return Verdict::Deny(reason);
+        }
+        // SSRF screen on any URL the event carries (a tool-call argument, an
+        // emitted message, or a tool result), resolving domain hosts — the
+        // response-leg counterpart to the request-leg guard.
+        if let Some(text) = url_bearing_text(event)
+            && let Some(reason) = first_disallowed_url(text, self.resolver.as_ref()).await
+        {
+            self.record_deny(context, event, &reason).await;
+            self.remember_tool_denial(context, event, &reason).await;
+            return Verdict::Deny(reason);
+        }
+        let verdict = self.policy.decide(context, event).await;
+        self.audit.record(context, event, &verdict).await;
+        if let Verdict::Deny(reason) = &verdict {
+            self.remember_tool_denial(context, event, reason).await;
+        }
+        verdict
     }
 
     /// Inspect a request **before** forwarding (the preventive request leg).

@@ -20,7 +20,7 @@ gaps live in the repository at
 
 | Event / input | What happens | Policy can act? |
 |---|---|---|
-| `TOOL_CALL_*` (assembled) | buffered into a complete tool call, then judged; arguments screened for SSRF URLs | **Yes** — allow/deny by tool **name** and by **argument** deny rules (`[[policy.tools.deny_arguments]]`); an SSRF URL in the arguments drops the call |
+| `TOOL_CALL_*` (assembled) | buffered **per call id** into a complete tool call, then judged; arguments screened for SSRF URLs. The held `START`/`ARGS` frames are relayed only if the call is allowed, so concurrent or never-closed (no `TOOL_CALL_END`) calls can't leak a denied call's frames; an unclosed call is still judged at run end | **Yes** — allow/deny by tool **name** and by **argument** deny rules (`[[policy.tools.deny_arguments]]`); an SSRF URL in the arguments drops the call |
 | `TEXT_MESSAGE_CONTENT` / `TEXT_MESSAGE_CHUNK` | assistant text scanned for secret patterns and SSRF URLs (both the enveloped and self-contained wire forms) | **Yes** — redact (literal or regex); an SSRF URL drops the chunk |
 | `TOOL_CALL_RESULT` | tool-result content scanned for secret patterns and SSRF URLs | **Yes** — redact (literal or regex; the indirect-injection / exfiltration surface); an SSRF URL drops the result |
 | `STATE_SNAPSHOT` / `STATE_DELTA` | size budget; a `STATE_DELTA` is validated as a well-formed RFC 6902 patch and bounded (op count, pointer depth, per-op value size); payload scanned for secret markers | **Yes** — a malformed patch fails closed, an over-budget patch is rejected, and a secret marker is denied (a structured payload can't be masked, so it's blocked, not leaked) |
