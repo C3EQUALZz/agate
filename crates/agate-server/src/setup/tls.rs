@@ -45,7 +45,7 @@ mod tests {
             .write_all(generated.cert.pem().as_bytes())
             .expect("write the cert");
         key_file
-            .write_all(generated.key_pair.serialize_pem().as_bytes())
+            .write_all(generated.signing_key.serialize_pem().as_bytes())
             .expect("write the key");
 
         let config = TlsConfig {
