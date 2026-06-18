@@ -90,11 +90,10 @@ impl SessionMemory for InMemorySessionMemory {
         });
         ledger.expires_at = now + self.ttl;
         // Keep the first reason a tool was denied for; later denials don't
-        // overwrite the original cause.
-        ledger
-            .denied_tools
-            .entry(tool.to_owned())
-            .or_insert_with(|| reason.clone());
+        // overwrite the original cause (and don't re-allocate the key).
+        if !ledger.denied_tools.contains_key(tool) {
+            ledger.denied_tools.insert(tool.to_owned(), reason.clone());
+        }
     }
 }
 
