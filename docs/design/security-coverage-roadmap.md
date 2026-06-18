@@ -50,9 +50,13 @@ enforce it. File references are to `crates/` on `main`.
   quarantines a tool by name once it is denied, so the agent cannot retry it —
   with varied arguments — in a later run of the same session. It only *adds* a
   denial over the stateless policy (a backend outage degrades to "no memory",
-  never to a wrong allow). The default adapter is process-local with a sliding
-  TTL; a shared backend (e.g. Redis) for multi-replica deployments, and broader
-  per-key quotas, remain future work.
+  never to a wrong allow). The session is keyed on the AG-UI **`threadId`**: the
+  proxy derives the `SessionId` deterministically from it (and the `RunId` from
+  `runId`), so a returning conversation maps to the same session across runs —
+  without that, every request would be its own session and the ledger could
+  never fire. The default adapter is process-local with a sliding TTL; a shared
+  backend (e.g. Redis) for multi-replica deployments, and broader per-key
+  quotas, remain future work.
 - **G3 — hidden request fields uninspected.** ✅ **Closed.** The request leg
   now also screens `system` message content and the `context`,
   `forwardedProps`, and inbound `state` JSON (`RequestContent.hidden_fields`),

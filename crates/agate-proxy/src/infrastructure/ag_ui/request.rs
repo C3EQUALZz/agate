@@ -31,10 +31,25 @@ pub fn parse_request(body: &[u8]) -> Result<RequestContent, AgUiError> {
     }
 
     Ok(RequestContent {
+        thread_id: parse_identifier(object, "threadId"),
+        run_id: parse_identifier(object, "runId"),
         offered_tools: parse_offered_tools(object)?,
         user_messages,
         hidden_fields,
     })
+}
+
+/// Read a string identifier (`threadId` / `runId`) from the input. A missing,
+/// non-string, or blank value yields `None` — the run is then treated as a
+/// one-off session rather than failing the request (these ids scope state, they
+/// are not a security gate).
+fn parse_identifier(object: &Map<String, Value>, key: &str) -> Option<String> {
+    object
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
 }
 
 fn parse_offered_tools(object: &Map<String, Value>) -> Result<Vec<String>, AgUiError> {
@@ -122,6 +137,9 @@ mod tests {
         let content = parse_request(body).expect("valid body");
         assert_eq!(content.offered_tools, vec!["search", "delete_file"]);
         assert_eq!(content.user_messages, vec!["hello"]); // assistant message skipped
+        // The run identity is surfaced so the context can be scoped to it.
+        assert_eq!(content.thread_id.as_deref(), Some("t"));
+        assert_eq!(content.run_id.as_deref(), Some("r"));
     }
 
     #[test]
@@ -130,6 +148,16 @@ mod tests {
         assert!(content.offered_tools.is_empty());
         assert!(content.user_messages.is_empty());
         assert!(content.hidden_fields.is_empty());
+        // Absent identity is None — the run is treated as its own session.
+        assert!(content.thread_id.is_none());
+        assert!(content.run_id.is_none());
+    }
+
+    #[test]
+    fn a_blank_thread_id_is_treated_as_absent() {
+        let content = parse_request(br#"{"threadId": "  ", "runId": ""}"#).expect("valid object");
+        assert!(content.thread_id.is_none());
+        assert!(content.run_id.is_none());
     }
 
     #[test]

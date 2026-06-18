@@ -15,9 +15,18 @@ use url::{Host, Url};
 use crate::application::common::ports::HostResolver;
 use crate::domain::inspection::DenyReason;
 
-/// The security-relevant facts parsed from a `RunAgentInput` for the request leg.
+/// The facts parsed from a `RunAgentInput` for the request leg: the run's
+/// identity (so a verdict can be scoped to the conversation) and the
+/// security-relevant content to inspect.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RequestContent {
+    /// The AG-UI `threadId` — the conversation this run belongs to, used to
+    /// scope per-session state (replay memory). `None` when the client omits it,
+    /// in which case the run is treated as its own one-off session.
+    pub thread_id: Option<String>,
+    /// The AG-UI `runId` — this run's own id, carried into the audit context so
+    /// a recorded verdict correlates to the run. `None` when the client omits it.
+    pub run_id: Option<String>,
     /// Names of the tools the client offers the agent.
     pub offered_tools: Vec<String>,
     /// Text of the user messages.
