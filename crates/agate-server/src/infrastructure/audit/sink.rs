@@ -64,33 +64,42 @@ impl AuditSink for AuditLogSink {
         self.metrics
             .observe_outbox_depth(capacity - self.tx.capacity(), capacity);
 
-        match self.on_full {
-            FullPolicy::Block => {
-                if self.tx.send(record).await.is_err() {
-                    tracing::error!("audit outbox closed; dropping inspected record");
-                    self.metrics.record_dropped();
-                } else {
-                    tracing::debug!(run = %context.run, "enqueued inspected event to the audit outbox");
-                }
+        // Enqueue per the full-queue policy, then handle the outcome through one
+        // path so the drop legs cannot diverge in what they log and count.
+        let outcome = match self.on_full {
+            FullPolicy::Block => self.tx.send(record).await.map_err(|_| Dropped::Closed),
+            FullPolicy::Shed => self.tx.try_send(record).map_err(|error| match error {
+                TrySendError::Full(_) => Dropped::Shed,
+                TrySendError::Closed(_) => Dropped::Closed,
+            }),
+        };
+        match outcome {
+            Ok(()) => {
+                tracing::debug!(run = %context.run, "enqueued inspected event to the audit outbox");
             }
-            FullPolicy::Shed => match self.tx.try_send(record) {
-                Ok(()) => {
-                    tracing::debug!(run = %context.run, "enqueued inspected event to the audit outbox");
-                }
-                Err(TrySendError::Full(_)) => {
-                    tracing::error!(
+            Err(dropped) => {
+                match dropped {
+                    Dropped::Shed => tracing::error!(
                         run = %context.run,
                         "audit outbox full; SHEDDING an inspected record — transparency-log gap"
-                    );
-                    self.metrics.record_dropped();
+                    ),
+                    Dropped::Closed => {
+                        tracing::error!("audit outbox closed; dropping inspected record");
+                    }
                 }
-                Err(TrySendError::Closed(_)) => {
-                    tracing::error!("audit outbox closed; dropping inspected record");
-                    self.metrics.record_dropped();
-                }
-            },
+                self.metrics.record_dropped();
+            }
         }
     }
+}
+
+/// Why an inspected record could not be enqueued — both are logged and counted,
+/// never silent.
+enum Dropped {
+    /// The outbox was full and the policy is [`FullPolicy::Shed`].
+    Shed,
+    /// The outbox channel is closed (the draining task has stopped).
+    Closed,
 }
 
 #[cfg(test)]
@@ -150,6 +159,39 @@ mod tests {
         sink.record(&context(), &event, &Verdict::Allow).await;
 
         assert_eq!(metrics.dropped.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn block_policy_applies_backpressure_until_a_slot_frees() {
+        // Capacity 1, pre-filled: the next record cannot be enqueued yet. Block
+        // must wait for a free slot rather than drop — the whole point of Block.
+        let (tx, mut rx) = mpsc::channel::<Vec<u8>>(1);
+        tx.send(b"first".to_vec())
+            .await
+            .expect("first fills capacity");
+
+        let metrics = Arc::new(CountingMetrics::default());
+        let sink = AuditLogSink::new(tx, metrics.clone(), FullPolicy::Block);
+        let recording = tokio::spawn(async move {
+            let event = AgentEvent::Lifecycle(LifecyclePhase::RunFinished);
+            sink.record(&context(), &event, &Verdict::Allow).await;
+        });
+
+        // Give the task time to reach the blocked send; it must still be pending
+        // (backpressure) and must not have dropped the record.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            !recording.is_finished(),
+            "Block must wait while the outbox is full, not return"
+        );
+        assert_eq!(metrics.dropped.load(Ordering::SeqCst), 0, "nothing dropped");
+
+        // Free a slot; the blocked record now enqueues and the task completes.
+        assert_eq!(rx.recv().await.expect("first record"), b"first".to_vec());
+        recording.await.expect("record completes once a slot frees");
+        let enqueued = rx.recv().await.expect("the blocked record enqueued");
+        assert_ne!(enqueued, b"first".to_vec(), "it is the awaited record");
+        assert_eq!(metrics.dropped.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
