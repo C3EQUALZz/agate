@@ -30,7 +30,12 @@ pub fn to_fragment(value: &Value) -> Result<Option<Fragment>, AgUiError> {
         et::STEP_FINISHED => Fragment::Lifecycle(LifecyclePhase::StepFinished(string(
             value, kind, "stepName",
         )?)),
-        et::TEXT_MESSAGE_CONTENT => Fragment::MessageChunk {
+        // Both wire forms of assistant text normalize to one domain chunk: the
+        // enveloped `TEXT_MESSAGE_CONTENT` and the self-contained
+        // `TEXT_MESSAGE_CHUNK` (what real agents commonly stream). Both carry a
+        // `messageId` + `delta`; a redacted chunk re-encodes to the canonical
+        // `TEXT_MESSAGE_CONTENT` (see `to_event`).
+        et::TEXT_MESSAGE_CONTENT | et::TEXT_MESSAGE_CHUNK => Fragment::MessageChunk {
             message: message_id(value, kind)?,
             text: string(value, kind, "delta")?,
         },
@@ -228,6 +233,23 @@ mod tests {
     fn maps_text_message_content_to_a_chunk() {
         let fragment = to_fragment(
             &json!({ "type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "hello" }),
+        )
+        .unwrap();
+        assert_eq!(
+            fragment,
+            Some(Fragment::MessageChunk {
+                message: MessageId::new("m1").expect("valid id"),
+                text: "hello".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn maps_the_self_contained_text_message_chunk_like_content() {
+        // The CHUNK form (what real agents commonly stream) is inspected the
+        // same as CONTENT — without this it would pass through un-redacted.
+        let fragment = to_fragment(
+            &json!({ "type": "TEXT_MESSAGE_CHUNK", "messageId": "m1", "delta": "hello" }),
         )
         .unwrap();
         assert_eq!(
