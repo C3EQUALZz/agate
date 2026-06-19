@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -9,7 +10,7 @@ use crate::application::common::ports::{AgentResponseStream, InspectionOutcome, 
 use crate::application::inspection::{
     InspectionAction, InspectionContext, InspectionSettings, Inspector, MalformedEventMode,
 };
-use crate::domain::inspection::{Fragment, Run};
+use crate::domain::inspection::{Fragment, LifecyclePhase, Run, ToolCallId};
 use crate::infrastructure::ag_ui::{AgUiError, to_event, to_fragment};
 use crate::infrastructure::sse::{SseDecoder, encode};
 
@@ -78,7 +79,10 @@ pub fn inspect_stream(
     async_stream::stream! {
         let mut decoder = SseDecoder::new();
         let mut run = Run::new(context.run, settings.budgets);
-        let mut pending: Vec<String> = Vec::new();
+        // Tool-call START/ARGS frames held per call id, so one call's verdict
+        // flushes or drops only its own frames — never a sibling's. Standalone
+        // events are relayed immediately (no shared buffer to leak across).
+        let mut holds: HashMap<ToolCallId, Vec<String>> = HashMap::new();
         let mut seen_events: usize = 0;
         let mut seen_bytes: usize = 0;
 
@@ -101,7 +105,7 @@ pub fn inspect_stream(
                 if let Some(reason) = settings.response_budget.exceeded(seen_events, seen_bytes) {
                     warn!(run = %context.run, reason, "terminating run: response budget exceeded");
                     metrics.record_inspected(InspectionOutcome::Terminate);
-                    pending.clear();
+                    holds.clear();
                     yield Bytes::from(run_error(reason));
                     return;
                 }
@@ -109,12 +113,9 @@ pub fn inspect_stream(
                 let fragment = match decode(&event.data, settings.malformed_mode) {
                     Decoded::Inspect(fragment) => fragment,
                     Decoded::PassThrough => {
-                        // not inspectable: forward (preserving order during a hold)
-                        if pending.is_empty() {
-                            yield Bytes::from(event.raw);
-                        } else {
-                            pending.push(event.raw);
-                        }
+                        // Not inspectable: relay immediately. (A held tool call's
+                        // frames are released by its own verdict, not by this.)
+                        yield Bytes::from(event.raw);
                         continue;
                     }
                     Decoded::MalformedDrop(error) => {
@@ -125,56 +126,199 @@ pub fn inspect_stream(
                     Decoded::MalformedTerminate(error) => {
                         warn!(run = %context.run, %error, "terminating run on a malformed known event");
                         metrics.record_inspected(InspectionOutcome::Terminate);
-                        pending.clear();
+                        holds.clear();
                         yield Bytes::from(run_error("malformed protocol event"));
                         return;
                     }
                 };
 
-                match inspector.inspect(&mut run, &context, fragment).await {
-                    InspectionAction::Forward => {
-                        debug!(run = %context.run, "forwarding inspected event");
-                        metrics.record_inspected(InspectionOutcome::Forward);
-                        for held in pending.drain(..) {
-                            yield Bytes::from(held);
-                        }
-                        yield Bytes::from(event.raw);
+                // A run-ending lifecycle: judge every tool call the agent left
+                // open (streamed START/ARGS but no TOOL_CALL_END) and flush/drop
+                // its held frames BEFORE the terminating frame, so an unclosed
+                // call is never relayed unjudged nor stranded after run end.
+                if is_run_end(&fragment) {
+                    let (frames, terminate) =
+                        sweep_open_calls(&mut run, &inspector, &context, &mut holds, metrics.as_ref())
+                            .await;
+                    for frame in frames {
+                        yield Bytes::from(frame);
                     }
-                    InspectionAction::Hold => {
-                        debug!(run = %context.run, "buffering event until the tool call is complete");
-                        metrics.record_inspected(InspectionOutcome::Buffer);
-                        pending.push(event.raw);
-                    }
-                    InspectionAction::ForwardTransformed(replacement) => {
-                        info!(run = %context.run, "policy transformed an event (e.g. redaction); forwarding the replacement");
-                        metrics.record_inspected(InspectionOutcome::Transform);
-                        pending.clear();
-                        match to_event(&replacement) {
-                            Some(value) => yield Bytes::from(encode(&value.to_string())),
-                            None => yield Bytes::from(event.raw),
-                        }
-                    }
-                    InspectionAction::Drop(reason) => {
-                        info!(run = %context.run, reason = reason.as_str(), "policy denied an event; dropping it");
-                        metrics.record_inspected(InspectionOutcome::Deny);
-                        pending.clear();
-                    }
-                    InspectionAction::Terminate(reason) => {
-                        warn!(run = %context.run, reason = reason.as_str(), "terminating run with RUN_ERROR");
-                        metrics.record_inspected(InspectionOutcome::Terminate);
-                        pending.clear();
-                        yield Bytes::from(run_error(reason.as_str()));
+                    if let Some(reason) = terminate {
+                        yield Bytes::from(run_error(&reason));
                         return;
                     }
+                }
+
+                let action = inspector.inspect(&mut run, &context, fragment).await;
+                let emit = apply_action(action, event.raw, &mut holds, &context, metrics.as_ref());
+                for frame in emit.frames {
+                    yield frame;
+                }
+                if emit.terminate {
+                    return;
                 }
             }
         }
 
-        // flush anything still held when the stream ends (best-effort)
-        for held in pending.drain(..) {
-            yield Bytes::from(held);
+        // The upstream ended without a terminating lifecycle: judge any tool
+        // call still open the same way, then STOP. Frames for a call that was
+        // never resolved are dropped (fail closed) — never flushed unjudged.
+        let (frames, terminate) =
+            sweep_open_calls(&mut run, &inspector, &context, &mut holds, metrics.as_ref()).await;
+        for frame in frames {
+            yield Bytes::from(frame);
+        }
+        if let Some(reason) = terminate {
+            yield Bytes::from(run_error(&reason));
         }
     }
+}
+
+/// The frames to emit for one inspected event, and whether the run terminates
+/// after them. Lets the streaming loop stay small while all per-call buffer
+/// mutation lives in [`apply_action`].
+struct Emit {
+    frames: Vec<Bytes>,
+    terminate: bool,
+}
+
+/// Apply one [`InspectionAction`] to the per-call hold buffers and return the
+/// frames to relay (in order). All buffer mutation lives here: a `Hold` buckets
+/// the frame under its call id; a `FlushCall` releases that call's frames then
+/// the trigger; a `DropCall`/`Drop` discards; a `Terminate` clears every hold
+/// and emits a `RUN_ERROR`.
+fn apply_action(
+    action: InspectionAction,
+    raw: String,
+    holds: &mut HashMap<ToolCallId, Vec<String>>,
+    context: &InspectionContext,
+    metrics: &dyn ProxyMetrics,
+) -> Emit {
+    match action {
+        InspectionAction::Forward => {
+            debug!(run = %context.run, "forwarding inspected event");
+            metrics.record_inspected(InspectionOutcome::Forward);
+            Emit {
+                frames: vec![Bytes::from(raw)],
+                terminate: false,
+            }
+        }
+        InspectionAction::Hold(id) => {
+            debug!(run = %context.run, "buffering a tool-call frame until the call is judged");
+            metrics.record_inspected(InspectionOutcome::Buffer);
+            holds.entry(id).or_default().push(raw);
+            Emit {
+                frames: Vec::new(),
+                terminate: false,
+            }
+        }
+        InspectionAction::FlushCall(id) => {
+            debug!(run = %context.run, "tool call allowed; flushing its held frames");
+            metrics.record_inspected(InspectionOutcome::Forward);
+            // The held START/ARGS in order, then the trigger frame (the END).
+            let mut frames: Vec<Bytes> = holds
+                .remove(&id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(Bytes::from)
+                .collect();
+            frames.push(Bytes::from(raw));
+            Emit {
+                frames,
+                terminate: false,
+            }
+        }
+        InspectionAction::DropCall(id, reason) => {
+            info!(run = %context.run, reason = reason.as_str(), "tool call denied; dropping its held frames");
+            metrics.record_inspected(InspectionOutcome::Deny);
+            // Discard the call's buffered frames AND this trigger frame.
+            holds.remove(&id);
+            Emit {
+                frames: Vec::new(),
+                terminate: false,
+            }
+        }
+        InspectionAction::ForwardTransformed(replacement) => {
+            info!(run = %context.run, "policy transformed an event (e.g. redaction); forwarding the replacement");
+            metrics.record_inspected(InspectionOutcome::Transform);
+            let frame = match to_event(&replacement) {
+                Some(value) => Bytes::from(encode(&value.to_string())),
+                None => Bytes::from(raw),
+            };
+            Emit {
+                frames: vec![frame],
+                terminate: false,
+            }
+        }
+        InspectionAction::Drop(reason) => {
+            info!(run = %context.run, reason = reason.as_str(), "policy denied an event; dropping it");
+            metrics.record_inspected(InspectionOutcome::Deny);
+            // A standalone event's denial drops only this frame; held tool calls
+            // keep their own buffers.
+            Emit {
+                frames: Vec::new(),
+                terminate: false,
+            }
+        }
+        InspectionAction::Terminate(reason) => {
+            warn!(run = %context.run, reason = reason.as_str(), "terminating run with RUN_ERROR");
+            metrics.record_inspected(InspectionOutcome::Terminate);
+            holds.clear();
+            Emit {
+                frames: vec![Bytes::from(run_error(reason.as_str()))],
+                terminate: true,
+            }
+        }
+    }
+}
+
+/// Whether a fragment ends the run (so open tool calls must be swept before it).
+fn is_run_end(fragment: &Fragment) -> bool {
+    matches!(
+        fragment,
+        Fragment::Lifecycle(LifecyclePhase::RunFinished | LifecyclePhase::RunError)
+    )
+}
+
+/// Judge every tool call still open (the agent streamed its START/ARGS but no
+/// TOOL_CALL_END) and resolve its held frames: an allowed call's frames are
+/// returned to flush (in id order, best-effort), a denied call's are dropped.
+/// Returns the frames to flush and, if a call's verdict terminates the run, the
+/// reason. Each call is judged through the same policy/audit pipeline as a
+/// closed one, so an unclosed call is recorded and gated, never relayed unjudged.
+async fn sweep_open_calls(
+    run: &mut Run,
+    inspector: &Inspector,
+    context: &InspectionContext,
+    holds: &mut HashMap<ToolCallId, Vec<String>>,
+    metrics: &dyn ProxyMetrics,
+) -> (Vec<String>, Option<String>) {
+    let mut flushed = Vec::new();
+    for (id, call) in run.drain_open() {
+        match inspector.authorize_call(context, id, &call).await {
+            InspectionAction::FlushCall(id) => {
+                metrics.record_inspected(InspectionOutcome::Forward);
+                if let Some(frames) = holds.remove(&id) {
+                    flushed.extend(frames);
+                }
+            }
+            InspectionAction::DropCall(id, reason) => {
+                info!(
+                    reason = reason.as_str(),
+                    "denied an unclosed tool call; dropping its frames"
+                );
+                metrics.record_inspected(InspectionOutcome::Deny);
+                holds.remove(&id);
+            }
+            InspectionAction::Terminate(reason) => {
+                metrics.record_inspected(InspectionOutcome::Terminate);
+                return (flushed, Some(reason.as_str().to_owned()));
+            }
+            // authorize_call only ever returns FlushCall / DropCall / Terminate.
+            _ => {}
+        }
+    }
+    (flushed, None)
 }
 
 fn run_error(message: &str) -> String {
@@ -204,6 +348,21 @@ mod tests {
     impl PolicyPort for DenyAll {
         async fn decide(&self, _: &InspectionContext, _: &AgentEvent) -> Verdict<AgentEvent> {
             Verdict::Deny(DenyReason::new("blocked"))
+        }
+    }
+
+    /// Denies a tool call to a specific name; allows everything else (including
+    /// tool *results*, which are content-screened, not name-gated).
+    struct DenyTool(&'static str);
+    #[async_trait]
+    impl PolicyPort for DenyTool {
+        async fn decide(&self, _: &InspectionContext, event: &AgentEvent) -> Verdict<AgentEvent> {
+            match event {
+                AgentEvent::ToolCall { name, .. } if name == self.0 => {
+                    Verdict::Deny(DenyReason::new("tool not allowed"))
+                }
+                _ => Verdict::Allow,
+            }
         }
     }
 
@@ -393,6 +552,94 @@ mod tests {
         let call_start = out.find("TOOL_CALL_START").unwrap();
         let call_end = out.find("TOOL_CALL_END").unwrap();
         assert!(started < call_start && call_start < call_end);
+    }
+
+    /// Regression for the leak found in the real end-to-end run: two CONCURRENT
+    /// tool calls, neither closed with `TOOL_CALL_END` (the agent terminates them
+    /// with `TOOL_CALL_RESULT`). Before per-call buffering, an allowed call's
+    /// result flushed the flat buffer and leaked the *denied* call's START/ARGS.
+    #[tokio::test]
+    async fn a_denied_concurrent_unclosed_tool_calls_frames_never_leak() {
+        let stream = inspect(
+            upstream(&[
+                "data: {\"type\":\"RUN_STARTED\"}\n\n",
+                "data: {\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c1\",\"toolCallName\":\"read_file\"}\n\n",
+                "data: {\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c2\",\"toolCallName\":\"delete_file\"}\n\n",
+                "data: {\"type\":\"TOOL_CALL_ARGS\",\"toolCallId\":\"c2\",\"delta\":\"{\\\"path\\\":\\\"/etc/shadow\\\"}\"}\n\n",
+                "data: {\"type\":\"TOOL_CALL_ARGS\",\"toolCallId\":\"c1\",\"delta\":\"{}\"}\n\n",
+                "data: {\"type\":\"TOOL_CALL_RESULT\",\"toolCallId\":\"c1\",\"content\":\"ok\"}\n\n",
+                "data: {\"type\":\"RUN_FINISHED\"}\n\n",
+            ]),
+            inspector(Arc::new(DenyTool("delete_file"))),
+            metrics(),
+        );
+
+        let out = collect(stream).await;
+        assert!(out.contains("RUN_FINISHED"), "the run completes: {out}");
+        assert!(
+            out.contains("read_file"),
+            "the allowed call is relayed: {out}"
+        );
+        // The denied tool CALL — its name and its arguments — never reaches the
+        // client, even though a sibling call's result was forwarded first.
+        assert!(
+            !out.contains("delete_file"),
+            "the denied tool name leaked: {out}"
+        );
+        assert!(
+            !out.contains("/etc/shadow"),
+            "the denied tool's arguments leaked: {out}"
+        );
+    }
+
+    /// A tool call the agent never closed (no `TOOL_CALL_END`, no result) is
+    /// still judged at run end: a denied one is dropped, never relayed unjudged
+    /// nor stranded after `RUN_FINISHED`.
+    #[tokio::test]
+    async fn an_unclosed_denied_tool_call_is_dropped_at_run_end() {
+        let stream = inspect(
+            upstream(&[
+                "data: {\"type\":\"RUN_STARTED\"}\n\n",
+                "data: {\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c1\",\"toolCallName\":\"delete_file\"}\n\n",
+                "data: {\"type\":\"TOOL_CALL_ARGS\",\"toolCallId\":\"c1\",\"delta\":\"{}\"}\n\n",
+                "data: {\"type\":\"RUN_FINISHED\"}\n\n",
+            ]),
+            inspector(Arc::new(DenyTool("delete_file"))),
+            metrics(),
+        );
+
+        let out = collect(stream).await;
+        assert!(out.contains("RUN_FINISHED"), "the run completes: {out}");
+        assert!(
+            !out.contains("delete_file") && !out.contains("TOOL_CALL_START"),
+            "the unclosed denied call's frames leaked: {out}"
+        );
+    }
+
+    /// An allowed call the agent never closed is flushed by the run-end sweep
+    /// *before* the terminating frame — never stranded after `RUN_FINISHED`.
+    #[tokio::test]
+    async fn an_unclosed_allowed_tool_call_is_flushed_before_run_end() {
+        let stream = inspect(
+            upstream(&[
+                "data: {\"type\":\"RUN_STARTED\"}\n\n",
+                "data: {\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c1\",\"toolCallName\":\"read_file\"}\n\n",
+                "data: {\"type\":\"TOOL_CALL_ARGS\",\"toolCallId\":\"c1\",\"delta\":\"{}\"}\n\n",
+                "data: {\"type\":\"RUN_FINISHED\"}\n\n",
+            ]),
+            inspector(Arc::new(AllowAllPolicy)),
+            metrics(),
+        );
+
+        let out = collect(stream).await;
+        let call_start = out
+            .find("TOOL_CALL_START")
+            .expect("the allowed call is relayed");
+        let finished = out.find("RUN_FINISHED").expect("the run completes");
+        assert!(
+            call_start < finished,
+            "the swept call's frames land before run end: {out}"
+        );
     }
 
     #[tokio::test]

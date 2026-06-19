@@ -27,6 +27,37 @@ fn tool(id: &str) -> ToolCallId {
 }
 
 #[test]
+fn drain_open_assembles_a_tool_call_left_unclosed() {
+    // The agent streamed START/ARGS but never sent TOOL_CALL_END; the call is
+    // still recoverable so the run-end sweep can judge it rather than relay it
+    // unjudged.
+    let mut run = started_run();
+    run.inspect(Fragment::ToolCallStarted {
+        id: tool("t1"),
+        name: "delete_file".to_string(),
+    });
+    run.inspect(Fragment::ToolCallArgs {
+        id: tool("t1"),
+        delta: "{\"path\":\"/etc\"}".to_string(),
+    });
+
+    let open = run.drain_open();
+    assert_eq!(
+        open,
+        vec![(
+            tool("t1"),
+            AgentEvent::ToolCall {
+                id: tool("t1"),
+                name: "delete_file".to_string(),
+                arguments: "{\"path\":\"/etc\"}".to_string(),
+            }
+        )]
+    );
+    // Draining empties the open set — a second sweep finds nothing to re-judge.
+    assert!(run.drain_open().is_empty());
+}
+
+#[test]
 fn assembles_a_tool_call_from_its_fragments() {
     let mut run = started_run();
 
@@ -35,30 +66,33 @@ fn assembles_a_tool_call_from_its_fragments() {
             id: tool("t1"),
             name: "search".to_string(),
         }),
-        StructuralOutcome::Buffering
+        StructuralOutcome::Buffering(tool("t1"))
     );
     assert_eq!(
         run.inspect(Fragment::ToolCallArgs {
             id: tool("t1"),
             delta: "{\"q\":".to_string(),
         }),
-        StructuralOutcome::Buffering
+        StructuralOutcome::Buffering(tool("t1"))
     );
     assert_eq!(
         run.inspect(Fragment::ToolCallArgs {
             id: tool("t1"),
             delta: "\"hi\"}".to_string(),
         }),
-        StructuralOutcome::Buffering
+        StructuralOutcome::Buffering(tool("t1"))
     );
 
     assert_eq!(
         run.inspect(Fragment::ToolCallEnded { id: tool("t1") }),
-        StructuralOutcome::Ready(AgentEvent::ToolCall {
+        StructuralOutcome::ResolvedCall {
             id: tool("t1"),
-            name: "search".to_string(),
-            arguments: "{\"q\":\"hi\"}".to_string(),
-        })
+            event: AgentEvent::ToolCall {
+                id: tool("t1"),
+                name: "search".to_string(),
+                arguments: "{\"q\":\"hi\"}".to_string(),
+            },
+        }
     );
 }
 

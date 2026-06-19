@@ -76,7 +76,10 @@ async fn buffers_a_tool_call_without_consulting_policy_or_audit() {
         )
         .await;
 
-    assert_eq!(action, InspectionAction::Hold);
+    assert_eq!(
+        action,
+        InspectionAction::Hold(ToolCallId::new("t1").expect("valid id"))
+    );
     assert_eq!(audit.recorded(), 1); // only the RunStarted event was judged
 }
 
