@@ -89,3 +89,29 @@ fn build_redis_session_memory(_url: &str, _ttl: Duration) -> Arc<dyn SessionMemo
         "the `redis` session-memory backend requires building agate-proxy with the `redis` feature"
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{SessionMemoryBackend, SessionMemoryConfig, build_session_memory};
+    use std::time::Duration;
+
+    // `InMemorySessionMemory` spawns a pruner task, so a runtime is required.
+    #[tokio::test]
+    async fn builds_the_configured_session_memory_backend() {
+        // Disabled → a (no-op) ledger is still produced.
+        let _disabled = build_session_memory(None);
+
+        let _in_memory = build_session_memory(Some(&SessionMemoryConfig {
+            backend: SessionMemoryBackend::InMemory,
+            ttl: Duration::from_mins(1),
+        }));
+
+        // The Redis backend only parses the URL here (no connection), so this
+        // builds without a live Redis.
+        #[cfg(feature = "redis")]
+        let _redis = build_session_memory(Some(&SessionMemoryConfig {
+            backend: SessionMemoryBackend::Redis("redis://127.0.0.1:6379".to_owned()),
+            ttl: Duration::from_mins(1),
+        }));
+    }
+}

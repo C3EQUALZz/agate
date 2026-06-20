@@ -242,7 +242,10 @@ mod tests {
 
     use super::super::policy_section::{ArgumentRuleConfig, ToolsSection};
     use super::FullPolicy;
-    use super::{AppConfig, FailMode, PolicySection, ProxySection, ToolMode};
+    use super::{
+        AppConfig, FailMode, PolicySection, ProxySection, SessionMemoryBackend,
+        SessionMemoryBackendKind, ToolMode,
+    };
 
     fn with_policy(mode: ToolMode, names: &[&str], redact: &[&str]) -> AppConfig {
         AppConfig {
@@ -627,5 +630,58 @@ mod tests {
     #[test]
     fn proxy_section_defaults_to_the_standard_bind() {
         assert_eq!(ProxySection::default().bind, "0.0.0.0:8080");
+    }
+
+    #[test]
+    fn enabled_session_memory_defaults_to_the_in_memory_backend() {
+        let mut config = AppConfig::default();
+        config.policy.session_memory.enabled = true;
+        let session_memory = config
+            .proxy_config()
+            .session_memory
+            .expect("session memory is enabled");
+        assert!(matches!(
+            session_memory.backend,
+            SessionMemoryBackend::InMemory
+        ));
+        assert_eq!(session_memory.ttl.as_secs(), 3600);
+    }
+
+    #[test]
+    fn the_redis_backend_maps_its_url() {
+        let mut config = AppConfig::default();
+        config.policy.session_memory.enabled = true;
+        config.policy.session_memory.backend = SessionMemoryBackendKind::Redis;
+        config.policy.session_memory.redis_url = Some("redis://db:6379".to_owned());
+        let session_memory = config
+            .proxy_config()
+            .session_memory
+            .expect("session memory is enabled");
+        assert!(matches!(
+            session_memory.backend,
+            SessionMemoryBackend::Redis(url) if url == "redis://db:6379"
+        ));
+    }
+
+    #[test]
+    fn disabled_session_memory_maps_to_none() {
+        // Off by default, so the proxy is configured with no ledger at all.
+        assert!(AppConfig::default().proxy_config().session_memory.is_none());
+    }
+
+    #[test]
+    fn the_redis_backend_requires_a_url() {
+        // Exercise the policy section's own validation in isolation (the audit
+        // section owns its database_url requirement separately).
+        let mut policy = PolicySection::default();
+        policy.session_memory.enabled = true;
+        policy.session_memory.backend = SessionMemoryBackendKind::Redis;
+        policy.session_memory.redis_url = None;
+        assert!(
+            policy.validate().is_err(),
+            "the redis backend without a url is rejected"
+        );
+        policy.session_memory.redis_url = Some("redis://127.0.0.1:6379".to_owned());
+        assert!(policy.validate().is_ok(), "a url makes it valid");
     }
 }
