@@ -155,10 +155,21 @@ keeps every decision terminating, and the rules see the same event projection
 the static engine inspects (`action.{kind,name,arguments_json,content_json,
 state_json,…}` plus the run `context`). It reuses the shared decision→verdict
 `lift` so the redaction invariants cannot drift from the static adapter. The
-proxy was untouched — proof the seam holds. Other engines (Rego/OPA, WASM via a
-sandbox) and a policy marketplace can land the same way later. **Still open** for
-CEL: hot-reload (the rule set already sits behind an `ArcSwap` ready to be
-swapped) and a richer event projection if rules need fields not yet exposed.
+proxy was untouched — proof the seam holds. ✅ Hot-reload landed too: the rule set
+sits behind an `ArcSwap` swapped on `SIGHUP` and (opt-in) on file-change, always
+fail-safe (a bad/empty reload keeps the running policy).
+
+✅ A **Rego (OPA) backend** is the second engine, on the same seam: built with the
+`policy-rego` feature, selected with `[policy].backend = "rego"`, it evaluates an
+operator's Rego policy (package `agate.policy`, rule `decision`) through the
+pure-Rust [`regorus`](https://github.com/microsoft/regorus) interpreter — no
+sidecar, no WASM runtime. It shares the *same* `event_view` projection and
+decision→verdict `lift` as CEL (so the two engines see identical input and cannot
+drift), reuses the `SIGHUP`/file-watch reload via a shared `ReloadablePolicy`
+trait, and fails closed on an evaluation error or a malformed `decision`. Each
+decision clones the prepared engine (~tens of µs) so concurrent decisions never
+contend. A **WASM** backend (wasmtime/extism, for arbitrary-language plugins
+behind a sandbox) and a policy marketplace can land the same way later.
 
 ### Phase 3 — defense-in-depth
 

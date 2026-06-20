@@ -1,6 +1,7 @@
 //! Shared lifting of a policy-context [`PolicyDecision`] onto the proxy's
 //! [`Verdict`], used by every `PolicyPort` backend (the static ruleset adapter
-//! and the CEL adapter) so the redaction invariants cannot drift between them.
+//! and the CEL and Rego plugin engines) so the redaction invariants cannot drift
+//! between them.
 
 use agate_policy::domain::decision::PolicyDecision;
 use agate_proxy::domain::inspection::{AgentEvent, DenyReason, Verdict};
@@ -12,10 +13,10 @@ use agate_proxy::domain::inspection::{AgentEvent, DenyReason, Verdict};
 ///
 /// A redaction on any other event kind **fails closed** (deny), not open: the
 /// static engine never asks to redact a non-rewritable event (it denies a
-/// secret-bearing state mutation instead), but a hand-written CEL rule can put
-/// `effect = "redact"` on a tool call or state mutation — and silently *allowing*
-/// it would defeat the operator's intent to scrub it. Blocking surfaces the
-/// misapplied rule safely.
+/// secret-bearing state mutation instead), but a hand-written CEL or Rego rule
+/// can put `effect = "redact"` on a tool call or state mutation — and silently
+/// *allowing* it would defeat the operator's intent to scrub it. Blocking
+/// surfaces the misapplied rule safely.
 pub(crate) fn lift_decision(event: &AgentEvent, decision: PolicyDecision) -> Verdict<AgentEvent> {
     match decision {
         PolicyDecision::Allow => Verdict::Allow,

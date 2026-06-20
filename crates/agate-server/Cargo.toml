@@ -47,10 +47,16 @@ toml = { version = "0.8", optional = true }
 # Optional CEL policy-file watcher (auto-reload on change). Cross-platform
 # (inotify / FSEvents / kqueue / ReadDirectoryChangesW). Stable 8.x, not the 9 RC.
 notify = { version = "8", optional = true }
+# Optional Rego (OPA policy language) engine: a pure-Rust interpreter, the second
+# config-selected PolicyPort backend. Off by default so its dep tree is absent.
+regorus = { version = "0.10", optional = true }
 
 [features]
 # A pluggable CEL policy engine selected by `[policy].backend = "cel"`.
 policy-cel = ["dep:cel", "dep:arc-swap", "dep:toml", "dep:notify"]
+# A Rego (OPA) policy engine selected by `[policy].backend = "rego"`. Shares the
+# arc-swap/notify machinery (hot-reload + file-watch) with the CEL backend.
+policy-rego = ["dep:regorus", "dep:arc-swap", "dep:notify"]
 
 [dev-dependencies]
 figment = { workspace = true, features = ["test"] }

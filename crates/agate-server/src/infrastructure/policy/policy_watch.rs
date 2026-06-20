@@ -1,17 +1,18 @@
-//! File-watch for the CEL policy: emit a signal whenever the policy file changes
-//! on disk, so the composition root can trigger the same fail-safe
-//! [`CelPolicyAdapter::reload`](super::CelPolicyAdapter::reload) that `SIGHUP`
-//! does — just driven by the filesystem instead of a signal.
+//! File-watch for a policy file (CEL or Rego): emit a signal whenever the file
+//! changes on disk, so the composition root can trigger the same fail-safe
+//! reload that `SIGHUP` does — driven by the filesystem instead of a signal.
+//! Engine-agnostic: it watches a path and reports changes; what gets reloaded is
+//! the caller's [`ReloadablePolicy`](super::ReloadablePolicy).
 
 use std::path::Path;
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 
-/// A live filesystem watch on the CEL policy file. Holds the OS watcher — which
+/// A live filesystem watch on a policy file. Holds the OS watcher — which
 /// stops watching the moment it is dropped — alongside the receiver that yields
 /// one signal per detected change.
-pub struct CelWatch {
+pub struct PolicyWatch {
     // Kept alive for the lifetime of the watch; dropping it ends the watch. Never
     // read directly (the events arrive through `changes`), hence the `_` prefix.
     _watcher: RecommendedWatcher,
@@ -28,7 +29,7 @@ pub struct CelWatch {
 /// filtered to `path`'s file name and coalesced into a bare "something changed"
 /// signal — the reload re-reads the latest content regardless of how many
 /// individual events a single save produced.
-pub fn watch(path: &Path) -> Result<CelWatch, String> {
+pub fn watch(path: &Path) -> Result<PolicyWatch, String> {
     let directory = match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
         // A bare filename has no parent component — watch the current directory.
@@ -36,12 +37,7 @@ pub fn watch(path: &Path) -> Result<CelWatch, String> {
     };
     let file_name = path
         .file_name()
-        .ok_or_else(|| {
-            format!(
-                "CEL policy path '{}' has no file name to watch",
-                path.display()
-            )
-        })?
+        .ok_or_else(|| format!("policy path '{}' has no file name to watch", path.display()))?
         .to_os_string();
 
     let (tx, changes) = mpsc::channel(8);
@@ -60,13 +56,13 @@ pub fn watch(path: &Path) -> Result<CelWatch, String> {
             let _ = tx.try_send(());
         }
     })
-    .map_err(|error| format!("cannot create the CEL policy watcher: {error}"))?;
+    .map_err(|error| format!("cannot create the policy watcher: {error}"))?;
 
     watcher
         .watch(&directory, RecursiveMode::NonRecursive)
         .map_err(|error| format!("cannot watch '{}': {error}", directory.display()))?;
 
-    Ok(CelWatch {
+    Ok(PolicyWatch {
         _watcher: watcher,
         changes,
     })
