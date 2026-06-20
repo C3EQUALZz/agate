@@ -29,6 +29,7 @@ use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_audit::setup::storage::Storage;
 use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::PolicyRuleset;
+use agate_proxy::application::common::ports::PolicyPort;
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
 use agate_server::infrastructure::audit::FullPolicy;
@@ -57,8 +58,16 @@ pub struct TestServer {
 }
 
 /// Boot the stub agent (answering with `sse_body`), the database, and the
-/// server wired to `ruleset`; create a fresh log.
+/// server wired to `ruleset` (the static policy adapter); create a fresh log.
 pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer {
+    let policy = Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)));
+    spawn_with_policy(policy, sse_body).await
+}
+
+/// Boot the stub agent, the database, and the server wired to an already-built
+/// decision engine — so the CEL and Rego plugin backends are exercised through
+/// the live proxy → audit path, not just the static ruleset.
+pub async fn spawn_with_policy(policy: Arc<dyn PolicyPort>, sse_body: &'static str) -> TestServer {
     let container = Postgres::default()
         .with_tag(POSTGRES_IMAGE_TAG)
         .start()
@@ -90,7 +99,7 @@ pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer
         ServerConfig {
             proxy,
             log,
-            policy: Arc::new(PolicyAdapter::new(PolicyService::new(ruleset))),
+            policy,
             fail_mode: FailMode::Closed,
             decision_timeout: Duration::from_secs(5),
             checkpoint: None,
