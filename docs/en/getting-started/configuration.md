@@ -101,6 +101,7 @@ nothing is redacted**.
 | `[policy.session_memory].redis_url` | string | Redis connection URL (e.g. `redis://127.0.0.1:6379`). **Required** when `backend = "redis"`, ignored otherwise. |
 | `[policy].backend` | `ruleset` \| `cel` | Which engine decides verdicts. `ruleset` (default) is the built-in static policy documented above. `cel` hands every decision to operator-authored CEL rules from `[policy.cel]` — the static rules above are then **not** consulted. Selecting `cel` requires a build with the `policy-cel` Cargo feature. |
 | `[policy.cel].policy_path` | string | Path to the CEL policy file (a TOML list of `[[rule]]` entries; see below). **Required** when `backend = "cel"`. Every rule is compiled at startup, so a parse error **aborts the process**. |
+| `[policy.cel].watch` | bool | Auto-reload the policy file when it changes on disk, on top of the always-on `SIGHUP` reload. Default `false` (opt-in — file-watching relies on the platform's inotify/FSEvents and may not fire on some network filesystems). A watch-triggered reload is the same fail-safe reload as `SIGHUP`. |
 
 !!! warning "Invalid policy aborts startup"
     A blank or invalid tool name, or an empty redaction pattern, **aborts
@@ -201,8 +202,15 @@ the previous, known-good rules stay in force) — a bad edit never leaves the
 gateway without a policy. A reload that produces **zero** rules (an empty or
 truncated file — e.g. a non-atomic write caught mid-flight) is likewise refused,
 since no rules means allow-all; prefer an atomic write (write a temp file, then
-rename) when editing live. Hot-reload is Unix-only; on other platforms the policy
-is fixed at startup.
+rename) when editing live. `SIGHUP` reload is Unix-only; on other platforms the
+policy is fixed at startup.
+
+Set `[policy.cel].watch = true` to **also** reload automatically whenever the
+file changes on disk (cross-platform, opt-in). It watches the file's directory —
+so it survives the atomic temp-then-rename writes editors use — and coalesces the
+burst of events a single save emits into one reload. The reload itself is the
+same fail-safe path, so a transient empty/half-written file is refused and the
+running policy is kept.
 
 ## `[observability.logging]`
 

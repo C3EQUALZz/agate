@@ -122,6 +122,12 @@ pub struct CelSection {
     /// when `backend = "cel"`; the file is read and every rule is compiled at
     /// startup, so a parse error aborts the process.
     pub policy_path: Option<String>,
+    /// Auto-reload the policy file when it changes on disk (in addition to the
+    /// always-on `SIGHUP` reload). Off by default — file-watching has more moving
+    /// parts (inotify limits, network filesystems that emit no events), so it is
+    /// opt-in. A reload triggered by a watch is the same fail-safe reload as
+    /// `SIGHUP`: a bad or truncated file keeps the running policy.
+    pub watch: bool,
 }
 
 /// `[policy.session_memory]` — cross-run replay protection. When enabled, a tool
