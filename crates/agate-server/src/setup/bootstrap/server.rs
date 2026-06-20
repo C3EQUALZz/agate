@@ -2,9 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use tokio::sync::{Notify, mpsc};
-use tokio::task::JoinHandle;
-use tracing::warn;
+use tokio::sync::mpsc;
 
 use agate_audit::application::common::ports::AuditMetrics;
 use agate_audit::domain::merkle::LogId;
@@ -21,7 +19,7 @@ use crate::infrastructure::audit::{
     AuditLogSink, AuditOutbox, CheckpointIssuer, CheckpointScheduler, FullPolicy, RecordAppender,
 };
 use crate::presentation::http::readiness;
-use crate::setup::bootstrap::{ScopedAppender, ScopedIssuer};
+use crate::setup::bootstrap::{ScopedAppender, ScopedIssuer, Supervisor};
 
 /// How the audit outbox is sized and behaves when full. Bounded so a slow
 /// database cannot grow memory without limit; `on_full` is the operator's
@@ -41,41 +39,20 @@ pub struct CheckpointSettings {
     pub key: KeyId,
 }
 
-/// A running checkpoint scheduler and the signal that stops it gracefully.
+/// The wired server: the proxy HTTP app to serve. Its background tasks (the
+/// audit outbox draining records into the transparency log, and an optional
+/// periodic checkpoint signer) are spawned onto the caller's [`Supervisor`], not
+/// returned here.
 ///
-/// Stopping is cooperative: [`stop`](Self::stop) signals the loop, which returns
-/// at its next boundary, so the scheduler never dies in the middle of an issue
-/// (which would abandon a half-open audit scope/transaction, as an abrupt
-/// `abort()` could).
-pub struct CheckpointHandle {
-    task: JoinHandle<()>,
-    shutdown: Arc<Notify>,
-}
-
-impl CheckpointHandle {
-    /// Signal the scheduler to stop and wait for it to finish any in-flight
-    /// issue and exit.
-    pub async fn stop(self) {
-        self.shutdown.notify_one();
-        if let Err(error) = self.task.await {
-            warn!(%error, "checkpoint scheduler task did not stop cleanly");
-        }
-    }
-}
-
-/// The wired server: the proxy HTTP app to serve, the audit outbox task draining
-/// records into the transparency log, and an optional periodic checkpoint task.
-///
-/// On graceful shutdown the caller serves `app` with an axum shutdown signal;
-/// once `serve` returns, dropping `app` drops the audit sink and closes the
-/// outbox channel, so awaiting `outbox` flushes the records still queued before
-/// the process exits (see `main`). The `checkpoint` task is a timer loop with no
-/// natural end, so the caller stops it cooperatively on shutdown via
-/// [`CheckpointHandle::stop`].
+/// On graceful shutdown the caller serves `app` with an axum shutdown signal and
+/// [`Supervisor::trigger`]s the token; once `serve` returns, dropping `app` drops
+/// the audit sink and closes the outbox channel, so the outbox task drains the
+/// records still queued. [`Supervisor::wait`] then awaits every background task
+/// before the process exits (see `main`). The checkpoint task is a timer loop
+/// with no natural end, so it watches the token and returns at its next boundary
+/// rather than being aborted mid-issue.
 pub struct Server {
     pub app: Router,
-    pub outbox: JoinHandle<()>,
-    pub checkpoint: Option<CheckpointHandle>,
 }
 
 /// Everything the server is wired from, beyond the connected `storage`: the
@@ -98,10 +75,12 @@ pub struct ServerConfig {
 /// Wire the proxy to the policy engine and the audit log, backed by `storage`.
 ///
 /// The decision engine is supplied already built (see [`ServerConfig::policy`]);
-/// the audit sink is the real bridge to the transparency log. Must be called
-/// from within a Tokio runtime — it spawns the outbox task.
+/// the audit sink is the real bridge to the transparency log. The outbox and the
+/// optional checkpoint scheduler are spawned onto `supervisor`, so the caller
+/// shuts them down (token + wait) uniformly with every other background task.
+/// Must be called from within a Tokio runtime.
 #[must_use]
-pub fn build_server(storage: &Storage, config: ServerConfig) -> Server {
+pub fn build_server(storage: &Storage, config: ServerConfig, supervisor: &Supervisor) -> Server {
     let ServerConfig {
         proxy,
         log,
@@ -119,20 +98,21 @@ pub fn build_server(storage: &Storage, config: ServerConfig) -> Server {
     let appender: Arc<dyn RecordAppender> =
         Arc::new(ScopedAppender::new(container.clone(), registry.clone()));
     let (tx, rx) = mpsc::channel::<Vec<u8>>(outbox.capacity);
-    let outbox_task = tokio::spawn(AuditOutbox::new(appender, log, metrics.clone()).run(rx));
+    // The outbox is driven to completion by its channel closing (when the served
+    // app, and the sink inside it, drops), not by the token — so it drains every
+    // queued record on shutdown. It is supervised only so `wait` awaits that drain.
+    supervisor.spawn(AuditOutbox::new(appender, log, metrics.clone()).run(rx));
 
     // The transparency log's own STH cadence: a background task signs the head
     // on an interval (disabled unless configured). It reuses the same audit
-    // container/registry as the outbox, behind the CheckpointIssuer port.
-    let checkpoint = checkpoint.map(|settings| {
+    // container/registry as the outbox, behind the CheckpointIssuer port, and
+    // watches the shutdown token so it returns at a loop boundary (never mid-issue).
+    if let Some(settings) = checkpoint {
         let issuer: Arc<dyn CheckpointIssuer> =
             Arc::new(ScopedIssuer::new(container, registry, settings.key));
-        let shutdown = Arc::new(Notify::new());
-        let task = tokio::spawn(
-            CheckpointScheduler::new(issuer, log, settings.period).run(shutdown.clone()),
-        );
-        CheckpointHandle { task, shutdown }
-    });
+        supervisor
+            .spawn(CheckpointScheduler::new(issuer, log, settings.period).run(supervisor.token()));
+    }
 
     // Wrap the supplied engine so a slow/hung decision falls back to the
     // configured fail mode (fail-closed by default) instead of hanging the run.
@@ -149,34 +129,5 @@ pub fn build_server(storage: &Storage, config: ServerConfig) -> Server {
     let health = storage.health_check();
     let app = build_app_with(proxy, policy, audit).merge(readiness::router(health));
 
-    Server {
-        app,
-        outbox: outbox_task,
-        checkpoint,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use tokio::sync::Notify;
-
-    use super::CheckpointHandle;
-
-    #[tokio::test]
-    async fn stopping_a_checkpoint_handle_signals_and_joins_the_task() {
-        // A stand-in scheduler task that exits once its shutdown is signaled,
-        // exactly as `CheckpointScheduler::run` does at its loop boundary.
-        let shutdown = Arc::new(Notify::new());
-        let task = tokio::spawn({
-            let shutdown = shutdown.clone();
-            async move { shutdown.notified().await }
-        });
-        let handle = CheckpointHandle { task, shutdown };
-
-        // Returns only once the task observed the signal and exited — a hang
-        // here would fail the test, proving the cooperative stop joins cleanly.
-        handle.stop().await;
-    }
+    Server { app }
 }
