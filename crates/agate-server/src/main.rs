@@ -153,16 +153,57 @@ fn build_policy(config: &AppConfig) -> Arc<dyn PolicyPort> {
 
 #[cfg(feature = "policy-cel")]
 fn build_cel_policy(config: &AppConfig) -> Arc<dyn PolicyPort> {
+    use agate_server::infrastructure::policy::CelPolicyAdapter;
+
     let path = config
         .policy
         .cel
         .policy_path
         .as_deref()
         .expect("validate() requires policy.cel.policy_path when backend = cel");
-    Arc::new(
-        agate_server::infrastructure::policy::CelPolicyAdapter::load(path)
-            .unwrap_or_else(|error| panic!("invalid CEL policy: {error}")),
-    )
+    let adapter = Arc::new(
+        CelPolicyAdapter::load(path).unwrap_or_else(|error| panic!("invalid CEL policy: {error}")),
+    );
+    // Hot-reload the policy file on SIGHUP (Unix only). The reload is fail-safe —
+    // a bad file keeps the running policy — so the listener never loses its rules.
+    #[cfg(unix)]
+    spawn_cel_reload(Arc::clone(&adapter));
+    adapter
+}
+
+/// Reload the CEL policy on every `SIGHUP`. Detached for the process lifetime; it
+/// only swaps an in-memory rule set, so it holds no resource that shutdown must
+/// drain and is safe to abort on exit.
+#[cfg(all(unix, feature = "policy-cel"))]
+fn spawn_cel_reload(adapter: Arc<agate_server::infrastructure::policy::CelPolicyAdapter>) {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    tokio::spawn(async move {
+        let mut sighup = match signal(SignalKind::hangup()) {
+            Ok(stream) => stream,
+            Err(error) => {
+                tracing::error!(%error, "cannot install the SIGHUP handler; CEL hot-reload disabled");
+                return;
+            }
+        };
+        info!("CEL policy hot-reload armed: send SIGHUP to reload the policy file");
+        while sighup.recv().await.is_some() {
+            // Reload on a blocking thread: it reads + recompiles the file, which
+            // must not stall an async worker. `spawn_blocking` also isolates a
+            // panic in compilation as a `JoinError`, so a single bad reload can
+            // never kill the handler and silently stop all future reloads.
+            let engine = Arc::clone(&adapter);
+            match tokio::task::spawn_blocking(move || engine.reload()).await {
+                Ok(Ok(rules)) => info!(rules, "reloaded CEL policy on SIGHUP"),
+                Ok(Err(error)) => {
+                    tracing::error!(%error, "CEL policy reload failed; keeping the current policy");
+                }
+                Err(join) => {
+                    tracing::error!(%join, "CEL policy reload panicked; keeping the current policy");
+                }
+            }
+        }
+    });
 }
 
 #[cfg(not(feature = "policy-cel"))]
