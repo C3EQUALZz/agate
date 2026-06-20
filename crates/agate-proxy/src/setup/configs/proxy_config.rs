@@ -3,6 +3,27 @@ use std::time::Duration;
 use crate::application::inspection::{InspectionSettings, MalformedEventMode, ResponseBudget};
 use crate::domain::inspection::Budgets;
 
+/// Which store backs the cross-run session-replay ledger.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionMemoryBackend {
+    /// A process-local ledger (single instance). State is lost on restart and
+    /// not shared across replicas.
+    InMemory,
+    /// A shared Redis ledger (multiple proxy instances see the same session),
+    /// at the given connection URL. State survives a restart and spans replicas.
+    Redis(String),
+}
+
+/// Cross-run replay-memory configuration. Present on [`ProxyConfig`] means
+/// enabled; absent means the policy is judged afresh every run.
+#[derive(Clone, Debug)]
+pub struct SessionMemoryConfig {
+    /// Where the ledger lives.
+    pub backend: SessionMemoryBackend,
+    /// How long a session's quarantine survives without activity.
+    pub ttl: Duration,
+}
+
 /// How long to wait to establish a connection to the upstream agent before
 /// failing fast. Kept short so an unreachable agent surfaces quickly.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -49,10 +70,10 @@ pub struct ProxyConfig {
     /// Burst depth for the per-IP rate limit (largest instantaneous burst); `0`
     /// falls back to [`rate_limit_per_second`](Self::rate_limit_per_second).
     pub rate_limit_burst: u32,
-    /// Cross-run replay memory: `Some(ttl)` quarantines a tool denied in one run
-    /// for the rest of the session (forgotten after `ttl` of inactivity); `None`
-    /// disables it (the policy is judged afresh every run).
-    pub session_memory_ttl: Option<Duration>,
+    /// Cross-run replay memory: `Some` quarantines a tool denied in one run for
+    /// the rest of the session (in-memory or Redis); `None` disables it (the
+    /// policy is judged afresh every run).
+    pub session_memory: Option<SessionMemoryConfig>,
 }
 
 impl ProxyConfig {
@@ -71,7 +92,7 @@ impl ProxyConfig {
             response_budget: ResponseBudget::default(),
             rate_limit_per_second: 0,
             rate_limit_burst: 0,
-            session_memory_ttl: None,
+            session_memory: None,
         }
     }
 
@@ -117,11 +138,11 @@ impl ProxyConfig {
         self
     }
 
-    /// Override the cross-run session-replay memory (`Some(ttl)` enables it with
-    /// that inactivity TTL; `None` disables it).
+    /// Override the cross-run session-replay memory (`Some` enables it with the
+    /// given backend + TTL; `None` disables it).
     #[must_use]
-    pub fn with_session_memory(mut self, ttl: Option<Duration>) -> Self {
-        self.session_memory_ttl = ttl;
+    pub fn with_session_memory(mut self, session_memory: Option<SessionMemoryConfig>) -> Self {
+        self.session_memory = session_memory;
         self
     }
 

@@ -148,6 +148,12 @@ enabled = false
 # How long a session's quarantine survives without activity, in seconds (must be
 # > 0 when enabled). A session idle longer than this is forgotten.
 ttl_secs = 3600
+# Where the ledger lives: "memory" (process-local, lost on restart, not shared
+# across replicas) or "redis" (shared across replicas and restarts). Default
+# "memory".
+backend = "memory"
+# Redis connection URL — required when backend = "redis", ignored otherwise.
+# redis_url = "redis://127.0.0.1:6379"
 
 [observability.logging]
 # Set false to silence logs entirely.

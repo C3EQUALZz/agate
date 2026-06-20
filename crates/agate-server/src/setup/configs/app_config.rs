@@ -7,13 +7,14 @@ use agate_policy::domain::common::errors::DomainError;
 use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolMatcher, ToolPolicy};
 use agate_proxy::application::inspection::{MalformedEventMode, ResponseBudget};
 use agate_proxy::infrastructure::FailMode;
-use agate_proxy::setup::configs::ProxyConfig;
+use agate_proxy::setup::configs::{ProxyConfig, SessionMemoryBackend, SessionMemoryConfig};
 use serde::{Deserialize, Serialize};
 
 use super::audit_section::{AuditBackend, AuditSection, OnFull};
 use super::observability::ObservabilityConfig;
 use super::policy_section::{
-    ArgumentRuleConfig, MalformedMode, PolicyFailMode, PolicySection, ResultRuleConfig, ToolMode,
+    ArgumentRuleConfig, MalformedMode, PolicyFailMode, PolicySection, ResultRuleConfig,
+    SessionMemoryBackendKind, ToolMode,
 };
 use super::proxy_section::ProxySection;
 use super::tls::TlsConfig;
@@ -75,7 +76,7 @@ impl AppConfig {
                 self.proxy.rate_limit_per_second,
                 self.proxy.rate_limit_burst,
             )
-            .with_session_memory(self.session_memory_ttl())
+            .with_session_memory(self.session_memory_config())
     }
 
     /// How the response leg treats a recognized-but-malformed event.
@@ -87,13 +88,24 @@ impl AppConfig {
         }
     }
 
-    /// The cross-run replay-memory TTL when `[policy.session_memory]` is enabled,
-    /// else `None` (the proxy then judges every run statelessly).
-    fn session_memory_ttl(&self) -> Option<Duration> {
-        self.policy
-            .session_memory
-            .enabled
-            .then(|| Duration::from_secs(self.policy.session_memory.ttl_secs))
+    /// The cross-run replay-memory configuration when `[policy.session_memory]`
+    /// is enabled, else `None` (the proxy then judges every run statelessly).
+    /// Maps the on-disk backend choice onto the proxy's [`SessionMemoryBackend`].
+    fn session_memory_config(&self) -> Option<SessionMemoryConfig> {
+        let section = &self.policy.session_memory;
+        if !section.enabled {
+            return None;
+        }
+        let backend = match section.backend {
+            SessionMemoryBackendKind::Memory => SessionMemoryBackend::InMemory,
+            SessionMemoryBackendKind::Redis => {
+                SessionMemoryBackend::Redis(section.redis_url.clone().unwrap_or_default())
+            }
+        };
+        Some(SessionMemoryConfig {
+            backend,
+            ttl: Duration::from_secs(section.ttl_secs),
+        })
     }
 
     /// The set of accepted API keys: the `api_keys` array plus the single
