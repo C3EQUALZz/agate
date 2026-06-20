@@ -55,21 +55,20 @@ gaps live in the repository at
 - **Cross-run replay memory:** off by default; enable `[policy.session_memory]`
   to quarantine a tool (by name) for the rest of a session once it is denied,
   so the agent cannot retry it with varied arguments in a later run. It only
-  ever *adds* a denial over the stateless policy. State is process-local with a
-  sliding TTL — front several replicas with a shared backend (e.g. Redis) when a
-  session may span instances.
+  ever *adds* a denial over the stateless policy. The ledger is process-local
+  with a sliding TTL by default, or **Redis** (`backend = "redis"`) shared
+  across replicas and restarts; the Redis backend fails open — an unreachable
+  Redis degrades to no memory, never a wrong allow.
 - **TLS** is terminated at the proxy (required to inspect plaintext); it is off
   by default and configured under `[tls]`.
 
 ## Roadmap
 
 The remaining work is forward-looking — semantic state-path allowlisting, a
-plugin policy engine, sub-IP / per-API-key rate limits, and a shared
-(e.g. Redis-backed) session memory for multi-replica deployments — and is
-sequenced in
+plugin policy engine, and sub-IP / per-API-key rate limits — and is sequenced in
 [`security-coverage-roadmap.md`](https://github.com/C3EQUALZz/agate/blob/main/docs/design/security-coverage-roadmap.md).
 (Malformed-event fail-closed, tool-argument deny rules, secret redaction of tool
 results and state, per-run response budgets, SSRF screening on both legs with
 DNS-rebinding resolution, RFC 6902 patch validation/bounding, audit-outbox
 backpressure signalling with a block/shed policy, and cross-run per-session
-replay memory are now implemented.)
+replay memory — process-local or Redis-backed — are now implemented.)

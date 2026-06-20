@@ -2,4 +2,4 @@
 
 pub mod proxy_config;
 
-pub use proxy_config::ProxyConfig;
+pub use proxy_config::{ProxyConfig, SessionMemoryBackend, SessionMemoryConfig};

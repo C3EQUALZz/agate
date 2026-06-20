@@ -39,6 +39,18 @@ impl PolicySection {
                 "policy.session_memory.ttl_secs must be greater than 0 when enabled".into(),
             );
         }
+        if self.session_memory.enabled
+            && self.session_memory.backend == SessionMemoryBackendKind::Redis
+            && self
+                .session_memory
+                .redis_url
+                .as_deref()
+                .is_none_or(|url| url.trim().is_empty())
+        {
+            return Err(
+                "policy.session_memory.redis_url is required when backend = \"redis\"".into(),
+            );
+        }
         Ok(())
     }
 }
@@ -68,6 +80,23 @@ pub struct SessionMemorySection {
     /// How long a session's quarantine survives without activity, in seconds.
     /// A session idle longer than this is forgotten. Must be > 0 when enabled.
     pub ttl_secs: u64,
+    /// Where the ledger lives: `memory` (process-local, single instance) or
+    /// `redis` (shared across replicas and restarts).
+    pub backend: SessionMemoryBackendKind,
+    /// Redis connection URL (e.g. `redis://127.0.0.1:6379`). Required when
+    /// `backend = "redis"`; ignored otherwise.
+    pub redis_url: Option<String>,
+}
+
+/// Where the session-replay ledger is stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SessionMemoryBackendKind {
+    /// Process-local, lost on restart, not shared across replicas (the default).
+    #[default]
+    Memory,
+    /// A shared Redis store (multi-replica, survives restarts).
+    Redis,
 }
 
 impl Default for SessionMemorySection {
@@ -75,6 +104,8 @@ impl Default for SessionMemorySection {
         Self {
             enabled: false,
             ttl_secs: 3600,
+            backend: SessionMemoryBackendKind::default(),
+            redis_url: None,
         }
     }
 }

@@ -96,7 +96,9 @@ nothing is redacted**.
 | `[policy].decision_timeout_ms` | integer (ms) | Deadline for one policy decision. Default `5000`; must be > 0. |
 | `[policy].on_malformed_event` | `forward` \| `drop` \| `terminate` | What to do with a recognized response event that is malformed (a known type missing a required field), so it cannot be inspected. `forward` passes the raw frame, `drop` discards it, `terminate` ends the run. Default `terminate` (it must not bypass the policy). |
 | `[policy.session_memory].enabled` | bool | Cross-run replay memory: once a tool is denied in a run, refuse it (by name) for the rest of the session, so the agent cannot retry it with varied arguments in a later run. Defense-in-depth over the stateless policy. Default `false`. |
-| `[policy.session_memory].ttl_secs` | integer (s) | How long a session's quarantine survives without activity. A session idle longer than this is forgotten. Default `3600`; must be > 0 when enabled. State is process-local — front several replicas with a shared backend when a session may span instances. |
+| `[policy.session_memory].ttl_secs` | integer (s) | How long a session's quarantine survives without activity. A session idle longer than this is forgotten. Default `3600`; must be > 0 when enabled. |
+| `[policy.session_memory].backend` | `memory` \| `redis` | Where the ledger lives. `memory` is process-local (lost on restart, not shared across replicas); `redis` is shared across replicas and restarts. Default `memory`. The Redis backend fails open — if Redis is unreachable it degrades to no memory, never a wrong allow. |
+| `[policy.session_memory].redis_url` | string | Redis connection URL (e.g. `redis://127.0.0.1:6379`). **Required** when `backend = "redis"`, ignored otherwise. |
 
 !!! warning "Invalid policy aborts startup"
     A blank or invalid tool name, or an empty redaction pattern, **aborts
@@ -236,6 +238,8 @@ on_malformed_event = "terminate"
 [policy.session_memory]
 enabled = false
 ttl_secs = 3600
+backend = "memory"
+# redis_url = "redis://127.0.0.1:6379"  # required when backend = "redis"
 
 [observability.logging]
 enabled = true

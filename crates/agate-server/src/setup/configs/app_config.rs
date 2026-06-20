@@ -7,13 +7,14 @@ use agate_policy::domain::common::errors::DomainError;
 use agate_policy::domain::decision::{Pattern, PolicyRuleset, ToolMatcher, ToolPolicy};
 use agate_proxy::application::inspection::{MalformedEventMode, ResponseBudget};
 use agate_proxy::infrastructure::FailMode;
-use agate_proxy::setup::configs::ProxyConfig;
+use agate_proxy::setup::configs::{ProxyConfig, SessionMemoryBackend, SessionMemoryConfig};
 use serde::{Deserialize, Serialize};
 
 use super::audit_section::{AuditBackend, AuditSection, OnFull};
 use super::observability::ObservabilityConfig;
 use super::policy_section::{
-    ArgumentRuleConfig, MalformedMode, PolicyFailMode, PolicySection, ResultRuleConfig, ToolMode,
+    ArgumentRuleConfig, MalformedMode, PolicyFailMode, PolicySection, ResultRuleConfig,
+    SessionMemoryBackendKind, ToolMode,
 };
 use super::proxy_section::ProxySection;
 use super::tls::TlsConfig;
@@ -75,7 +76,7 @@ impl AppConfig {
                 self.proxy.rate_limit_per_second,
                 self.proxy.rate_limit_burst,
             )
-            .with_session_memory(self.session_memory_ttl())
+            .with_session_memory(self.session_memory_config())
     }
 
     /// How the response leg treats a recognized-but-malformed event.
@@ -87,13 +88,24 @@ impl AppConfig {
         }
     }
 
-    /// The cross-run replay-memory TTL when `[policy.session_memory]` is enabled,
-    /// else `None` (the proxy then judges every run statelessly).
-    fn session_memory_ttl(&self) -> Option<Duration> {
-        self.policy
-            .session_memory
-            .enabled
-            .then(|| Duration::from_secs(self.policy.session_memory.ttl_secs))
+    /// The cross-run replay-memory configuration when `[policy.session_memory]`
+    /// is enabled, else `None` (the proxy then judges every run statelessly).
+    /// Maps the on-disk backend choice onto the proxy's [`SessionMemoryBackend`].
+    fn session_memory_config(&self) -> Option<SessionMemoryConfig> {
+        let section = &self.policy.session_memory;
+        if !section.enabled {
+            return None;
+        }
+        let backend = match section.backend {
+            SessionMemoryBackendKind::Memory => SessionMemoryBackend::InMemory,
+            SessionMemoryBackendKind::Redis => {
+                SessionMemoryBackend::Redis(section.redis_url.clone().unwrap_or_default())
+            }
+        };
+        Some(SessionMemoryConfig {
+            backend,
+            ttl: Duration::from_secs(section.ttl_secs),
+        })
     }
 
     /// The set of accepted API keys: the `api_keys` array plus the single
@@ -230,7 +242,10 @@ mod tests {
 
     use super::super::policy_section::{ArgumentRuleConfig, ToolsSection};
     use super::FullPolicy;
-    use super::{AppConfig, FailMode, PolicySection, ProxySection, ToolMode};
+    use super::{
+        AppConfig, FailMode, PolicySection, ProxySection, SessionMemoryBackend,
+        SessionMemoryBackendKind, ToolMode,
+    };
 
     fn with_policy(mode: ToolMode, names: &[&str], redact: &[&str]) -> AppConfig {
         AppConfig {
@@ -615,5 +630,58 @@ mod tests {
     #[test]
     fn proxy_section_defaults_to_the_standard_bind() {
         assert_eq!(ProxySection::default().bind, "0.0.0.0:8080");
+    }
+
+    #[test]
+    fn enabled_session_memory_defaults_to_the_in_memory_backend() {
+        let mut config = AppConfig::default();
+        config.policy.session_memory.enabled = true;
+        let session_memory = config
+            .proxy_config()
+            .session_memory
+            .expect("session memory is enabled");
+        assert!(matches!(
+            session_memory.backend,
+            SessionMemoryBackend::InMemory
+        ));
+        assert_eq!(session_memory.ttl.as_secs(), 3600);
+    }
+
+    #[test]
+    fn the_redis_backend_maps_its_url() {
+        let mut config = AppConfig::default();
+        config.policy.session_memory.enabled = true;
+        config.policy.session_memory.backend = SessionMemoryBackendKind::Redis;
+        config.policy.session_memory.redis_url = Some("redis://db:6379".to_owned());
+        let session_memory = config
+            .proxy_config()
+            .session_memory
+            .expect("session memory is enabled");
+        assert!(matches!(
+            session_memory.backend,
+            SessionMemoryBackend::Redis(url) if url == "redis://db:6379"
+        ));
+    }
+
+    #[test]
+    fn disabled_session_memory_maps_to_none() {
+        // Off by default, so the proxy is configured with no ledger at all.
+        assert!(AppConfig::default().proxy_config().session_memory.is_none());
+    }
+
+    #[test]
+    fn the_redis_backend_requires_a_url() {
+        // Exercise the policy section's own validation in isolation (the audit
+        // section owns its database_url requirement separately).
+        let mut policy = PolicySection::default();
+        policy.session_memory.enabled = true;
+        policy.session_memory.backend = SessionMemoryBackendKind::Redis;
+        policy.session_memory.redis_url = None;
+        assert!(
+            policy.validate().is_err(),
+            "the redis backend without a url is rejected"
+        );
+        policy.session_memory.redis_url = Some("redis://127.0.0.1:6379".to_owned());
+        assert!(policy.validate().is_ok(), "a url makes it valid");
     }
 }

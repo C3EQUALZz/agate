@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use froodi::{
     DefaultScope::App, Inject, async_impl::Container, async_registry, instance, registry,
@@ -10,7 +11,7 @@ use crate::infrastructure::{
     AllowAllPolicy, InMemorySessionMemory, NoopAuditSink, NoopSessionMemory, ProxyMetricsRecorder,
     ReqwestAgentClient, TokioHostResolver,
 };
-use crate::setup::configs::ProxyConfig;
+use crate::setup::configs::{ProxyConfig, SessionMemoryBackend, SessionMemoryConfig};
 use crate::setup::ioc::handles::{ProxyMetricsHandle, UpstreamAgentClientHandle};
 
 /// Build the IoC container with the default adapters: an allow-all policy and a
@@ -52,14 +53,65 @@ pub fn build_container_with(
                 provide(|| Ok(ProxyMetricsHandle(Arc::new(ProxyMetricsRecorder)))),
                 provide(move |Inject(config): Inject<ProxyConfig>| {
                     let resolver: Arc<dyn HostResolver> = Arc::new(TokioHostResolver);
-                    let memory: Arc<dyn SessionMemory> = match config.session_memory_ttl {
-                        Some(ttl) => Arc::new(InMemorySessionMemory::new(ttl)),
-                        None => Arc::new(NoopSessionMemory),
-                    };
+                    let memory = build_session_memory(config.session_memory.as_ref());
                     Ok(Inspector::new(policy.clone(), audit.clone(), resolver, memory))
                 }),
             ]
         })
     };
     Container::new_with_start_scope(ioc, App)
+}
+
+/// Assemble the session-replay ledger for the configured backend (or a no-op
+/// when disabled). The in-memory backend is built directly; the Redis backend
+/// is built behind the `redis` feature.
+fn build_session_memory(config: Option<&SessionMemoryConfig>) -> Arc<dyn SessionMemory> {
+    let Some(config) = config else {
+        return Arc::new(NoopSessionMemory);
+    };
+    match &config.backend {
+        SessionMemoryBackend::InMemory => Arc::new(InMemorySessionMemory::new(config.ttl)),
+        SessionMemoryBackend::Redis(url) => build_redis_session_memory(url, config.ttl),
+    }
+}
+
+#[cfg(feature = "redis")]
+fn build_redis_session_memory(url: &str, ttl: Duration) -> Arc<dyn SessionMemory> {
+    Arc::new(
+        crate::infrastructure::RedisSessionMemory::new(url, ttl)
+            .expect("a valid Redis URL for session memory"),
+    )
+}
+
+#[cfg(not(feature = "redis"))]
+fn build_redis_session_memory(_url: &str, _ttl: Duration) -> Arc<dyn SessionMemory> {
+    panic!(
+        "the `redis` session-memory backend requires building agate-proxy with the `redis` feature"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SessionMemoryBackend, SessionMemoryConfig, build_session_memory};
+    use std::time::Duration;
+
+    // `InMemorySessionMemory` spawns a pruner task, so a runtime is required.
+    #[tokio::test]
+    async fn builds_the_configured_session_memory_backend() {
+        // Disabled → a (no-op) ledger is still produced.
+        let _disabled = build_session_memory(None);
+
+        let _in_memory = build_session_memory(Some(&SessionMemoryConfig {
+            backend: SessionMemoryBackend::InMemory,
+            ttl: Duration::from_mins(1),
+        }));
+
+        // The Redis backend only parses the URL here (no connection), so this
+        // builds without a live Redis.
+        #[cfg(feature = "redis")]
+        let _redis = build_session_memory(Some(&SessionMemoryConfig {
+            backend: SessionMemoryBackend::Redis("redis://127.0.0.1:6379".to_owned()),
+            ttl: Duration::from_mins(1),
+        }));
+    }
 }

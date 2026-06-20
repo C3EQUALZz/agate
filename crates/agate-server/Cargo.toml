@@ -6,7 +6,9 @@ license.workspace = true
 description = "Composition root: wires the proxy data plane to the audit transparency log."
 
 [dependencies]
-agate-proxy = { workspace = true }
+# The Redis session-memory backend is always available in the server binary
+# (selected at runtime by `[policy.session_memory].backend`).
+agate-proxy = { workspace = true, features = ["redis"] }
 agate-audit = { workspace = true }
 agate-policy = { workspace = true }
 # For KeyId when wiring the periodic checkpoint issuer.

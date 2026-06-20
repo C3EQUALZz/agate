@@ -20,10 +20,20 @@ axum = { workspace = true }
 governor = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 froodi = { version = "1.0.0-beta.18", features = ["async", "axum"] }
+# Optional shared session-memory backend (the `redis` feature); the in-memory
+# adapter needs no external service, so Redis stays opt-in.
+redis = { workspace = true, optional = true }
+
+[features]
+# A Redis-backed cross-run session-replay ledger, shared across proxy instances.
+redis = ["dep:redis"]
 
 [dev-dependencies]
 # ServiceExt::oneshot for driving the router in middleware tests.
 tower = { version = "0.5", features = ["util"] }
+# Real Redis for the session-memory backend integration test (feature `redis`).
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
 
 [[test]]
 name = "application"

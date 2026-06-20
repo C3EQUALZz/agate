@@ -14,5 +14,7 @@ pub use agent::ReqwestAgentClient;
 pub use audit::NoopAuditSink;
 pub use dns::{NoopHostResolver, TokioHostResolver};
 pub use fail_mode_policy::{FailMode, FailModePolicy};
+#[cfg(feature = "redis")]
+pub use policy::RedisSessionMemory;
 pub use policy::{AllowAllPolicy, InMemorySessionMemory, NoopSessionMemory};
 pub use proxy_metrics::ProxyMetricsRecorder;

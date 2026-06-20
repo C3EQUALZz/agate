@@ -3,4 +3,6 @@
 //! `[[test]]` target.
 
 mod fixture;
+#[cfg(feature = "redis")]
+mod redis_session_memory;
 mod upstream;
