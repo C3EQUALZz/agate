@@ -56,8 +56,14 @@ pub enum RequestDecision {
 /// public-looking domain pointing at a private address). A host that does not
 /// resolve is not blocked on that basis — the literal checks still apply.
 pub async fn first_disallowed_url(text: &str, resolver: &dyn HostResolver) -> Option<DenyReason> {
+    // Split on whitespace *and* JSON structural punctuation, so a URL embedded in
+    // a JSON value — the usual shape of tool-call arguments and tool results,
+    // e.g. `{"url":"http://169.254.169.254/"}` — is isolated and screened, not
+    // just URLs sitting alone in prose. `[` and `]` are deliberately NOT split on:
+    // they bracket an IPv6 host (`http://[::1]/x`), and a quoted URL inside a JSON
+    // array is already isolated by the surrounding quotes.
     for token in text
-        .split_whitespace()
+        .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '{' | '}' | ','))
         .filter(|token| token.contains("://"))
     {
         match classify_url(token) {
@@ -223,6 +229,28 @@ mod tests {
         assert!(literal("read https://example.com.").await.is_none());
         // A blocked URL with trailing punctuation is still caught.
         assert!(literal("(http://127.0.0.1/x)").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn blocks_a_url_embedded_in_json() {
+        // Tool-call arguments and tool results are JSON: a disallowed URL in a
+        // value has no surrounding whitespace, yet must still be screened.
+        assert!(
+            literal(r#"{"url":"http://169.254.169.254/latest"}"#)
+                .await
+                .is_some()
+        );
+        assert!(
+            literal(r#"{"target":"http://127.0.0.1:8080/x","note":"go"}"#)
+                .await
+                .is_some()
+        );
+        // A public URL embedded in JSON still passes.
+        assert!(
+            literal(r#"{"url":"https://example.com/ok"}"#)
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]
