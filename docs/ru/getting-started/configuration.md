@@ -100,9 +100,11 @@ Ed25519-ключ задаётся **только** через окружение
 | `[policy.session_memory].ttl_secs` | целое (с) | Сколько карантин сессии живёт без активности. Сессия, простаивающая дольше, забывается. По умолчанию `3600`; должно быть > 0 при включении. |
 | `[policy.session_memory].backend` | `memory` \| `redis` | Где хранится ledger. `memory` — в пределах процесса (теряется при рестарте, не шарится между репликами); `redis` — общий для реплик и переживает рестарт. По умолчанию `memory`. Redis-backend fail-open: если Redis недоступен, деградирует до «нет памяти», никогда не wrong-allow. |
 | `[policy.session_memory].redis_url` | строка | URL подключения к Redis (например, `redis://127.0.0.1:6379`). **Обязателен** при `backend = "redis"`, иначе игнорируется. |
-| `[policy].backend` | `ruleset` \| `cel` | Какой движок принимает вердикты. `ruleset` (по умолчанию) — встроенная статическая политика, описанная выше. `cel` передаёт каждое решение CEL-правилам оператора из `[policy.cel]` — статические правила выше тогда **не** учитываются. Выбор `cel` требует сборки с Cargo-feature `policy-cel`. |
+| `[policy].backend` | `ruleset` \| `cel` \| `rego` | Какой движок принимает вердикты. `ruleset` (по умолчанию) — встроенная статическая политика, описанная выше. `cel` и `rego` передают каждое решение политике оператора (из `[policy.cel]` / `[policy.rego]`) — статические правила выше тогда **не** учитываются. Выбор `cel` / `rego` требует сборки с Cargo-feature `policy-cel` / `policy-rego`. |
 | `[policy.cel].policy_path` | строка | Путь к файлу CEL-политики (TOML-список записей `[[rule]]`; см. ниже). **Обязателен** при `backend = "cel"`. Каждое правило компилируется при старте, поэтому ошибка разбора **прерывает процесс**. |
 | `[policy.cel].watch` | bool | Авто-перезагрузка файла политики при его изменении на диске, поверх всегда-включённого `SIGHUP`. По умолчанию `false` (opt-in — слежение опирается на inotify/FSEvents платформы и может не срабатывать на некоторых сетевых ФС). Перезагрузка по watch — та же fail-safe перезагрузка, что и по `SIGHUP`. |
+| `[policy.rego].policy_path` | строка | Путь к файлу Rego (OPA) политики (см. ниже). **Обязателен** при `backend = "rego"`. Компилируется при старте, поэтому ошибка разбора **прерывает процесс**. |
+| `[policy.rego].watch` | bool | Авто-перезагрузка Rego-политики при изменении файла, поверх `SIGHUP`. По умолчанию `false`; та же fail-safe семантика, что и у CEL `watch`. |
 
 !!! warning "Неверная политика прерывает запуск"
     Пустое или некорректное имя инструмента, либо пустой паттерн редактирования,
@@ -214,6 +216,58 @@ reason = "not permitted by policy"
 пользуются редакторы, — и схлопывает пачку событий одного сохранения в одну
 перезагрузку. Сама перезагрузка — тот же fail-safe путь, поэтому временный
 пустой/недописанный файл отклоняется, а работающая политика сохраняется.
+
+### Движок политик Rego (`backend = "rego"`)
+
+Командам, уже вложившимся в [Open Policy Agent](https://www.openpolicyagent.org/),
+Agate может принимать решения на **Rego** — языке политик OPA, — вычисляемом
+pure-Rust интерпретатором [`regorus`](https://github.com/microsoft/regorus) (без
+sidecar, без WASM-рантайма). Как и CEL, он не полон по Тьюрингу, поэтому
+вычисление всегда завершается; это отдельный backend `PolicyPort`, выбираемый
+через `[policy].backend = "rego"`, доступный только в сборке с Cargo-feature
+`policy-rego` (`cargo build -p agate-server --features policy-rego`).
+
+Файл политики — Rego-исходник в пакете **`agate.policy`**, определяющий правило
+**`decision`**. Для каждого события Agate задаёт `input` = `{ "action": …,
+"context": … }` (**та же** проекция, что видит CEL-движок — `input.action.kind`,
+`input.action.name`, `input.action.arguments_json.…`, `input.context.run_id` и
+т.д.) и вычисляет `data.agate.policy.decision`, ожидая объект с `effect` из
+`allow` / `deny` / `redact` (плюс опциональные `reason` / `replacement`):
+
+```rego
+# rego-policy.rego — на него ссылается [policy.rego].policy_path
+package agate.policy
+
+import rego.v1
+
+# Блокировать инструмент по имени.
+decision := {"effect": "deny", "reason": "destructive tool"} if {
+    input.action.kind == "tool_call"
+    input.action.name == "delete_file"
+}
+
+# Блокировать SSRF-подобный аргумент (сначала охраните nullable разобранное поле).
+decision := {"effect": "deny", "reason": "metadata endpoint"} if {
+    input.action.arguments_json.url
+    startswith(input.action.arguments_json.url, "http://169.254.169.254")
+}
+
+# Заредактировать форму API-ключа в исходящем тексте сообщения.
+decision := {"effect": "redact", "replacement": "[REDACTED]"} if {
+    input.action.kind == "message"
+    contains(input.action.text, "sk-")
+}
+```
+
+Если `decision` **не определён** (ни одно правило не совпало), событие
+**разрешается** — правила оператора перечисляют, что блокируется; для default-deny
+добавьте замыкающий `decision`. **Ошибка вычисления** или **некорректное решение**
+(не объект, либо `effect` отсутствует/неизвестен) **падает в закрытую сторону**
+(deny) и логируется — сломанная политика никогда не разрешает молча. Редакция
+следует тому же правилу, что и в CEL: применяется к сообщениям и результатам
+инструментов, а `redact`-решение на любом другом виде события падает в закрытую
+сторону. Горячая перезагрузка (`SIGHUP`) и `[policy.rego].watch` работают точно
+как у CEL выше.
 
 ## `[observability.logging]`
 
@@ -341,7 +395,7 @@ matches = "^https?://169\\.254\\.169\\.254"
 contains = "BEGIN RSA PRIVATE KEY"
 
 [policy]
-backend = "ruleset"              # или "cel" (нужна сборка policy-cel); см. [policy.cel]
+backend = "ruleset"              # или "cel" / "rego" (нужна соответствующая сборка); см. ниже
 redact = ["sk-", "AKIA"]
 redact_regex = ["sk-[A-Za-z0-9]{20,}", "AKIA[0-9A-Z]{16}"]
 fail_mode = "closed"
@@ -350,6 +404,11 @@ on_malformed_event = "terminate"
 
 # [policy.cel]
 # policy_path = "/etc/agate/cel-policy.toml"   # обязателен при backend = "cel"
+# watch = false                                # авто-reload при изменении файла
+
+# [policy.rego]
+# policy_path = "/etc/agate/rego-policy.rego"  # обязателен при backend = "rego"
+# watch = false                                # авто-reload при изменении файла
 
 [policy.session_memory]
 enabled = false

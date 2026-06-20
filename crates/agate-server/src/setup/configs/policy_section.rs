@@ -26,12 +26,16 @@ pub struct PolicySection {
     /// otherwise stateless.
     pub session_memory: SessionMemorySection,
     /// Which engine decides verdicts: the built-in static `ruleset` (the default
-    /// — tool allow/deny rules + redaction above) or the `cel` plugin engine
-    /// (operator CEL rules from `[policy.cel]`, which then fully owns the
-    /// decision). Selecting `cel` requires a build with the `policy-cel` feature.
+    /// — tool allow/deny rules + redaction above), the `cel` plugin engine
+    /// (operator CEL rules from `[policy.cel]`), or the `rego` plugin engine
+    /// (operator Rego/OPA policy from `[policy.rego]`). A plugin engine then fully
+    /// owns the decision and requires a build with its feature (`policy-cel` /
+    /// `policy-rego`).
     pub backend: PolicyBackendKind,
     /// `[policy.cel]` — the CEL plugin engine (used when `backend = "cel"`).
     pub cel: CelSection,
+    /// `[policy.rego]` — the Rego plugin engine (used when `backend = "rego"`).
+    pub rego: RegoSection,
 }
 
 impl PolicySection {
@@ -61,6 +65,25 @@ impl PolicySection {
                 .is_none_or(|path| path.trim().is_empty())
             {
                 return Err("policy.cel.policy_path is required when backend = \"cel\"".into());
+            }
+        }
+        if self.backend == PolicyBackendKind::Rego {
+            #[cfg(not(feature = "policy-rego"))]
+            {
+                return Err(
+                    "policy.backend = \"rego\" requires building agate-server with the \
+                     `policy-rego` feature"
+                        .into(),
+                );
+            }
+            #[cfg(feature = "policy-rego")]
+            if self
+                .rego
+                .policy_path
+                .as_deref()
+                .is_none_or(|path| path.trim().is_empty())
+            {
+                return Err("policy.rego.policy_path is required when backend = \"rego\"".into());
             }
         }
         if self.session_memory.enabled && self.session_memory.ttl_secs == 0 {
@@ -96,6 +119,7 @@ impl Default for PolicySection {
             session_memory: SessionMemorySection::default(),
             backend: PolicyBackendKind::default(),
             cel: CelSection::default(),
+            rego: RegoSection::default(),
         }
     }
 }
@@ -110,6 +134,9 @@ pub enum PolicyBackendKind {
     /// The CEL plugin engine (operator rules from `[policy.cel]`); requires a
     /// build with the `policy-cel` feature.
     Cel,
+    /// The Rego/OPA plugin engine (operator policy from `[policy.rego]`); requires
+    /// a build with the `policy-rego` feature.
+    Rego,
 }
 
 /// `[policy.cel]` — the CEL plugin engine. When `backend = "cel"`, the operator's
@@ -127,6 +154,20 @@ pub struct CelSection {
     /// parts (inotify limits, network filesystems that emit no events), so it is
     /// opt-in. A reload triggered by a watch is the same fail-safe reload as
     /// `SIGHUP`: a bad or truncated file keeps the running policy.
+    pub watch: bool,
+}
+
+/// `[policy.rego]` — the Rego (OPA) plugin engine. When `backend = "rego"`, the
+/// operator's Rego policy at `policy_path` (package `agate.policy`, rule
+/// `decision`) fully owns the verdict (the static ruleset above is not consulted).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RegoSection {
+    /// Path to the Rego policy file. Required when `backend = "rego"`; it is read
+    /// and compiled at startup, so a parse error aborts the process.
+    pub policy_path: Option<String>,
+    /// Auto-reload the policy file when it changes on disk (in addition to the
+    /// always-on `SIGHUP` reload). Off by default; the same fail-safe reload.
     pub watch: bool,
 }
 

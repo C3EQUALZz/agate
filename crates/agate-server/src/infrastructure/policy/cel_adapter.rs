@@ -17,7 +17,6 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use cel::{Context, Program, Value};
 use serde::Deserialize;
-use serde_json::{Map, json};
 use tracing::warn;
 
 use agate_policy::domain::decision::{DenyReason as PolicyDenyReason, PolicyDecision};
@@ -25,6 +24,8 @@ use agate_proxy::application::common::ports::PolicyPort;
 use agate_proxy::application::inspection::InspectionContext;
 use agate_proxy::domain::inspection::{AgentEvent, DenyReason, Verdict};
 
+use super::ReloadablePolicy;
+use super::event_view;
 use super::projection::lift_decision;
 
 /// What a matched rule does. Mirrors [`PolicyDecision`] minus the data, which
@@ -221,6 +222,12 @@ impl CelPolicyAdapter {
     }
 }
 
+impl ReloadablePolicy for CelPolicyAdapter {
+    fn reload_policy(&self) -> Result<(), String> {
+        self.reload().map(|_| ())
+    }
+}
+
 /// Turn a matched rule into a [`PolicyDecision`].
 fn effect_of(index: usize, rule: &CompiledRule, ctx: &Context<'_>) -> PolicyDecision {
     match rule.effect {
@@ -260,18 +267,17 @@ fn replacement_text(index: usize, rule: &CompiledRule, ctx: &Context<'_>) -> Str
     }
 }
 
-/// Build the CEL evaluation context: bind `action` (a flat map describing the
-/// event, every key present — `null` when not applicable, so a rule referencing
-/// any field never errors on a missing key) and `context` (the run identity).
+/// Build the CEL evaluation context by binding the shared event projection (see
+/// `event_view`) as two variables: `action` (the event) and `context` (the run
+/// identity). Every field is present — `null` when not applicable — so a rule
+/// referencing any field never errors on a missing key.
 fn build_context(context: &InspectionContext, event: &AgentEvent) -> Option<Context<'static>> {
-    let action = action_value(event);
-    let run_context = json!({
-        "session_id": context.session.to_string(),
-        "run_id": context.run.to_string(),
-    });
     let mut ctx = Context::default();
-    ctx.add_variable_from_value("action", bind(&action, "action")?);
-    ctx.add_variable_from_value("context", bind(&run_context, "context")?);
+    ctx.add_variable_from_value("action", bind(&event_view::action_value(event), "action")?);
+    ctx.add_variable_from_value(
+        "context",
+        bind(&event_view::run_context(context), "context")?,
+    );
     Some(ctx)
 }
 
@@ -285,53 +291,6 @@ fn bind(value: &serde_json::Value, name: &str) -> Option<Value> {
             None
         }
     }
-}
-
-/// Project an event onto the flat `action` map the rules see. Strings that hold
-/// JSON (tool arguments, results, state) are also offered parsed under a
-/// `*_json` key so rules can address fields (`action.arguments_json.url`).
-fn action_value(event: &AgentEvent) -> serde_json::Value {
-    let mut map = Map::new();
-    map.insert("name".into(), serde_json::Value::Null);
-    map.insert("arguments".into(), serde_json::Value::Null);
-    map.insert("arguments_json".into(), serde_json::Value::Null);
-    map.insert("text".into(), serde_json::Value::Null);
-    map.insert("content".into(), serde_json::Value::Null);
-    map.insert("content_json".into(), serde_json::Value::Null);
-    map.insert("state_json".into(), serde_json::Value::Null);
-
-    let kind = match event {
-        AgentEvent::ToolCall {
-            name, arguments, ..
-        } => {
-            map.insert("name".into(), json!(name));
-            map.insert("arguments".into(), json!(arguments));
-            map.insert("arguments_json".into(), parsed(arguments));
-            "tool_call"
-        }
-        AgentEvent::MessageChunk { text, .. } => {
-            map.insert("text".into(), json!(text));
-            "message"
-        }
-        AgentEvent::ToolResult { name, content, .. } => {
-            map.insert("name".into(), json!(name));
-            map.insert("content".into(), json!(content));
-            map.insert("content_json".into(), parsed(content));
-            "tool_result"
-        }
-        AgentEvent::StateMutation(mutation) => {
-            map.insert("state_json".into(), parsed(mutation.payload()));
-            "state"
-        }
-        AgentEvent::Lifecycle(_) | AgentEvent::Opaque(_) => "other",
-    };
-    map.insert("kind".into(), json!(kind));
-    serde_json::Value::Object(map)
-}
-
-/// Parse `raw` as JSON, or `null` if it is not valid JSON.
-fn parsed(raw: &str) -> serde_json::Value {
-    serde_json::from_str(raw).unwrap_or(serde_json::Value::Null)
 }
 
 #[cfg(test)]

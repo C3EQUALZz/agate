@@ -99,9 +99,11 @@ nothing is redacted**.
 | `[policy.session_memory].ttl_secs` | integer (s) | How long a session's quarantine survives without activity. A session idle longer than this is forgotten. Default `3600`; must be > 0 when enabled. |
 | `[policy.session_memory].backend` | `memory` \| `redis` | Where the ledger lives. `memory` is process-local (lost on restart, not shared across replicas); `redis` is shared across replicas and restarts. Default `memory`. The Redis backend fails open — if Redis is unreachable it degrades to no memory, never a wrong allow. |
 | `[policy.session_memory].redis_url` | string | Redis connection URL (e.g. `redis://127.0.0.1:6379`). **Required** when `backend = "redis"`, ignored otherwise. |
-| `[policy].backend` | `ruleset` \| `cel` | Which engine decides verdicts. `ruleset` (default) is the built-in static policy documented above. `cel` hands every decision to operator-authored CEL rules from `[policy.cel]` — the static rules above are then **not** consulted. Selecting `cel` requires a build with the `policy-cel` Cargo feature. |
+| `[policy].backend` | `ruleset` \| `cel` \| `rego` | Which engine decides verdicts. `ruleset` (default) is the built-in static policy documented above. `cel` and `rego` hand every decision to an operator-authored policy (from `[policy.cel]` / `[policy.rego]`) — the static rules above are then **not** consulted. Selecting `cel` / `rego` requires a build with the `policy-cel` / `policy-rego` Cargo feature. |
 | `[policy.cel].policy_path` | string | Path to the CEL policy file (a TOML list of `[[rule]]` entries; see below). **Required** when `backend = "cel"`. Every rule is compiled at startup, so a parse error **aborts the process**. |
 | `[policy.cel].watch` | bool | Auto-reload the policy file when it changes on disk, on top of the always-on `SIGHUP` reload. Default `false` (opt-in — file-watching relies on the platform's inotify/FSEvents and may not fire on some network filesystems). A watch-triggered reload is the same fail-safe reload as `SIGHUP`. |
+| `[policy.rego].policy_path` | string | Path to the Rego (OPA) policy file (see below). **Required** when `backend = "rego"`. Compiled at startup, so a parse error **aborts the process**. |
+| `[policy.rego].watch` | bool | Auto-reload the Rego policy on file change, on top of `SIGHUP`. Default `false`; same fail-safe reload semantics as the CEL `watch`. |
 
 !!! warning "Invalid policy aborts startup"
     A blank or invalid tool name, or an empty redaction pattern, **aborts
@@ -211,6 +213,57 @@ so it survives the atomic temp-then-rename writes editors use — and coalesces 
 burst of events a single save emits into one reload. The reload itself is the
 same fail-safe path, so a transient empty/half-written file is refused and the
 running policy is kept.
+
+### The Rego policy engine (`backend = "rego"`)
+
+For teams already invested in [Open Policy Agent](https://www.openpolicyagent.org/),
+Agate can decide with **Rego** — OPA's policy language — evaluated by the
+pure-Rust [`regorus`](https://github.com/microsoft/regorus) interpreter (no
+sidecar, no WASM runtime). Like CEL it is non-Turing-complete, so evaluation
+always terminates; it is a separate `PolicyPort` backend selected with
+`[policy].backend = "rego"`, available only in a build with the `policy-rego`
+Cargo feature (`cargo build -p agate-server --features policy-rego`).
+
+The policy file is Rego source under package **`agate.policy`** defining a rule
+**`decision`**. For each event Agate sets `input` to `{ "action": …, "context": … }`
+(the **same** projection the CEL engine sees — `input.action.kind`,
+`input.action.name`, `input.action.arguments_json.…`, `input.context.run_id`, etc.)
+and evaluates `data.agate.policy.decision`, expecting an object with an `effect`
+of `allow` / `deny` / `redact` (plus an optional `reason` / `replacement`):
+
+```rego
+# rego-policy.rego — referenced by [policy.rego].policy_path
+package agate.policy
+
+import rego.v1
+
+# Block a tool by name.
+decision := {"effect": "deny", "reason": "destructive tool"} if {
+    input.action.kind == "tool_call"
+    input.action.name == "delete_file"
+}
+
+# Block an SSRF-shaped argument (guard the nullable parsed field first).
+decision := {"effect": "deny", "reason": "metadata endpoint"} if {
+    input.action.arguments_json.url
+    startswith(input.action.arguments_json.url, "http://169.254.169.254")
+}
+
+# Redact an API-key shape in emitted message text.
+decision := {"effect": "redact", "replacement": "[REDACTED]"} if {
+    input.action.kind == "message"
+    contains(input.action.text, "sk-")
+}
+```
+
+If `decision` is **undefined** (no rule matched) the event is **allowed** — the
+operator's rules enumerate what is blocked; add a catch-all `decision` for a
+default-deny posture. An **evaluation error** or a **malformed decision** (not an
+object, or an `effect` that is missing or unrecognized) **fails closed** (deny),
+and is logged — a broken policy never silently allows. Redaction follows the same
+rule as CEL: it applies to messages and tool results, and a `redact` decision on
+any other event kind fails closed. Hot-reload (`SIGHUP`) and `[policy.rego].watch`
+work exactly as for CEL above.
 
 ## `[observability.logging]`
 
@@ -337,7 +390,7 @@ matches = "^https?://169\\.254\\.169\\.254"
 contains = "BEGIN RSA PRIVATE KEY"
 
 [policy]
-backend = "ruleset"              # or "cel" (needs the policy-cel build); see [policy.cel]
+backend = "ruleset"              # or "cel" / "rego" (needs the matching build); see below
 redact = ["sk-", "AKIA"]
 redact_regex = ["sk-[A-Za-z0-9]{20,}", "AKIA[0-9A-Z]{16}"]
 fail_mode = "closed"
@@ -346,6 +399,11 @@ on_malformed_event = "terminate"
 
 # [policy.cel]
 # policy_path = "/etc/agate/cel-policy.toml"   # required when backend = "cel"
+# watch = false                                # auto-reload on file change
+
+# [policy.rego]
+# policy_path = "/etc/agate/rego-policy.rego"  # required when backend = "rego"
+# watch = false                                # auto-reload on file change
 
 [policy.session_memory]
 enabled = false

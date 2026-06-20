@@ -20,6 +20,8 @@ use agate_audit::setup::storage::Storage;
 use agate_policy::application::PolicyService;
 use agate_proxy::application::common::ports::PolicyPort;
 use agate_server::infrastructure::policy::PolicyAdapter;
+#[cfg(any(feature = "policy-cel", feature = "policy-rego"))]
+use agate_server::infrastructure::policy::ReloadablePolicy;
 use agate_server::setup::bootstrap::{ServerConfig, Supervisor, build_server};
 use agate_server::setup::configs::{AppConfig, PolicyBackendKind, load};
 use agate_server::setup::observability::{init_logging, init_metrics};
@@ -42,11 +44,11 @@ async fn main() {
     // aborts startup before connecting to Postgres or creating a log.
     let proxy = config.proxy_config();
     let bind_addr = proxy.bind_addr.clone();
-    // Supervises every background task (audit outbox, checkpoint scheduler, CEL
+    // Supervises every background task (audit outbox, checkpoint scheduler, policy
     // hot-reload) under one shutdown token + tracker.
     let supervisor = Supervisor::new();
-    // The decision engine — the static ruleset or the CEL plugin — built here at
-    // the composition root; a bad ruleset / unparsable CEL policy aborts now.
+    // The decision engine — the static ruleset or a plugin engine (CEL / Rego) —
+    // built here at the composition root; a bad ruleset / unparsable policy aborts.
     let policy = build_policy(&config, &supervisor);
     let storage_config = config.storage_config();
     let pinned_log_id = std::env::var("AUDIT_LOG_ID")
@@ -137,9 +139,9 @@ async fn main() {
 }
 
 /// Build the configured decision engine. The static `ruleset` backend bridges
-/// the `agate-policy` ruleset; the `cel` backend compiles the operator's CEL
-/// policy (only when built with the `policy-cel` feature). Both are wrapped in
-/// the fail-mode guard later by `build_server`. A bad ruleset or policy aborts.
+/// the `agate-policy` ruleset; the `cel` / `rego` backends compile the operator's
+/// policy (each only when built with its feature). All are wrapped in the
+/// fail-mode guard later by `build_server`. A bad ruleset or policy aborts.
 fn build_policy(config: &AppConfig, supervisor: &Supervisor) -> Arc<dyn PolicyPort> {
     match config.policy.backend {
         PolicyBackendKind::Ruleset => {
@@ -149,6 +151,7 @@ fn build_policy(config: &AppConfig, supervisor: &Supervisor) -> Arc<dyn PolicyPo
             Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)))
         }
         PolicyBackendKind::Cel => build_cel_policy(config, supervisor),
+        PolicyBackendKind::Rego => build_rego_policy(config, supervisor),
     }
 }
 
@@ -165,45 +168,89 @@ fn build_cel_policy(config: &AppConfig, supervisor: &Supervisor) -> Arc<dyn Poli
     let adapter = Arc::new(
         CelPolicyAdapter::load(path).unwrap_or_else(|error| panic!("invalid CEL policy: {error}")),
     );
-    // Hot-reload the policy file on SIGHUP (Unix only). The reload is fail-safe —
-    // a bad file keeps the running policy — so the listener never loses its rules.
-    #[cfg(unix)]
-    spawn_cel_reload(Arc::clone(&adapter), supervisor);
-    // Optionally also auto-reload when the file changes on disk (cross-platform,
-    // opt-in via `[policy.cel].watch`). Same fail-safe reload as SIGHUP.
-    if config.policy.cel.watch {
-        spawn_cel_watch(Arc::clone(&adapter), path.to_owned(), supervisor);
-    }
+    let reloadable: Arc<dyn ReloadablePolicy> = adapter.clone();
+    wire_policy_reload(reloadable, path, config.policy.cel.watch, supervisor);
     adapter
+}
+
+#[cfg(not(feature = "policy-cel"))]
+fn build_cel_policy(_config: &AppConfig, _supervisor: &Supervisor) -> Arc<dyn PolicyPort> {
+    panic!("policy.backend = \"cel\" requires building agate-server with the `policy-cel` feature")
+}
+
+#[cfg(feature = "policy-rego")]
+fn build_rego_policy(config: &AppConfig, supervisor: &Supervisor) -> Arc<dyn PolicyPort> {
+    use agate_server::infrastructure::policy::RegoPolicyAdapter;
+
+    let path = config
+        .policy
+        .rego
+        .policy_path
+        .as_deref()
+        .expect("validate() requires policy.rego.policy_path when backend = rego");
+    let adapter = Arc::new(
+        RegoPolicyAdapter::load(path)
+            .unwrap_or_else(|error| panic!("invalid Rego policy: {error}")),
+    );
+    let reloadable: Arc<dyn ReloadablePolicy> = adapter.clone();
+    wire_policy_reload(reloadable, path, config.policy.rego.watch, supervisor);
+    adapter
+}
+
+#[cfg(not(feature = "policy-rego"))]
+fn build_rego_policy(_config: &AppConfig, _supervisor: &Supervisor) -> Arc<dyn PolicyPort> {
+    panic!(
+        "policy.backend = \"rego\" requires building agate-server with the `policy-rego` feature"
+    )
+}
+
+/// Wire a file-backed policy engine's reloads: always SIGHUP (Unix), plus the
+/// on-disk file-watch when the operator opted in. Shared by the CEL and Rego
+/// backends through the [`ReloadablePolicy`] trait.
+#[cfg(any(feature = "policy-cel", feature = "policy-rego"))]
+fn wire_policy_reload(
+    adapter: Arc<dyn ReloadablePolicy>,
+    path: &str,
+    watch: bool,
+    supervisor: &Supervisor,
+) {
+    // Hot-reload on SIGHUP (Unix only). The reload is fail-safe — a bad file keeps
+    // the running policy — so the listener never loses its rules.
+    #[cfg(unix)]
+    spawn_policy_reload(Arc::clone(&adapter), supervisor);
+    // Optionally also auto-reload when the file changes on disk (cross-platform,
+    // opt-in via `[policy.*].watch`). Same fail-safe reload as SIGHUP.
+    if watch {
+        spawn_policy_watch(adapter, path.to_owned(), supervisor);
+    }
 }
 
 /// Debounce window for file-watch reloads: a single editor save fires several
 /// filesystem events (truncate, write, rename), so wait briefly and coalesce
 /// them into one reload.
-#[cfg(feature = "policy-cel")]
+#[cfg(any(feature = "policy-cel", feature = "policy-rego"))]
 const WATCH_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(200);
 
-/// Auto-reload the CEL policy when its file changes on disk. Supervised, so it
+/// Auto-reload the policy when its file changes on disk. Supervised, so it
 /// returns when the shutdown token is tripped. A failure to install the watcher
 /// is logged and leaves the SIGHUP reload (Unix) still in place.
-#[cfg(feature = "policy-cel")]
-fn spawn_cel_watch(
-    adapter: Arc<agate_server::infrastructure::policy::CelPolicyAdapter>,
-    path: String,
-    supervisor: &Supervisor,
-) {
-    use agate_server::infrastructure::policy::cel_watch;
+#[cfg(any(feature = "policy-cel", feature = "policy-rego"))]
+fn spawn_policy_watch(adapter: Arc<dyn ReloadablePolicy>, path: String, supervisor: &Supervisor) {
+    use agate_server::infrastructure::policy::policy_watch;
 
-    let mut watch = match cel_watch::watch(std::path::Path::new(&path)) {
+    let mut watch = match policy_watch::watch(std::path::Path::new(&path)) {
         Ok(watch) => watch,
         Err(error) => {
-            tracing::error!(%error, "cannot watch the CEL policy file; auto-reload disabled");
+            tracing::error!(%error, "cannot watch the policy file; auto-reload disabled");
             return;
         }
     };
     let shutdown = supervisor.token();
     supervisor.spawn(async move {
-        info!(path, "CEL policy file-watch armed: edits auto-reload the policy");
+        info!(
+            path,
+            "policy file-watch armed: edits auto-reload the policy"
+        );
         loop {
             tokio::select! {
                 // Stop promptly on shutdown rather than waiting for another change.
@@ -217,30 +264,18 @@ fn spawn_cel_watch(
                     // reload: wait a beat, then drain whatever else has queued.
                     tokio::time::sleep(WATCH_DEBOUNCE).await;
                     while watch.changes.try_recv().is_ok() {}
-                    let engine = Arc::clone(&adapter);
-                    match tokio::task::spawn_blocking(move || engine.reload()).await {
-                        Ok(Ok(rules)) => info!(rules, "reloaded CEL policy on file change"),
-                        Ok(Err(error)) => {
-                            tracing::error!(%error, "CEL policy reload failed; keeping the current policy");
-                        }
-                        Err(join) => {
-                            tracing::error!(%join, "CEL policy reload panicked; keeping the current policy");
-                        }
-                    }
+                    reload_in_place(&adapter, "file change").await;
                 }
             }
         }
     });
 }
 
-/// Reload the CEL policy on every `SIGHUP`. Supervised, so it returns when the
+/// Reload the policy on every `SIGHUP`. Supervised, so it returns when the
 /// shutdown token is tripped; it only swaps an in-memory rule set, holding no
 /// resource that shutdown must drain.
-#[cfg(all(unix, feature = "policy-cel"))]
-fn spawn_cel_reload(
-    adapter: Arc<agate_server::infrastructure::policy::CelPolicyAdapter>,
-    supervisor: &Supervisor,
-) {
+#[cfg(all(unix, any(feature = "policy-cel", feature = "policy-rego")))]
+fn spawn_policy_reload(adapter: Arc<dyn ReloadablePolicy>, supervisor: &Supervisor) {
     use tokio::signal::unix::{SignalKind, signal};
 
     let shutdown = supervisor.token();
@@ -248,11 +283,11 @@ fn spawn_cel_reload(
         let mut sighup = match signal(SignalKind::hangup()) {
             Ok(stream) => stream,
             Err(error) => {
-                tracing::error!(%error, "cannot install the SIGHUP handler; CEL hot-reload disabled");
+                tracing::error!(%error, "cannot install the SIGHUP handler; hot-reload disabled");
                 return;
             }
         };
-        info!("CEL policy hot-reload armed: send SIGHUP to reload the policy file");
+        info!("policy hot-reload armed: send SIGHUP to reload the policy file");
         loop {
             tokio::select! {
                 // Stop promptly on shutdown rather than waiting for another signal.
@@ -262,29 +297,28 @@ fn spawn_cel_reload(
                     if signal.is_none() {
                         break;
                     }
-                    // Reload on a blocking thread: it reads + recompiles the file,
-                    // which must not stall an async worker. `spawn_blocking` also
-                    // isolates a panic in compilation as a `JoinError`, so a single
-                    // bad reload can never kill the handler and stop all future ones.
-                    let engine = Arc::clone(&adapter);
-                    match tokio::task::spawn_blocking(move || engine.reload()).await {
-                        Ok(Ok(rules)) => info!(rules, "reloaded CEL policy on SIGHUP"),
-                        Ok(Err(error)) => {
-                            tracing::error!(%error, "CEL policy reload failed; keeping the current policy");
-                        }
-                        Err(join) => {
-                            tracing::error!(%join, "CEL policy reload panicked; keeping the current policy");
-                        }
-                    }
+                    reload_in_place(&adapter, "SIGHUP").await;
                 }
             }
         }
     });
 }
 
-#[cfg(not(feature = "policy-cel"))]
-fn build_cel_policy(_config: &AppConfig, _supervisor: &Supervisor) -> Arc<dyn PolicyPort> {
-    panic!("policy.backend = \"cel\" requires building agate-server with the `policy-cel` feature")
+/// Run one fail-safe reload on a blocking thread. `spawn_blocking` keeps the
+/// blocking file read off the async workers and isolates a panic in compilation
+/// as a `JoinError`, so a single bad reload can never kill the handler.
+#[cfg(any(feature = "policy-cel", feature = "policy-rego"))]
+async fn reload_in_place(adapter: &Arc<dyn ReloadablePolicy>, trigger: &str) {
+    let adapter = Arc::clone(adapter);
+    match tokio::task::spawn_blocking(move || adapter.reload_policy()).await {
+        Ok(Ok(())) => info!(trigger, "reloaded policy"),
+        Ok(Err(error)) => {
+            tracing::error!(%error, trigger, "policy reload failed; keeping the current policy");
+        }
+        Err(join) => {
+            tracing::error!(%join, trigger, "policy reload panicked; keeping the current policy");
+        }
+    }
 }
 
 /// Resolves once the process receives SIGINT (Ctrl+C) or SIGTERM (the signal a
