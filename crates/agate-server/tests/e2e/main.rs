@@ -3,6 +3,10 @@
 //! driven through the proxy is recorded to the transparency log. Wired as an
 //! explicit `[[test]]` target.
 
+// The plugin-engine e2e is compiled only when both engines are built in (CI's
+// `cargo test --all-features` covers it); the default test build skips it.
+#[cfg(all(feature = "policy-cel", feature = "policy-rego"))]
+mod engines;
 mod fixture;
 mod policy;
 mod server;

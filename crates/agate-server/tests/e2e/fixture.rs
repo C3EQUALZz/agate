@@ -29,6 +29,7 @@ use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_audit::setup::storage::Storage;
 use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::PolicyRuleset;
+use agate_proxy::application::common::ports::PolicyPort;
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
 use agate_server::infrastructure::audit::FullPolicy;
@@ -46,6 +47,17 @@ pub const SSE_BODY: &str = concat!(
     "data: {\"type\":\"RUN_FINISHED\"}\n\n",
 );
 
+/// A run that emits a secret in message text and then calls `rm_rf` — the agent
+/// response the redact-and-deny e2e (static ruleset, CEL, and Rego) drive.
+pub const REDACT_DENY_SSE: &str = concat!(
+    "data: {\"type\":\"RUN_STARTED\"}\n\n",
+    "data: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"m1\",\"delta\":\"token sk-LEAK end\"}\n\n",
+    "data: {\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c1\",\"toolCallName\":\"rm_rf\"}\n\n",
+    "data: {\"type\":\"TOOL_CALL_ARGS\",\"toolCallId\":\"c1\",\"delta\":\"{}\"}\n\n",
+    "data: {\"type\":\"TOOL_CALL_END\",\"toolCallId\":\"c1\"}\n\n",
+    "data: {\"type\":\"RUN_FINISHED\"}\n\n",
+);
+
 /// A booted server with the pieces a test needs: the proxy's base URL, a pool to
 /// inspect the database directly, and the log it records to. Holds the container
 /// alive (RAII).
@@ -57,8 +69,16 @@ pub struct TestServer {
 }
 
 /// Boot the stub agent (answering with `sse_body`), the database, and the
-/// server wired to `ruleset`; create a fresh log.
+/// server wired to `ruleset` (the static policy adapter); create a fresh log.
 pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer {
+    let policy = Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)));
+    spawn_with_policy(policy, sse_body).await
+}
+
+/// Boot the stub agent, the database, and the server wired to an already-built
+/// decision engine — so the CEL and Rego plugin backends are exercised through
+/// the live proxy → audit path, not just the static ruleset.
+pub async fn spawn_with_policy(policy: Arc<dyn PolicyPort>, sse_body: &'static str) -> TestServer {
     let container = Postgres::default()
         .with_tag(POSTGRES_IMAGE_TAG)
         .start()
@@ -90,7 +110,7 @@ pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer
         ServerConfig {
             proxy,
             log,
-            policy: Arc::new(PolicyAdapter::new(PolicyService::new(ruleset))),
+            policy,
             fail_mode: FailMode::Closed,
             decision_timeout: Duration::from_secs(5),
             checkpoint: None,
@@ -200,4 +220,40 @@ pub async fn poll_inclusion_within(
         tokio::time::sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
     }
     false
+}
+
+/// Drive a [`REDACT_DENY_SSE`] run and assert the shared redact-and-deny outcome:
+/// the secret `sk-LEAK` is masked, the tool `rm_rf` is denied (no frames leak),
+/// and all four events are recorded. Shared by the static-ruleset and the
+/// CEL/Rego plugin-engine e2e so the assertion lives in one place.
+pub async fn assert_redacts_secret_and_denies_tool(app: &TestServer) {
+    let body = client()
+        .post(&app.base_url)
+        .body("{}")
+        .send()
+        .await
+        .expect("proxy responds")
+        .text()
+        .await
+        .expect("read streamed body");
+
+    assert!(
+        body.contains("RUN_STARTED") && body.contains("RUN_FINISHED"),
+        "lifecycle forwarded: {body}"
+    );
+    assert!(!body.contains("sk-LEAK"), "secret leaked to client: {body}");
+    assert!(body.contains("[REDACTED]"), "message was redacted: {body}");
+    assert!(!body.contains("rm_rf"), "denied tool leaked: {body}");
+    assert!(
+        !body.contains("TOOL_CALL"),
+        "denied tool frames leaked: {body}"
+    );
+
+    let container = audit_container(app.pool.clone());
+    let registry = audit_registry();
+    let recorded = poll_inclusion(&container, &registry, app.log, LeafIndex(3)).await;
+    assert!(
+        recorded,
+        "all four Ready events recorded (lifecycle x2 + redacted message + denied tool)"
+    );
 }
