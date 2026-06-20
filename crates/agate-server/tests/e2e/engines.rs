@@ -6,21 +6,10 @@
 
 use std::sync::Arc;
 
-use agate_audit::domain::merkle::LeafIndex;
 use agate_proxy::application::common::ports::PolicyPort;
 use agate_server::infrastructure::policy::{CelPolicyAdapter, RegoPolicyAdapter};
 
 use crate::fixture::{self, spawn_with_policy};
-
-/// Emits a secret in message text, then calls a tool the policy denies.
-const SSE: &str = concat!(
-    "data: {\"type\":\"RUN_STARTED\"}\n\n",
-    "data: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"m1\",\"delta\":\"token sk-LEAK end\"}\n\n",
-    "data: {\"type\":\"TOOL_CALL_START\",\"toolCallId\":\"c1\",\"toolCallName\":\"rm_rf\"}\n\n",
-    "data: {\"type\":\"TOOL_CALL_ARGS\",\"toolCallId\":\"c1\",\"delta\":\"{}\"}\n\n",
-    "data: {\"type\":\"TOOL_CALL_END\",\"toolCallId\":\"c1\"}\n\n",
-    "data: {\"type\":\"RUN_FINISHED\"}\n\n",
-);
 
 /// CEL equivalent of the static e2e policy: deny `rm_rf`, redact `sk-LEAK`.
 const CEL_POLICY: &str = r#"
@@ -56,40 +45,11 @@ fn write_policy(source: &str) -> tempfile::NamedTempFile {
     file
 }
 
-/// Boot the proxy behind `policy`, drive the run, and assert the secret is
-/// redacted, the tool is denied, and all four events are recorded.
+/// Boot the proxy behind `policy` and assert the shared redact-and-deny outcome
+/// — the same check the static-ruleset e2e makes, now for a plugin engine.
 async fn assert_denies_and_redacts(policy: Arc<dyn PolicyPort>) {
-    let app = spawn_with_policy(policy, SSE).await;
-
-    let body = fixture::client()
-        .post(&app.base_url)
-        .body("{}")
-        .send()
-        .await
-        .expect("proxy responds")
-        .text()
-        .await
-        .expect("read streamed body");
-
-    assert!(
-        body.contains("RUN_STARTED") && body.contains("RUN_FINISHED"),
-        "lifecycle forwarded: {body}"
-    );
-    assert!(!body.contains("sk-LEAK"), "secret leaked to client: {body}");
-    assert!(body.contains("[REDACTED]"), "message was redacted: {body}");
-    assert!(!body.contains("rm_rf"), "denied tool leaked: {body}");
-    assert!(
-        !body.contains("TOOL_CALL"),
-        "denied tool frames leaked: {body}"
-    );
-
-    let container = fixture::audit_container(app.pool.clone());
-    let registry = fixture::audit_registry();
-    let recorded = fixture::poll_inclusion(&container, &registry, app.log, LeafIndex(3)).await;
-    assert!(
-        recorded,
-        "all four Ready events recorded (lifecycle x2 + redacted message + denied tool)"
-    );
+    let app = spawn_with_policy(policy, fixture::REDACT_DENY_SSE).await;
+    fixture::assert_redacts_secret_and_denies_tool(&app).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
