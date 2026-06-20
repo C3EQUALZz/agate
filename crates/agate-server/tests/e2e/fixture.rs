@@ -27,10 +27,12 @@ use agate_audit::domain::merkle::{LeafIndex, LogId};
 use agate_audit::infrastructure::persistence::postgres::run_migrations;
 use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_audit::setup::storage::Storage;
+use agate_policy::application::PolicyService;
 use agate_policy::domain::decision::PolicyRuleset;
 use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
 use agate_server::infrastructure::audit::FullPolicy;
+use agate_server::infrastructure::policy::PolicyAdapter;
 use agate_server::setup::bootstrap::{OutboxSettings, Server, ServerConfig, build_server};
 use froodi::async_impl::Container;
 
@@ -80,7 +82,7 @@ pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer
         ServerConfig {
             proxy,
             log,
-            ruleset,
+            policy: Arc::new(PolicyAdapter::new(PolicyService::new(ruleset))),
             fail_mode: FailMode::Closed,
             decision_timeout: Duration::from_secs(5),
             checkpoint: None,

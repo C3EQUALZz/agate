@@ -17,5 +17,5 @@ pub use loader::load;
 pub use observability::{
     LogFormat, LoggingConfig, MetricsConfig, MetricsExporter, ObservabilityConfig, TracingConfig,
 };
-pub use policy_section::ToolMode;
+pub use policy_section::{PolicyBackendKind, ToolMode};
 pub use tls::TlsConfig;
