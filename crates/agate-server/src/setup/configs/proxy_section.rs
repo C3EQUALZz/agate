@@ -30,8 +30,13 @@ pub struct ProxySection {
     /// Per-run ceiling on response bytes streamed to the client (`0` =
     /// unlimited).
     pub max_response_bytes: usize,
-    /// Sustained per-client-IP request rate, in requests per second (`0` =
-    /// disabled). Floods from one source IP over this are shed with `429`.
+    /// Sustained per-client-IP request rate, in requests per second
+    /// (`0` = disabled, the default). Floods from one source IP over this are
+    /// shed with `429`. The IP is the **connection peer**, so enable this only
+    /// where Agate sees the real client. Behind a reverse proxy (nginx) or load
+    /// balancer every request shares the proxy's IP, so the limit would throttle
+    /// *all* clients as one and start rejecting legitimate traffic — leave it `0`
+    /// there and rate-limit at the proxy instead.
     pub rate_limit_per_second: u32,
     /// Burst depth for the per-IP rate limit — the largest instantaneous burst
     /// before the sustained rate applies (`0` falls back to
