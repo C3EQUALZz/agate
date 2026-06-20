@@ -156,9 +156,11 @@ when = 'action.kind == "tool_call" && action.name == "delete_file"'
 effect = "deny"
 reason = "destructive tool is not permitted"
 
-# Block an SSRF-shaped argument by addressing a parsed field.
+# Block an SSRF-shaped argument by addressing a parsed field. Guard the nullable
+# field first: without `!= null`, a non-JSON argument makes the rule error and be
+# skipped (see the null-guard note below) rather than block.
 [[rule]]
-when = 'action.arguments_json.url.startsWith("http://169.254.169.254")'
+when = 'action.arguments_json != null && action.arguments_json.url.startsWith("http://169.254.169.254")'
 effect = "deny"
 reason = "link-local metadata endpoint"
 

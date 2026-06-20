@@ -158,9 +158,11 @@ when = 'action.kind == "tool_call" && action.name == "delete_file"'
 effect = "deny"
 reason = "destructive tool is not permitted"
 
-# Блокировать SSRF-подобный аргумент, адресуя разобранное поле.
+# Блокировать SSRF-подобный аргумент, адресуя разобранное поле. Сначала охраните
+# nullable-поле: без `!= null` не-JSON аргумент заставит правило упасть и быть
+# пропущенным (см. примечание про null-guard ниже), а не заблокировать.
 [[rule]]
-when = 'action.arguments_json.url.startsWith("http://169.254.169.254")'
+when = 'action.arguments_json != null && action.arguments_json.url.startsWith("http://169.254.169.254")'
 effect = "deny"
 reason = "link-local metadata endpoint"
 
