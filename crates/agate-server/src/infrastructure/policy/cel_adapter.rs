@@ -10,6 +10,7 @@
 //! bounds it, unlike a general interpreter that could spin a worker forever.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -75,34 +76,80 @@ const DEFAULT_DENY_REASON: &str = "denied by policy";
 const DEFAULT_REDACTION: &str = "[REDACTED]";
 
 /// A [`PolicyPort`] backend evaluating compiled CEL rules. The rule set is held
-/// behind an [`ArcSwap`] so a future hot-reload can swap it without a lock on
-/// the hot path.
+/// behind an [`ArcSwap`] so [`reload`](Self::reload) — wired to `SIGHUP` at the
+/// composition root — can swap it atomically, without a lock on the hot path and
+/// without disturbing a decision already in flight.
 pub struct CelPolicyAdapter {
     rules: Arc<ArcSwap<Vec<CompiledRule>>>,
+    /// The source file, kept so the policy can be reloaded in place. `None` when
+    /// the engine was built from an in-memory source (tests); reloading errors.
+    path: Option<PathBuf>,
 }
 
 impl CelPolicyAdapter {
     /// Read and compile the policy at `path`. Every rule's CEL is compiled now,
     /// so a parse error aborts startup with a message naming the offending rule.
     pub fn load(path: &str) -> Result<Self, String> {
-        let source = std::fs::read_to_string(path)
-            .map_err(|error| format!("cannot read CEL policy file '{path}': {error}"))?;
-        Self::from_source(&source).map_err(|error| format!("in CEL policy file '{path}': {error}"))
+        let rules = Self::compile_file(Path::new(path))?;
+        Ok(Self {
+            rules: Arc::new(ArcSwap::from_pointee(rules)),
+            path: Some(PathBuf::from(path)),
+        })
     }
 
-    /// Compile a policy from its TOML source (a list of `[[rule]]` tables).
+    /// Re-read and recompile the policy file, swapping the live rule set on
+    /// success. **Fail-safe:** if the file is missing, unparsable, or any rule
+    /// fails to compile, the current rule set is left untouched — the gateway
+    /// keeps enforcing the last known-good policy — and the error is returned for
+    /// the caller to log. Returns the number of rules now active. Lock-free: a
+    /// decision already in flight keeps the snapshot it loaded.
+    pub fn reload(&self) -> Result<usize, String> {
+        let path = self
+            .path
+            .as_deref()
+            .ok_or("CEL policy has no source file to reload")?;
+        let rules = Self::compile_file(path)?;
+        // Refuse a reload that would leave zero rules (no rules = allow-all). At
+        // startup an empty policy is a deliberate, explicit choice; on reload it
+        // is almost always a truncated/half-written file (e.g. a non-atomic
+        // `echo > file` racing the SIGHUP) — keep the running policy instead of
+        // silently disabling the gateway.
+        if rules.is_empty() {
+            return Err("CEL policy reload produced zero rules; keeping the current policy".into());
+        }
+        let count = rules.len();
+        self.rules.store(Arc::new(rules));
+        Ok(count)
+    }
+
+    /// Read `path` and compile every rule, prefixing errors with the file name.
+    fn compile_file(path: &Path) -> Result<Vec<CompiledRule>, String> {
+        let source = std::fs::read_to_string(path).map_err(|error| {
+            format!("cannot read CEL policy file '{}': {error}", path.display())
+        })?;
+        Self::compile_source(&source)
+            .map_err(|error| format!("in CEL policy file '{}': {error}", path.display()))
+    }
+
+    /// Compile a policy from its in-memory TOML source (a list of `[[rule]]`).
+    /// Test-only: production always loads from a file (so it can be reloaded).
+    #[cfg(test)]
     fn from_source(source: &str) -> Result<Self, String> {
+        Ok(Self {
+            rules: Arc::new(ArcSwap::from_pointee(Self::compile_source(source)?)),
+            path: None,
+        })
+    }
+
+    /// Parse the TOML policy and compile each rule's CEL programs.
+    fn compile_source(source: &str) -> Result<Vec<CompiledRule>, String> {
         let file: PolicyFile =
             toml::from_str(source).map_err(|error| format!("cannot parse CEL policy: {error}"))?;
-        let rules = file
-            .rule
+        file.rule
             .into_iter()
             .enumerate()
             .map(|(index, rule)| Self::compile(index, rule))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self {
-            rules: Arc::new(ArcSwap::from_pointee(rules)),
-        })
+            .collect()
     }
 
     fn compile(index: usize, rule: RuleConfig) -> Result<CompiledRule, String> {
@@ -590,5 +637,123 @@ mod tests {
             panic!("malformed TOML must not parse");
         };
         assert!(error.contains("cannot parse"), "got: {error}");
+    }
+
+    /// Write `source` to a fresh temp file and load an engine from it; the file
+    /// is returned so the caller can rewrite it and keeps it alive for the test.
+    fn loaded(source: &str) -> (tempfile::NamedTempFile, CelPolicyAdapter) {
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(file.path(), source).expect("write policy");
+        let engine =
+            CelPolicyAdapter::load(file.path().to_str().expect("utf-8 path")).expect("compiles");
+        (file, engine)
+    }
+
+    #[tokio::test]
+    async fn reload_swaps_the_ruleset() {
+        let (file, engine) = loaded(
+            r#"
+            [[rule]]
+            when = 'action.name == "rm"'
+            effect = "deny"
+        "#,
+        );
+        assert!(matches!(
+            engine.decide(&context(), &tool("rm", "{}")).await,
+            Verdict::Deny(_)
+        ));
+        assert_eq!(
+            engine.decide(&context(), &tool("ls", "{}")).await,
+            Verdict::Allow
+        );
+
+        // Replace the file's policy and reload in place — decisions follow.
+        std::fs::write(
+            file.path(),
+            r#"
+            [[rule]]
+            when = 'action.name == "ls"'
+            effect = "deny"
+        "#,
+        )
+        .expect("rewrite policy");
+        assert_eq!(engine.reload().expect("reload"), 1);
+        assert_eq!(
+            engine.decide(&context(), &tool("rm", "{}")).await,
+            Verdict::Allow
+        );
+        assert!(matches!(
+            engine.decide(&context(), &tool("ls", "{}")).await,
+            Verdict::Deny(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_failed_reload_keeps_the_current_ruleset() {
+        let (file, engine) = loaded(
+            r#"
+            [[rule]]
+            when = 'action.name == "rm"'
+            effect = "deny"
+        "#,
+        );
+
+        // Corrupt the file with an uncompilable `when`: the reload must fail and
+        // the known-good rule set must stay active (fail-safe).
+        std::fs::write(
+            file.path(),
+            r#"
+            [[rule]]
+            when = "1 +"
+            effect = "deny"
+        "#,
+        )
+        .expect("corrupt policy");
+        let Err(error) = engine.reload() else {
+            panic!("reload of an uncompilable policy must fail");
+        };
+        assert!(error.contains("does not compile"), "got: {error}");
+        assert!(matches!(
+            engine.decide(&context(), &tool("rm", "{}")).await,
+            Verdict::Deny(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_reload_to_an_empty_policy_is_refused() {
+        // A truncated / empty file compiles to zero rules (= allow-all). On reload
+        // that is refused so the gateway is never silently disabled; the previous
+        // rule stays in force.
+        let (file, engine) = loaded(
+            r#"
+            [[rule]]
+            when = 'action.name == "rm"'
+            effect = "deny"
+        "#,
+        );
+        std::fs::write(file.path(), "").expect("truncate policy");
+        let Err(error) = engine.reload() else {
+            panic!("a reload to zero rules must be refused");
+        };
+        assert!(error.contains("zero rules"), "got: {error}");
+        assert!(matches!(
+            engine.decide(&context(), &tool("rm", "{}")).await,
+            Verdict::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn reloading_an_in_memory_policy_errors() {
+        let Err(error) = engine(
+            r#"
+            [[rule]]
+            when = "true"
+            effect = "deny"
+        "#,
+        )
+        .reload() else {
+            panic!("an in-memory policy has no file to reload");
+        };
+        assert!(error.contains("no source file"), "got: {error}");
     }
 }

@@ -188,6 +188,22 @@ reason = "not permitted by policy"
     (`action.arguments_json != null && action.arguments_json.url...`) and, where
     you need default-deny, end the file with a `when = "true"` deny rule.
 
+#### Hot-reload (`SIGHUP`)
+
+Send the process **`SIGHUP`** to re-read and recompile the policy file without a
+restart (`kill -HUP <pid>`, or `docker kill --signal=HUP <container>`). The new
+rule set is swapped in atomically — a decision already in flight keeps the rules
+it started with, and there is no lock on the request path.
+
+The reload is **fail-safe**: if the file is missing, unparsable, or any rule
+fails to compile, the running policy is **kept** (the reload error is logged and
+the previous, known-good rules stay in force) — a bad edit never leaves the
+gateway without a policy. A reload that produces **zero** rules (an empty or
+truncated file — e.g. a non-atomic write caught mid-flight) is likewise refused,
+since no rules means allow-all; prefer an atomic write (write a temp file, then
+rename) when editing live. Hot-reload is Unix-only; on other platforms the policy
+is fixed at startup.
+
 ## `[observability.logging]`
 
 | Key | Default | Meaning |
