@@ -1,10 +1,12 @@
 use async_trait::async_trait;
 
 use agate_policy::application::PolicyService;
-use agate_policy::domain::decision::{InspectedAction, PolicyDecision};
+use agate_policy::domain::decision::InspectedAction;
 use agate_proxy::application::common::ports::PolicyPort;
 use agate_proxy::application::inspection::InspectionContext;
-use agate_proxy::domain::inspection::{AgentEvent, DenyReason, Verdict};
+use agate_proxy::domain::inspection::{AgentEvent, Verdict};
+
+use super::projection::lift_decision;
 
 /// Bridges the proxy's [`PolicyPort`] to the policy context: it projects a proxy
 /// [`AgentEvent`] onto the policy's [`InspectedAction`], asks the
@@ -29,11 +31,7 @@ impl PolicyPort for PolicyAdapter {
         _context: &InspectionContext,
         event: &AgentEvent,
     ) -> Verdict<AgentEvent> {
-        match self.service.decide(&to_action(event)) {
-            PolicyDecision::Allow => Verdict::Allow,
-            PolicyDecision::Deny(reason) => Verdict::Deny(DenyReason::new(reason.as_str())),
-            PolicyDecision::RedactText(text) => redacted_verdict(event, text),
-        }
+        lift_decision(event, self.service.decide(&to_action(event)))
     }
 }
 
@@ -55,24 +53,6 @@ fn to_action(event: &AgentEvent) -> InspectedAction {
             content: mutation.payload().to_owned(),
         },
         AgentEvent::Lifecycle(_) | AgentEvent::Opaque(_) => InspectedAction::Other,
-    }
-}
-
-/// Rebuild the event with the redacted text. Redaction is produced for emitted
-/// messages and tool results (both carry rewritable text); any other event is
-/// forwarded unchanged (defensive).
-fn redacted_verdict(event: &AgentEvent, text: String) -> Verdict<AgentEvent> {
-    match event {
-        AgentEvent::MessageChunk { message, .. } => Verdict::Transform(AgentEvent::MessageChunk {
-            message: message.clone(),
-            text,
-        }),
-        AgentEvent::ToolResult { id, name, .. } => Verdict::Transform(AgentEvent::ToolResult {
-            id: id.clone(),
-            name: name.clone(),
-            content: text,
-        }),
-        _ => Verdict::Allow,
     }
 }
 

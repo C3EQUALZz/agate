@@ -99,10 +99,94 @@ nothing is redacted**.
 | `[policy.session_memory].ttl_secs` | integer (s) | How long a session's quarantine survives without activity. A session idle longer than this is forgotten. Default `3600`; must be > 0 when enabled. |
 | `[policy.session_memory].backend` | `memory` \| `redis` | Where the ledger lives. `memory` is process-local (lost on restart, not shared across replicas); `redis` is shared across replicas and restarts. Default `memory`. The Redis backend fails open — if Redis is unreachable it degrades to no memory, never a wrong allow. |
 | `[policy.session_memory].redis_url` | string | Redis connection URL (e.g. `redis://127.0.0.1:6379`). **Required** when `backend = "redis"`, ignored otherwise. |
+| `[policy].backend` | `ruleset` \| `cel` | Which engine decides verdicts. `ruleset` (default) is the built-in static policy documented above. `cel` hands every decision to operator-authored CEL rules from `[policy.cel]` — the static rules above are then **not** consulted. Selecting `cel` requires a build with the `policy-cel` Cargo feature. |
+| `[policy.cel].policy_path` | string | Path to the CEL policy file (a TOML list of `[[rule]]` entries; see below). **Required** when `backend = "cel"`. Every rule is compiled at startup, so a parse error **aborts the process**. |
 
 !!! warning "Invalid policy aborts startup"
     A blank or invalid tool name, or an empty redaction pattern, **aborts
     startup** — a typo must never silently weaken enforcement.
+
+### The CEL policy engine (`backend = "cel"`)
+
+The static ruleset above covers the common cases declaratively. For policies that
+need expressions — comparisons, boolean logic, addressing nested fields — Agate
+ships an alternative engine that evaluates [CEL][cel] (Common Expression
+Language) rules. CEL is **non-Turing-complete** (no loops or recursion), so every
+expression terminates; the `decision_timeout_ms` guard above still bounds a
+decision as a backstop. It is a separate `PolicyPort` backend
+selected with `[policy].backend = "cel"`, available only in a build with the
+`policy-cel` Cargo feature (`cargo build -p agate-server --features policy-cel`).
+
+The policy file is a TOML list of `[[rule]]` tables, evaluated **in order**; the
+**first** rule whose `when` is `true` wins. If **no** rule matches, the event is
+**allowed** — the rules enumerate what is blocked or redacted, so add a trailing
+catch-all `when = "true"` deny rule for a default-deny posture.
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `when` | yes | A CEL **boolean** expression over `action` and `context` (below). |
+| `effect` | yes | `deny` (block with `reason`), `redact` (replace the event text), or `allow` (pass and stop evaluating). |
+| `reason` | no | Deny message (for `effect = "deny"`). Defaults to a generic reason. |
+| `replacement` | no | A CEL **string** expression producing the replacement text (for `effect = "redact"`). It applies only to messages and tool results; a redact rule matching any other event kind **fails closed** (the event is denied, not passed through). The expression sees the full `action`, so do **not** echo the matched secret back (`replacement = 'action.text'` would mask it to itself). If it errors or yields a non-string, it falls back to `"[REDACTED]"` (logged). Defaults to `"[REDACTED]"`. |
+
+Each rule sees two variables. `action` is a flat map describing the event — every
+key is always present (`null` when not applicable), so a rule may name any field
+without erroring on a missing key:
+
+| `action` field | Present for | Value |
+| --- | --- | --- |
+| `kind` | every event | `"tool_call"`, `"message"`, `"tool_result"`, `"state"`, or `"other"`. |
+| `name` | tool calls, tool results | The tool name. |
+| `arguments` | tool calls | The raw argument string. |
+| `arguments_json` | tool calls | The arguments **parsed** as JSON (address fields: `action.arguments_json.url`), or `null` if they are not valid JSON. |
+| `text` | messages | The emitted message text. |
+| `content` | tool results | The raw result content. |
+| `content_json` | tool results | The result **parsed** as JSON, or `null`. |
+| `state_json` | state mutations | The state payload **parsed** as JSON, or `null`. |
+
+`context` carries the run identity: `context.session_id` and `context.run_id`
+(both strings).
+
+```toml
+# cel-policy.toml — referenced by [policy.cel].policy_path
+
+# Block a tool by name.
+[[rule]]
+when = 'action.kind == "tool_call" && action.name == "delete_file"'
+effect = "deny"
+reason = "destructive tool is not permitted"
+
+# Block an SSRF-shaped argument by addressing a parsed field. Guard the nullable
+# field first: without `!= null`, a non-JSON argument makes the rule error and be
+# skipped (see the null-guard note below) rather than block.
+[[rule]]
+when = 'action.arguments_json != null && action.arguments_json.url.startsWith("http://169.254.169.254")'
+effect = "deny"
+reason = "link-local metadata endpoint"
+
+# Redact an API key shape in emitted message text.
+[[rule]]
+when = 'action.kind == "message" && action.text.contains("sk-")'
+effect = "redact"
+replacement = '"[REDACTED]"'
+
+# Default-deny: anything not explicitly allowed above is blocked.
+[[rule]]
+when = "true"
+effect = "deny"
+reason = "not permitted by policy"
+```
+
+[cel]: https://cel.dev/
+
+!!! warning "Guard nullable fields — an erroring rule does not block"
+    A rule that **errors** while evaluating (for example, reaching into
+    `action.arguments_json.url` when the arguments are not JSON, so
+    `arguments_json` is `null`) is treated as *not matched* — logged, then
+    skipped — never a hard failure. It therefore does **not** block on its own:
+    if no later rule matches, the event is allowed. Guard nullable fields
+    (`action.arguments_json != null && action.arguments_json.url...`) and, where
+    you need default-deny, end the file with a `when = "true"` deny rule.
 
 ## `[observability.logging]`
 
@@ -229,11 +313,15 @@ matches = "^https?://169\\.254\\.169\\.254"
 contains = "BEGIN RSA PRIVATE KEY"
 
 [policy]
+backend = "ruleset"              # or "cel" (needs the policy-cel build); see [policy.cel]
 redact = ["sk-", "AKIA"]
 redact_regex = ["sk-[A-Za-z0-9]{20,}", "AKIA[0-9A-Z]{16}"]
 fail_mode = "closed"
 decision_timeout_ms = 5000
 on_malformed_event = "terminate"
+
+# [policy.cel]
+# policy_path = "/etc/agate/cel-policy.toml"   # required when backend = "cel"
 
 [policy.session_memory]
 enabled = false

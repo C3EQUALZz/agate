@@ -12,8 +12,6 @@ use agate_audit::infrastructure::AuditMetricsRecorder;
 use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_audit::setup::storage::Storage;
 use agate_crypto::KeyId;
-use agate_policy::application::PolicyService;
-use agate_policy::domain::decision::PolicyRuleset;
 use agate_proxy::application::common::ports::{AuditSink, PolicyPort};
 use agate_proxy::infrastructure::{FailMode, FailModePolicy};
 use agate_proxy::setup::bootstrap::build_app_with;
@@ -22,7 +20,6 @@ use agate_proxy::setup::configs::ProxyConfig;
 use crate::infrastructure::audit::{
     AuditLogSink, AuditOutbox, CheckpointIssuer, CheckpointScheduler, FullPolicy, RecordAppender,
 };
-use crate::infrastructure::policy::PolicyAdapter;
 use crate::presentation::http::readiness;
 use crate::setup::bootstrap::{ScopedAppender, ScopedIssuer};
 
@@ -88,24 +85,27 @@ pub struct Server {
 pub struct ServerConfig {
     pub proxy: ProxyConfig,
     pub log: LogId,
-    pub ruleset: PolicyRuleset,
+    /// The decision engine (built by the composition root): the static ruleset
+    /// adapter or the CEL adapter, both `PolicyPort`. `build_server` wraps it in
+    /// the fail-mode guard; it does not choose the backend.
+    pub policy: Arc<dyn PolicyPort>,
     pub fail_mode: FailMode,
     pub decision_timeout: Duration,
     pub checkpoint: Option<CheckpointSettings>,
     pub outbox: OutboxSettings,
 }
 
-/// Wire the proxy to the policy ruleset and the audit log, backed by `storage`.
+/// Wire the proxy to the policy engine and the audit log, backed by `storage`.
 ///
-/// Policy decisions come from `agate-policy` (via [`PolicyAdapter`]); the audit
-/// sink is the real bridge to the transparency log. Must be called from within a
-/// Tokio runtime — it spawns the outbox task.
+/// The decision engine is supplied already built (see [`ServerConfig::policy`]);
+/// the audit sink is the real bridge to the transparency log. Must be called
+/// from within a Tokio runtime — it spawns the outbox task.
 #[must_use]
 pub fn build_server(storage: &Storage, config: ServerConfig) -> Server {
     let ServerConfig {
         proxy,
         log,
-        ruleset,
+        policy: real_policy,
         fail_mode,
         decision_timeout,
         checkpoint,
@@ -134,10 +134,8 @@ pub fn build_server(storage: &Storage, config: ServerConfig) -> Server {
         CheckpointHandle { task, shutdown }
     });
 
-    // The real policy, wrapped so a slow/hung decision falls back to the
+    // Wrap the supplied engine so a slow/hung decision falls back to the
     // configured fail mode (fail-closed by default) instead of hanging the run.
-    let real_policy: Arc<dyn PolicyPort> =
-        Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)));
     let policy: Arc<dyn PolicyPort> = Arc::new(FailModePolicy::new(
         real_policy,
         fail_mode,

@@ -17,8 +17,11 @@ use agate_audit::application::usecases::create_log::CreateLog;
 use agate_audit::domain::merkle::LogId;
 use agate_audit::setup::ioc::{build_container, build_registry};
 use agate_audit::setup::storage::Storage;
+use agate_policy::application::PolicyService;
+use agate_proxy::application::common::ports::PolicyPort;
+use agate_server::infrastructure::policy::PolicyAdapter;
 use agate_server::setup::bootstrap::{ServerConfig, build_server};
-use agate_server::setup::configs::load;
+use agate_server::setup::configs::{AppConfig, PolicyBackendKind, load};
 use agate_server::setup::observability::{init_logging, init_metrics};
 use agate_server::setup::tls::load_tls;
 use tracing::info;
@@ -39,9 +42,9 @@ async fn main() {
     // aborts startup before connecting to Postgres or creating a log.
     let proxy = config.proxy_config();
     let bind_addr = proxy.bind_addr.clone();
-    let ruleset = config
-        .policy_ruleset()
-        .expect("invalid policy configuration");
+    // The decision engine — the static ruleset or the CEL plugin — built here at
+    // the composition root; a bad ruleset / unparsable CEL policy aborts now.
+    let policy = build_policy(&config);
     let storage_config = config.storage_config();
     let pinned_log_id = std::env::var("AUDIT_LOG_ID")
         .ok()
@@ -70,7 +73,7 @@ async fn main() {
         ServerConfig {
             proxy,
             log,
-            ruleset,
+            policy,
             fail_mode: config.policy_fail_mode(),
             decision_timeout: config.policy_decision_timeout(),
             checkpoint: config.checkpoint_settings(),
@@ -130,6 +133,41 @@ async fn main() {
         tracing::warn!(%error, "failed to flush the OTLP tracer on shutdown");
     }
     info!("shutdown complete");
+}
+
+/// Build the configured decision engine. The static `ruleset` backend bridges
+/// the `agate-policy` ruleset; the `cel` backend compiles the operator's CEL
+/// policy (only when built with the `policy-cel` feature). Both are wrapped in
+/// the fail-mode guard later by `build_server`. A bad ruleset or policy aborts.
+fn build_policy(config: &AppConfig) -> Arc<dyn PolicyPort> {
+    match config.policy.backend {
+        PolicyBackendKind::Ruleset => {
+            let ruleset = config
+                .policy_ruleset()
+                .expect("invalid policy configuration");
+            Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)))
+        }
+        PolicyBackendKind::Cel => build_cel_policy(config),
+    }
+}
+
+#[cfg(feature = "policy-cel")]
+fn build_cel_policy(config: &AppConfig) -> Arc<dyn PolicyPort> {
+    let path = config
+        .policy
+        .cel
+        .policy_path
+        .as_deref()
+        .expect("validate() requires policy.cel.policy_path when backend = cel");
+    Arc::new(
+        agate_server::infrastructure::policy::CelPolicyAdapter::load(path)
+            .unwrap_or_else(|error| panic!("invalid CEL policy: {error}")),
+    )
+}
+
+#[cfg(not(feature = "policy-cel"))]
+fn build_cel_policy(_config: &AppConfig) -> Arc<dyn PolicyPort> {
+    panic!("policy.backend = \"cel\" requires building agate-server with the `policy-cel` feature")
 }
 
 /// Resolves once the process receives SIGINT (Ctrl+C) or SIGTERM (the signal a

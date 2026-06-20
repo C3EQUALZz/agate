@@ -25,6 +25,13 @@ pub struct PolicySection {
     /// the rest of the session (across runs). Off by default — the policy is
     /// otherwise stateless.
     pub session_memory: SessionMemorySection,
+    /// Which engine decides verdicts: the built-in static `ruleset` (the default
+    /// — tool allow/deny rules + redaction above) or the `cel` plugin engine
+    /// (operator CEL rules from `[policy.cel]`, which then fully owns the
+    /// decision). Selecting `cel` requires a build with the `policy-cel` feature.
+    pub backend: PolicyBackendKind,
+    /// `[policy.cel]` — the CEL plugin engine (used when `backend = "cel"`).
+    pub cel: CelSection,
 }
 
 impl PolicySection {
@@ -33,6 +40,28 @@ impl PolicySection {
     pub fn validate(&self) -> Result<(), String> {
         if self.decision_timeout_ms == 0 {
             return Err("policy.decision_timeout_ms must be greater than 0".into());
+        }
+        if self.backend == PolicyBackendKind::Cel {
+            // Reject `backend = "cel"` in a build without the engine here, at
+            // config time, rather than letting the process boot and panic when
+            // the engine is constructed.
+            #[cfg(not(feature = "policy-cel"))]
+            {
+                return Err(
+                    "policy.backend = \"cel\" requires building agate-server with the \
+                     `policy-cel` feature"
+                        .into(),
+                );
+            }
+            #[cfg(feature = "policy-cel")]
+            if self
+                .cel
+                .policy_path
+                .as_deref()
+                .is_none_or(|path| path.trim().is_empty())
+            {
+                return Err("policy.cel.policy_path is required when backend = \"cel\"".into());
+            }
         }
         if self.session_memory.enabled && self.session_memory.ttl_secs == 0 {
             return Err(
@@ -65,8 +94,34 @@ impl Default for PolicySection {
             decision_timeout_ms: 5000,
             on_malformed_event: MalformedMode::default(),
             session_memory: SessionMemorySection::default(),
+            backend: PolicyBackendKind::default(),
+            cel: CelSection::default(),
         }
     }
+}
+
+/// Which engine decides verdicts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PolicyBackendKind {
+    /// The built-in static ruleset (tool allow/deny + redaction) — the default.
+    #[default]
+    Ruleset,
+    /// The CEL plugin engine (operator rules from `[policy.cel]`); requires a
+    /// build with the `policy-cel` feature.
+    Cel,
+}
+
+/// `[policy.cel]` — the CEL plugin engine. When `backend = "cel"`, the operator's
+/// CEL rules at `policy_path` fully own the verdict (the static ruleset above is
+/// not consulted).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CelSection {
+    /// Path to the CEL policy file (a TOML list of `[[rule]]` entries). Required
+    /// when `backend = "cel"`; the file is read and every rule is compiled at
+    /// startup, so a parse error aborts the process.
+    pub policy_path: Option<String>,
 }
 
 /// `[policy.session_memory]` — cross-run replay protection. When enabled, a tool

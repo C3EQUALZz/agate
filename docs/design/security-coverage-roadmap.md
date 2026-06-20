@@ -144,11 +144,21 @@ engine — it closes most real cases without new infrastructure or a sandbox.
   composition root — swap the `Arc` behind the `PolicyPort`). **Deferred** as an
   ops convenience, not a coverage gap.
 
-A **plugin engine** (Rego/OPA, CEL, or WASM via a sandbox) — rules as code,
-hot-reload, a policy marketplace — is the eventual "product" step. It is left as
-a future seam: the `PolicyPort` already isolates the data plane from how a
-verdict is computed, so a `WasmPolicy` adapter can land later without touching
-the proxy.
+A **plugin engine** — rules as code rather than fixed TOML knobs — is the
+"product" step beyond the static language. ✅ A **CEL backend** is the first one,
+landed behind the `PolicyPort` seam exactly as planned: built only with the
+`policy-cel` Cargo feature and selected with `[policy].backend = "cel"`, it
+evaluates operator-authored [CEL](https://cel.dev/) rules (a TOML list of
+`[[rule]]` with a `when` boolean expression and a `deny`/`redact`/`allow`
+effect), compiled at startup, first-match-wins. CEL's non-Turing-completeness
+keeps every decision terminating, and the rules see the same event projection
+the static engine inspects (`action.{kind,name,arguments_json,content_json,
+state_json,…}` plus the run `context`). It reuses the shared decision→verdict
+`lift` so the redaction invariants cannot drift from the static adapter. The
+proxy was untouched — proof the seam holds. Other engines (Rego/OPA, WASM via a
+sandbox) and a policy marketplace can land the same way later. **Still open** for
+CEL: hot-reload (the rule set already sits behind an `ArcSwap` ready to be
+swapped) and a richer event projection if rules need fields not yet exposed.
 
 ### Phase 3 — defense-in-depth
 
