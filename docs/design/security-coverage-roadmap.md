@@ -176,8 +176,12 @@ behind a sandbox) and a policy marketplace can land the same way later.
 - **SSRF hardening (A2):** ✅ **done.** URLs are screened on both legs — request
   `user` messages and response-leg tool-call arguments, message chunks, and tool
   results — and a domain host is resolved through the `HostResolver` port with
-  its addresses re-checked (DNS-rebinding closed). Response-leg screening is
-  per-event (a URL split across streamed chunks is not reassembled).
+  its addresses re-checked (DNS-rebinding closed). URL extraction splits on JSON
+  punctuation as well as whitespace, so a URL embedded in a JSON value — the usual
+  shape of tool-call arguments and tool results, e.g.
+  `{"url":"http://169.254.169.254/"}` — is isolated and screened, not only URLs
+  sitting alone in prose. Response-leg screening is per-event (a URL split across
+  streamed chunks is not reassembled).
 - **Audit completeness (A6):** ✅ done — the outbox fill is exported
   (`agate_audit_outbox_depth`/`_capacity`) and `[audit].outbox_on_full` chooses
   `block` (backpressure the data plane) or `shed` (drop with a loud
