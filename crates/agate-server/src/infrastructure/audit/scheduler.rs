@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::Notify;
 use tokio::time::{MissedTickBehavior, interval};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use agate_audit::domain::merkle::{LogId, TreeSize};
@@ -34,14 +34,14 @@ impl CheckpointScheduler {
         }
     }
 
-    /// Run until `shutdown` is signaled: issue immediately, then once per
+    /// Run until `shutdown` is cancelled: issue immediately, then once per
     /// `period`. Ticks missed while an issue runs long are coalesced (we only
     /// need the latest).
     ///
     /// Shutdown is cooperative and checked only at the loop boundary, so the
     /// scheduler never stops in the middle of an issue — it never abandons a
     /// half-open audit scope/transaction the way an abrupt `abort()` could.
-    pub async fn run(self, shutdown: Arc<Notify>) {
+    pub async fn run(self, shutdown: CancellationToken) {
         let mut tick = interval(self.period);
         tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
         debug!(log = %self.log.0, period_secs = self.period.as_secs(), "checkpoint scheduler started");
@@ -52,7 +52,7 @@ impl CheckpointScheduler {
                 // Bias the shutdown branch so a pending stop wins over a ready
                 // tick, ending promptly without one more issue.
                 biased;
-                () = shutdown.notified() => {
+                () = shutdown.cancelled() => {
                     debug!(log = %self.log.0, "checkpoint scheduler stopping");
                     return;
                 }
@@ -87,6 +87,7 @@ mod tests {
 
     use async_trait::async_trait;
     use tokio::sync::Notify;
+    use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
 
     use agate_audit::domain::merkle::{LogId, SignedTreeHead, TreeSize};
@@ -126,13 +127,13 @@ mod tests {
         // A long period: only the immediate first tick fires before we stop.
         let scheduler =
             CheckpointScheduler::new(issuer.clone(), LogId(Uuid::nil()), Duration::from_hours(1));
-        let shutdown = Arc::new(Notify::new());
+        let shutdown = CancellationToken::new();
         let handle = tokio::spawn(scheduler.run(shutdown.clone()));
 
         issuer.issued.notified().await;
         // Cooperative stop: the loop returns at its next boundary, so the task
         // joins cleanly rather than being aborted mid-flight.
-        shutdown.notify_one();
+        shutdown.cancel();
         handle.await.expect("scheduler stops cleanly on signal");
 
         let calls = issuer.calls.lock().unwrap();

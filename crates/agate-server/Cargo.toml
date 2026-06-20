@@ -16,6 +16,10 @@ agate-crypto = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "signal"] }
+# Cooperative-cancellation + task-tracking primitives for supervised background
+# tasks (the outbox, checkpoint scheduler, and CEL hot-reload): one shutdown
+# token, awaited as a group on graceful shutdown. `rt` enables `TaskTracker`.
+tokio-util = { version = "0.7", features = ["rt"] }
 froodi = { version = "1.0.0-beta.18", features = ["async"] }
 async-trait = { workspace = true }
 serde = { workspace = true }

@@ -33,7 +33,9 @@ use agate_proxy::infrastructure::FailMode;
 use agate_proxy::setup::configs::ProxyConfig;
 use agate_server::infrastructure::audit::FullPolicy;
 use agate_server::infrastructure::policy::PolicyAdapter;
-use agate_server::setup::bootstrap::{OutboxSettings, Server, ServerConfig, build_server};
+use agate_server::setup::bootstrap::{
+    OutboxSettings, Server, ServerConfig, Supervisor, build_server,
+};
 use froodi::async_impl::Container;
 
 /// A run the proxy inspects into three recordable events: a lifecycle start, a
@@ -77,7 +79,13 @@ pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer
     // The outbox task is detached: it lives as long as the served app (and the
     // audit sink inside it) keeps the channel open.
     let storage = Storage::postgres(pool.clone());
-    let Server { app, .. } = build_server(
+    // The test does not drive graceful shutdown, so the supervisor exists only to
+    // satisfy `build_server` and is intentionally not awaited: the supervised
+    // outbox lives as long as the served app keeps the audit-sink channel open,
+    // and assertions gate on `poll_inclusion`, which only sees durably committed
+    // records.
+    let supervisor = Supervisor::new();
+    let Server { app } = build_server(
         &storage,
         ServerConfig {
             proxy,
@@ -91,6 +99,7 @@ pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer
                 on_full: FullPolicy::Block,
             },
         },
+        &supervisor,
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

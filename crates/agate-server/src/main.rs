@@ -20,7 +20,7 @@ use agate_audit::setup::storage::Storage;
 use agate_policy::application::PolicyService;
 use agate_proxy::application::common::ports::PolicyPort;
 use agate_server::infrastructure::policy::PolicyAdapter;
-use agate_server::setup::bootstrap::{ServerConfig, build_server};
+use agate_server::setup::bootstrap::{ServerConfig, Supervisor, build_server};
 use agate_server::setup::configs::{AppConfig, PolicyBackendKind, load};
 use agate_server::setup::observability::{init_logging, init_metrics};
 use agate_server::setup::tls::load_tls;
@@ -42,9 +42,12 @@ async fn main() {
     // aborts startup before connecting to Postgres or creating a log.
     let proxy = config.proxy_config();
     let bind_addr = proxy.bind_addr.clone();
+    // Supervises every background task (audit outbox, checkpoint scheduler, CEL
+    // hot-reload) under one shutdown token + tracker.
+    let supervisor = Supervisor::new();
     // The decision engine — the static ruleset or the CEL plugin — built here at
     // the composition root; a bad ruleset / unparsable CEL policy aborts now.
-    let policy = build_policy(&config);
+    let policy = build_policy(&config, &supervisor);
     let storage_config = config.storage_config();
     let pinned_log_id = std::env::var("AUDIT_LOG_ID")
         .ok()
@@ -79,15 +82,19 @@ async fn main() {
             checkpoint: config.checkpoint_settings(),
             outbox: config.outbox_settings(),
         },
+        &supervisor,
     );
 
     // Drive graceful shutdown through an axum-server Handle: on SIGINT/SIGTERM
-    // stop accepting and wait (no deadline) for in-flight runs to finish.
+    // trip the supervisor's token (background tasks return at their next
+    // boundary), then stop accepting and wait (no deadline) for in-flight runs.
     let handle = Handle::new();
     tokio::spawn({
         let handle = handle.clone();
+        let supervisor = supervisor.clone();
         async move {
             shutdown_signal().await;
+            supervisor.trigger();
             handle.graceful_shutdown(None);
         }
     });
@@ -113,18 +120,12 @@ async fn main() {
             .expect("serve");
     }
 
-    // The checkpoint scheduler is a timer loop with no natural end; stop it
-    // cooperatively now that we're shutting down, so it finishes any in-flight
-    // issue and never abandons a half-open audit scope.
-    if let Some(checkpoint) = server.checkpoint {
-        checkpoint.stop().await;
-    }
-
-    // `serve` has returned, so the served app — and the audit sink inside it —
-    // is dropped, closing the outbox channel. Awaiting the outbox task lets it
-    // drain the queued records before the process exits.
-    info!("draining the audit outbox");
-    server.outbox.await.expect("audit outbox task");
+    // `serve` has returned, so the served app — and the audit sink inside it — is
+    // dropped, closing the outbox channel. Wait for every supervised task: the
+    // checkpoint scheduler (already returning on the token) and the outbox (now
+    // draining its remaining queued records to the log) before the process exits.
+    info!("draining background tasks");
+    supervisor.wait().await;
 
     // Flush any spans still buffered in the OTLP batch exporter before exit.
     if let Some(provider) = tracer_provider
@@ -139,7 +140,7 @@ async fn main() {
 /// the `agate-policy` ruleset; the `cel` backend compiles the operator's CEL
 /// policy (only when built with the `policy-cel` feature). Both are wrapped in
 /// the fail-mode guard later by `build_server`. A bad ruleset or policy aborts.
-fn build_policy(config: &AppConfig) -> Arc<dyn PolicyPort> {
+fn build_policy(config: &AppConfig, supervisor: &Supervisor) -> Arc<dyn PolicyPort> {
     match config.policy.backend {
         PolicyBackendKind::Ruleset => {
             let ruleset = config
@@ -147,12 +148,12 @@ fn build_policy(config: &AppConfig) -> Arc<dyn PolicyPort> {
                 .expect("invalid policy configuration");
             Arc::new(PolicyAdapter::new(PolicyService::new(ruleset)))
         }
-        PolicyBackendKind::Cel => build_cel_policy(config),
+        PolicyBackendKind::Cel => build_cel_policy(config, supervisor),
     }
 }
 
 #[cfg(feature = "policy-cel")]
-fn build_cel_policy(config: &AppConfig) -> Arc<dyn PolicyPort> {
+fn build_cel_policy(config: &AppConfig, supervisor: &Supervisor) -> Arc<dyn PolicyPort> {
     use agate_server::infrastructure::policy::CelPolicyAdapter;
 
     let path = config
@@ -167,18 +168,22 @@ fn build_cel_policy(config: &AppConfig) -> Arc<dyn PolicyPort> {
     // Hot-reload the policy file on SIGHUP (Unix only). The reload is fail-safe —
     // a bad file keeps the running policy — so the listener never loses its rules.
     #[cfg(unix)]
-    spawn_cel_reload(Arc::clone(&adapter));
+    spawn_cel_reload(Arc::clone(&adapter), supervisor);
     adapter
 }
 
-/// Reload the CEL policy on every `SIGHUP`. Detached for the process lifetime; it
-/// only swaps an in-memory rule set, so it holds no resource that shutdown must
-/// drain and is safe to abort on exit.
+/// Reload the CEL policy on every `SIGHUP`. Supervised, so it returns when the
+/// shutdown token is tripped; it only swaps an in-memory rule set, holding no
+/// resource that shutdown must drain.
 #[cfg(all(unix, feature = "policy-cel"))]
-fn spawn_cel_reload(adapter: Arc<agate_server::infrastructure::policy::CelPolicyAdapter>) {
+fn spawn_cel_reload(
+    adapter: Arc<agate_server::infrastructure::policy::CelPolicyAdapter>,
+    supervisor: &Supervisor,
+) {
     use tokio::signal::unix::{SignalKind, signal};
 
-    tokio::spawn(async move {
+    let shutdown = supervisor.token();
+    supervisor.spawn(async move {
         let mut sighup = match signal(SignalKind::hangup()) {
             Ok(stream) => stream,
             Err(error) => {
@@ -187,19 +192,29 @@ fn spawn_cel_reload(adapter: Arc<agate_server::infrastructure::policy::CelPolicy
             }
         };
         info!("CEL policy hot-reload armed: send SIGHUP to reload the policy file");
-        while sighup.recv().await.is_some() {
-            // Reload on a blocking thread: it reads + recompiles the file, which
-            // must not stall an async worker. `spawn_blocking` also isolates a
-            // panic in compilation as a `JoinError`, so a single bad reload can
-            // never kill the handler and silently stop all future reloads.
-            let engine = Arc::clone(&adapter);
-            match tokio::task::spawn_blocking(move || engine.reload()).await {
-                Ok(Ok(rules)) => info!(rules, "reloaded CEL policy on SIGHUP"),
-                Ok(Err(error)) => {
-                    tracing::error!(%error, "CEL policy reload failed; keeping the current policy");
-                }
-                Err(join) => {
-                    tracing::error!(%join, "CEL policy reload panicked; keeping the current policy");
+        loop {
+            tokio::select! {
+                // Stop promptly on shutdown rather than waiting for another signal.
+                biased;
+                () = shutdown.cancelled() => break,
+                signal = sighup.recv() => {
+                    if signal.is_none() {
+                        break;
+                    }
+                    // Reload on a blocking thread: it reads + recompiles the file,
+                    // which must not stall an async worker. `spawn_blocking` also
+                    // isolates a panic in compilation as a `JoinError`, so a single
+                    // bad reload can never kill the handler and stop all future ones.
+                    let engine = Arc::clone(&adapter);
+                    match tokio::task::spawn_blocking(move || engine.reload()).await {
+                        Ok(Ok(rules)) => info!(rules, "reloaded CEL policy on SIGHUP"),
+                        Ok(Err(error)) => {
+                            tracing::error!(%error, "CEL policy reload failed; keeping the current policy");
+                        }
+                        Err(join) => {
+                            tracing::error!(%join, "CEL policy reload panicked; keeping the current policy");
+                        }
+                    }
                 }
             }
         }
@@ -207,7 +222,7 @@ fn spawn_cel_reload(adapter: Arc<agate_server::infrastructure::policy::CelPolicy
 }
 
 #[cfg(not(feature = "policy-cel"))]
-fn build_cel_policy(_config: &AppConfig) -> Arc<dyn PolicyPort> {
+fn build_cel_policy(_config: &AppConfig, _supervisor: &Supervisor) -> Arc<dyn PolicyPort> {
     panic!("policy.backend = \"cel\" requires building agate-server with the `policy-cel` feature")
 }
 
