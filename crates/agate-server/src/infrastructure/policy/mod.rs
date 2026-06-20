@@ -6,6 +6,8 @@
 pub mod adapter;
 #[cfg(feature = "policy-cel")]
 pub mod cel_adapter;
+#[cfg(feature = "policy-cel")]
+pub mod cel_watch;
 mod projection;
 
 pub use adapter::PolicyAdapter;

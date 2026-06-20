@@ -169,7 +169,68 @@ fn build_cel_policy(config: &AppConfig, supervisor: &Supervisor) -> Arc<dyn Poli
     // a bad file keeps the running policy — so the listener never loses its rules.
     #[cfg(unix)]
     spawn_cel_reload(Arc::clone(&adapter), supervisor);
+    // Optionally also auto-reload when the file changes on disk (cross-platform,
+    // opt-in via `[policy.cel].watch`). Same fail-safe reload as SIGHUP.
+    if config.policy.cel.watch {
+        spawn_cel_watch(Arc::clone(&adapter), path.to_owned(), supervisor);
+    }
     adapter
+}
+
+/// Debounce window for file-watch reloads: a single editor save fires several
+/// filesystem events (truncate, write, rename), so wait briefly and coalesce
+/// them into one reload.
+#[cfg(feature = "policy-cel")]
+const WATCH_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Auto-reload the CEL policy when its file changes on disk. Supervised, so it
+/// returns when the shutdown token is tripped. A failure to install the watcher
+/// is logged and leaves the SIGHUP reload (Unix) still in place.
+#[cfg(feature = "policy-cel")]
+fn spawn_cel_watch(
+    adapter: Arc<agate_server::infrastructure::policy::CelPolicyAdapter>,
+    path: String,
+    supervisor: &Supervisor,
+) {
+    use agate_server::infrastructure::policy::cel_watch;
+
+    let mut watch = match cel_watch::watch(std::path::Path::new(&path)) {
+        Ok(watch) => watch,
+        Err(error) => {
+            tracing::error!(%error, "cannot watch the CEL policy file; auto-reload disabled");
+            return;
+        }
+    };
+    let shutdown = supervisor.token();
+    supervisor.spawn(async move {
+        info!(path, "CEL policy file-watch armed: edits auto-reload the policy");
+        loop {
+            tokio::select! {
+                // Stop promptly on shutdown rather than waiting for another change.
+                biased;
+                () = shutdown.cancelled() => break,
+                change = watch.changes.recv() => {
+                    if change.is_none() {
+                        break;
+                    }
+                    // Coalesce the burst of events a single save emits into one
+                    // reload: wait a beat, then drain whatever else has queued.
+                    tokio::time::sleep(WATCH_DEBOUNCE).await;
+                    while watch.changes.try_recv().is_ok() {}
+                    let engine = Arc::clone(&adapter);
+                    match tokio::task::spawn_blocking(move || engine.reload()).await {
+                        Ok(Ok(rules)) => info!(rules, "reloaded CEL policy on file change"),
+                        Ok(Err(error)) => {
+                            tracing::error!(%error, "CEL policy reload failed; keeping the current policy");
+                        }
+                        Err(join) => {
+                            tracing::error!(%join, "CEL policy reload panicked; keeping the current policy");
+                        }
+                    }
+                }
+            }
+        }
+    });
 }
 
 /// Reload the CEL policy on every `SIGHUP`. Supervised, so it returns when the
