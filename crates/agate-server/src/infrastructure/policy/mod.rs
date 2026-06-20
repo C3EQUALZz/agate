@@ -1,7 +1,7 @@
 //! The policy bridge: adapts the `agate-policy` context to the proxy's
 //! `PolicyPort`, translating between the two contexts' vocabularies. The static
 //! ruleset and the optional CEL engine are both `PolicyPort` backends sharing
-//! the [`projection`] lift.
+//! the `projection` lift.
 
 pub mod adapter;
 #[cfg(feature = "policy-cel")]
