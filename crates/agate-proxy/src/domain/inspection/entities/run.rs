@@ -123,7 +123,8 @@ impl Run {
                 StructuralOutcome::Ready(AgentEvent::StateMutation(mutation))
             }
             Fragment::Opaque(kind) => StructuralOutcome::Ready(AgentEvent::Opaque(kind)),
-            Fragment::Lifecycle(_) => unreachable!("lifecycle handled before content"),
+            // Unreachable today (inspect routes lifecycle first); fail closed, never panic.
+            Fragment::Lifecycle(_) => reject("unexpected lifecycle event in content position"),
         }
     }
 
