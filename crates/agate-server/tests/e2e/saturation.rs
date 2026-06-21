@@ -85,9 +85,10 @@ async fn shed_keeps_the_data_plane_available_under_audit_saturation() {
         );
     }
 
-    // Audit is not disabled by Shed: the first record (enqueued while the channel
-    // is empty) is durably appended — shedding drops records under pressure, it
-    // does not break the write path.
+    // Audit is not disabled by Shed: leaf 0 is RUN_STARTED — the first inspected
+    // event, enqueued while the single slot is still empty, so it is never shed,
+    // and the FIFO outbox drains it first. Shedding drops records under pressure;
+    // it does not break the write path.
     let container = audit_container(app.pool.clone());
     let registry = audit_registry();
     assert!(
