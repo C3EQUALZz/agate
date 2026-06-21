@@ -428,6 +428,55 @@ mod tests {
     }
 
     #[test]
+    fn rejects_blank_and_missing_required_response_fields() {
+        assert!(matches!(
+            to_fragment(&json!({ "type": "TOOL_CALL_END", "toolCallId": "" })).unwrap_err(),
+            AgUiError::BlankField {
+                field: "toolCallId",
+                ..
+            }
+        ));
+        assert!(matches!(
+            to_fragment(&json!({ "type": "TEXT_MESSAGE_CONTENT", "messageId": "", "delta": "x" }))
+                .unwrap_err(),
+            AgUiError::BlankField {
+                field: "messageId",
+                ..
+            }
+        ));
+
+        let missing_cases = [
+            (
+                json!({ "type": "TEXT_MESSAGE_CONTENT", "delta": "x" }),
+                "messageId",
+            ),
+            (
+                json!({ "type": "TEXT_MESSAGE_CONTENT", "messageId": "m1" }),
+                "delta",
+            ),
+            (
+                json!({ "type": "TOOL_CALL_ARGS", "toolCallId": "c1" }),
+                "delta",
+            ),
+            (
+                json!({ "type": "TOOL_CALL_RESULT", "toolCallId": "c1" }),
+                "content",
+            ),
+            (json!({ "type": "STATE_SNAPSHOT" }), "snapshot"),
+            (json!({ "type": "TOOL_CALL_END" }), "toolCallId"),
+            (json!({ "type": "STEP_STARTED" }), "stepName"),
+        ];
+        for (event, field) in missing_cases {
+            match to_fragment(&event).unwrap_err() {
+                AgUiError::MissingField { field: got, .. } => {
+                    assert_eq!(got, field, "wrong missing field for {event}");
+                }
+                other => panic!("expected MissingField {{ {field} }}, got {other:?} for {event}"),
+            }
+        }
+    }
+
+    #[test]
     fn re_encodes_a_transformed_message_chunk() {
         let event = AgentEvent::MessageChunk {
             message: MessageId::new("m1").expect("valid id"),
