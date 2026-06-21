@@ -37,6 +37,10 @@ pub const DEFAULT_MAX_BODY_BYTES: usize = 1 << 20;
 /// connection for its full stream, so this bounds memory/connection pressure;
 /// requests over the cap are shed with `503` rather than queued unboundedly.
 pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 256;
+/// Maximum bytes buffered for a single not-yet-complete SSE event (1 MiB). A
+/// well-formed AG-UI event is a few KiB; this bounds the decoder's buffer so an
+/// upstream streaming a never-terminated frame cannot grow memory without bound.
+pub const DEFAULT_MAX_FRAME_BYTES: usize = 1 << 20;
 
 /// Proxy configuration.
 #[derive(Clone, Debug)]
@@ -64,6 +68,9 @@ pub struct ProxyConfig {
     /// Per-run ceiling on the response stream (events / bytes); defaults to
     /// unlimited, the composition root applies the configured limits.
     pub response_budget: ResponseBudget,
+    /// Maximum bytes buffered for a single not-yet-complete SSE event (`0` =
+    /// unlimited). Bounds the decoder's buffer against a never-terminated frame.
+    pub max_frame_bytes: usize,
     /// Sustained per-client-IP request rate (requests per second); `0` disables
     /// rate limiting.
     pub rate_limit_per_second: u32,
@@ -90,6 +97,7 @@ impl ProxyConfig {
             max_concurrent_requests: DEFAULT_MAX_CONCURRENT_REQUESTS,
             malformed_event_mode: MalformedEventMode::default(),
             response_budget: ResponseBudget::default(),
+            max_frame_bytes: DEFAULT_MAX_FRAME_BYTES,
             rate_limit_per_second: 0,
             rate_limit_burst: 0,
             session_memory: None,
@@ -105,6 +113,7 @@ impl ProxyConfig {
             budgets: Budgets::default(),
             malformed_mode: self.malformed_event_mode,
             response_budget: self.response_budget,
+            max_frame_bytes: self.max_frame_bytes,
         }
     }
 
@@ -112,6 +121,13 @@ impl ProxyConfig {
     #[must_use]
     pub fn with_response_budget(mut self, response_budget: ResponseBudget) -> Self {
         self.response_budget = response_budget;
+        self
+    }
+
+    /// Override the per-frame byte limit (`0` = unlimited).
+    #[must_use]
+    pub fn with_max_frame_bytes(mut self, max_frame_bytes: usize) -> Self {
+        self.max_frame_bytes = max_frame_bytes;
         self
     }
 

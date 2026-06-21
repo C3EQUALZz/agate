@@ -30,6 +30,14 @@ pub struct ProxySection {
     /// Per-run ceiling on response bytes streamed to the client (`0` =
     /// unlimited).
     pub max_response_bytes: usize,
+    /// Maximum bytes buffered for a single not-yet-complete SSE event. Unlike the
+    /// per-run ceilings above, this is charged *while* a frame is still being
+    /// received, so an upstream streaming a frame that never terminates cannot
+    /// grow the decoder's buffer without bound (the per-run budget only counts
+    /// complete events). Crossing it cuts the run off with a `RUN_ERROR`. Must be
+    /// greater than 0 — `0` would restore the unbounded behaviour. A well-formed
+    /// AG-UI event is a few KiB; the 1 MiB default is generous.
+    pub max_frame_bytes: usize,
     /// Sustained per-client-IP request rate, in requests per second
     /// (`0` = disabled, the default). Floods from one source IP over this are
     /// shed with `429`. The IP is the **connection peer**, so enable this only
@@ -68,6 +76,11 @@ impl ProxySection {
         if self.max_concurrent_requests == 0 {
             return Err("proxy.max_concurrent_requests must be greater than 0".into());
         }
+        // `0` here is not "unlimited" but the original unbounded-buffer bug: a
+        // never-terminated frame would accumulate without a ceiling.
+        if self.max_frame_bytes == 0 {
+            return Err("proxy.max_frame_bytes must be greater than 0".into());
+        }
         // A burst without a rate silently disables the limit (the middleware
         // short-circuits on a zero rate), which would leave DoS protection off
         // by surprise — fail fast instead.
@@ -93,6 +106,7 @@ impl Default for ProxySection {
             // legitimate long run; `0` disables a limit.
             max_response_events: 100_000,
             max_response_bytes: 64 << 20,
+            max_frame_bytes: 1 << 20,
             // Disabled by default: the peer IP is only meaningful when Agate
             // sees the real client (not behind an unconfigured load balancer),
             // so opt in once the deployment's ingress is understood.

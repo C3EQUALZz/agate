@@ -23,4 +23,12 @@ pub struct InspectionSettings {
     pub malformed_mode: MalformedEventMode,
     /// Per-run ceiling on the response stream (events / bytes).
     pub response_budget: ResponseBudget,
+    /// Maximum bytes buffered for a single not-yet-complete SSE event (`0` =
+    /// unlimited). Guards the gap the [`response_budget`] cannot see: that budget
+    /// is charged per *decoded* event, so an upstream streaming a frame that
+    /// never terminates would grow the decoder's buffer without bound. Crossing
+    /// this ends the run with a `RUN_ERROR` (fail closed).
+    ///
+    /// [`response_budget`]: Self::response_budget
+    pub max_frame_bytes: usize,
 }
