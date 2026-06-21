@@ -5,6 +5,7 @@
 
 // The plugin-engine e2e is compiled only when both engines are built in (CI's
 // `cargo test --all-features` covers it); the default test build skips it.
+mod controls;
 #[cfg(all(feature = "policy-cel", feature = "policy-rego"))]
 mod engines;
 mod fixture;
