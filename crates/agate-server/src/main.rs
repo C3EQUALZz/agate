@@ -39,6 +39,19 @@ async fn main() {
     if init_metrics(&config.observability.metrics) {
         info!(bind = %config.observability.metrics.bind, "Prometheus metrics endpoint serving /metrics");
     }
+    // A disabled (`0`) per-run response budget is a legitimate choice, but it
+    // removes the runaway/flood guard, so surface it once at startup. This is an
+    // availability trade-off only: per-run memory stays bounded by
+    // `proxy.max_frame_bytes` and the tool-call budgets regardless.
+    if config.proxy.max_response_events == 0 || config.proxy.max_response_bytes == 0 {
+        tracing::warn!(
+            max_response_events = config.proxy.max_response_events,
+            max_response_bytes = config.proxy.max_response_bytes,
+            "a per-run response budget is disabled (0 = unlimited): a runaway or hostile upstream \
+             can stream unbounded total output to the client. This is an availability trade-off, \
+             not a memory-safety one — per-run memory stays bounded by proxy.max_frame_bytes."
+        );
+    }
 
     // Build everything that can fail from config before any I/O, so a bad config
     // aborts startup before connecting to Postgres or creating a log.
