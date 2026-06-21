@@ -1,4 +1,3 @@
-use agate_policy::domain::common::errors::DomainError;
 use agate_policy::domain::decision::{ArgumentRule, JsonPath, Pattern, ResultRule, ToolName};
 use serde::{Deserialize, Serialize};
 
@@ -298,7 +297,7 @@ pub struct ArgumentRuleConfig {
 }
 
 impl ArgumentRuleConfig {
-    pub(super) fn to_rule(&self) -> Result<ArgumentRule, DomainError> {
+    pub(super) fn to_rule(&self) -> Result<ArgumentRule, String> {
         let (tool, path, marker) = rule_parts(
             self.tool.as_deref(),
             self.path.as_deref(),
@@ -335,7 +334,7 @@ pub struct ResultRuleConfig {
 }
 
 impl ResultRuleConfig {
-    pub(super) fn to_rule(&self) -> Result<ResultRule, DomainError> {
+    pub(super) fn to_rule(&self) -> Result<ResultRule, String> {
         let (tool, path, marker) = rule_parts(
             self.tool.as_deref(),
             self.path.as_deref(),
@@ -360,27 +359,25 @@ fn rule_parts(
     contains: Option<&String>,
     matches: Option<&String>,
     kind: &str,
-) -> Result<(Option<ToolName>, Option<JsonPath>, Pattern), DomainError> {
+) -> Result<(Option<ToolName>, Option<JsonPath>, Pattern), String> {
     let tool = match tool.map(str::trim) {
-        Some(name) if !name.is_empty() => Some(ToolName::new(name)?),
+        Some(name) if !name.is_empty() => Some(ToolName::new(name).map_err(|e| e.to_string())?),
         _ => None,
     };
     let path = match path.map(str::trim) {
-        Some(path) if !path.is_empty() => Some(JsonPath::parse(path)?),
+        Some(path) if !path.is_empty() => Some(JsonPath::parse(path).map_err(|e| e.to_string())?),
         _ => None,
     };
     let marker = match (contains, matches) {
-        (Some(literal), None) => Pattern::literal(literal)?,
-        (None, Some(regex)) => Pattern::regex(regex)?,
+        (Some(literal), None) => Pattern::literal(literal).map_err(|e| e.to_string())?,
+        (None, Some(regex)) => Pattern::regex(regex).map_err(|e| e.to_string())?,
         (Some(_), Some(_)) => {
-            return Err(DomainError::Field(format!(
+            return Err(format!(
                 "a {kind} rule sets exactly one of `contains` or `matches`, not both"
-            )));
+            ));
         }
         (None, None) => {
-            return Err(DomainError::Field(format!(
-                "a {kind} rule needs `contains` or `matches`"
-            )));
+            return Err(format!("a {kind} rule needs `contains` or `matches`"));
         }
     };
     Ok((tool, path, marker))

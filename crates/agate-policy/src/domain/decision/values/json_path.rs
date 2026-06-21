@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use serde_json::Value;
 
-use crate::domain::common::errors::DomainError;
+use crate::domain::common::errors::{DomainError, JsonPathError};
 use crate::domain::common::values::ValueObject;
 
 /// A dotted path into a tool call's parsed arguments, e.g. `url` or
@@ -31,19 +31,20 @@ impl JsonPath {
         let source = source.into();
         let trimmed = source.trim();
         if trimmed.is_empty() {
-            return Err(DomainError::Field("rule path must not be blank".into()));
+            return Err(JsonPathError::Blank.into());
         }
         let segments: Vec<String> = trimmed.split('.').map(|s| s.trim().to_owned()).collect();
         if segments.iter().any(String::is_empty) {
-            return Err(DomainError::Field(format!(
-                "rule path '{trimmed}' has an empty segment"
-            )));
+            return Err(JsonPathError::EmptySegment {
+                path: trimmed.to_owned(),
+            }
+            .into());
         }
         if segments.iter().any(|s| s.contains('[') || s.contains(']')) {
-            return Err(DomainError::Field(format!(
-                "rule path '{trimmed}' uses array indexing, which is not supported \
-                 (object keys only)"
-            )));
+            return Err(JsonPathError::ArrayIndexing {
+                path: trimmed.to_owned(),
+            }
+            .into());
         }
         Ok(Self {
             segments,

@@ -1,4 +1,4 @@
-use crate::domain::common::errors::DomainError;
+use crate::domain::common::errors::{DomainError, ToolNameError};
 use crate::domain::common::values::ValueObject;
 
 /// The name of a tool an agent may invoke — the unit a [`ToolPolicy`] allows or
@@ -17,7 +17,7 @@ impl ToolName {
         let name = name.into();
         let normalized = name.trim();
         if normalized.is_empty() {
-            return Err(DomainError::Field("tool name must not be blank".into()));
+            return Err(ToolNameError::Blank.into());
         }
         Ok(Self(normalized.to_owned()))
     }

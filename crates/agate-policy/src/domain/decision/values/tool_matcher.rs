@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use regex::Regex;
 
-use crate::domain::common::errors::DomainError;
+use crate::domain::common::errors::{DomainError, ToolMatcherError};
 use crate::domain::common::values::ValueObject;
 
 /// Matches a tool name in an allow/deny list. Unlike [`Pattern`] (a
@@ -49,7 +49,7 @@ impl ToolMatcher {
         let name = name.into();
         let normalized = name.trim();
         if normalized.is_empty() {
-            return Err(DomainError::Field("tool name must not be blank".into()));
+            return Err(ToolMatcherError::BlankExact.into());
         }
         Ok(Self(Kind::Exact(normalized.to_owned())))
     }
@@ -59,13 +59,12 @@ impl ToolMatcher {
     pub fn glob(source: impl Into<String>) -> Result<Self, DomainError> {
         let source = source.into();
         if source.trim().is_empty() {
-            return Err(DomainError::Field("tool glob must not be blank".into()));
+            return Err(ToolMatcherError::BlankGlob.into());
         }
         // glob → anchored regex can only produce valid syntax, so this compile
         // never fails; surface it as a field error rather than panic if it ever
         // does.
-        let regex = Regex::new(&glob_to_regex(&source))
-            .map_err(|error| DomainError::Field(format!("invalid tool glob: {error}")))?;
+        let regex = Regex::new(&glob_to_regex(&source)).map_err(ToolMatcherError::InvalidGlob)?;
         Ok(Self(Kind::Glob {
             source,
             regex: Box::new(regex),
@@ -76,11 +75,10 @@ impl ToolMatcher {
     pub fn regex(source: impl Into<String>) -> Result<Self, DomainError> {
         let source = source.into();
         if source.trim().is_empty() {
-            return Err(DomainError::Field("tool regex must not be blank".into()));
+            return Err(ToolMatcherError::BlankRegex.into());
         }
         let anchored = format!("^(?:{source})$");
-        let regex = Regex::new(&anchored)
-            .map_err(|error| DomainError::Field(format!("invalid tool regex: {error}")))?;
+        let regex = Regex::new(&anchored).map_err(ToolMatcherError::InvalidRegex)?;
         Ok(Self(Kind::Regex {
             source,
             regex: Box::new(regex),

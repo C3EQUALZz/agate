@@ -140,8 +140,8 @@ impl AppConfig {
     }
 
     /// Build the policy ruleset, failing on any invalid tool name or pattern.
-    pub fn policy_ruleset(&self) -> Result<PolicyRuleset, DomainError> {
-        let matchers = || tool_matchers(&self.policy.tools.names);
+    pub fn policy_ruleset(&self) -> Result<PolicyRuleset, String> {
+        let matchers = || tool_matchers(&self.policy.tools.names).map_err(|e| e.to_string());
         let tools = match self.policy.tools.mode {
             ToolMode::AllowAll => ToolPolicy::AllowAll,
             ToolMode::Allowlist => ToolPolicy::Allowlist(matchers()?),
@@ -168,9 +168,10 @@ impl AppConfig {
             .redact
             .iter()
             .map(Pattern::literal)
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
         for source in &self.policy.redact_regex {
-            secrets.push(Pattern::regex(source)?);
+            secrets.push(Pattern::regex(source).map_err(|e| e.to_string())?);
         }
         Ok(PolicyRuleset::new(tools, argument_rules, secrets).with_result_rules(result_rules))
     }
