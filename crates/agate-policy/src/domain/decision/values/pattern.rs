@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use regex::Regex;
 
-use crate::domain::common::errors::DomainError;
+use crate::domain::common::errors::{DomainError, PatternError};
 use crate::domain::common::values::ValueObject;
 
 /// The placeholder substituted for each matched occurrence when masking.
@@ -33,7 +33,7 @@ impl Pattern {
     pub fn literal(needle: impl Into<String>) -> Result<Self, DomainError> {
         let needle = needle.into();
         if needle.trim().is_empty() {
-            return Err(DomainError::Field("pattern must not be blank".into()));
+            return Err(PatternError::Blank.into());
         }
         Ok(Self(Kind::Literal(needle)))
     }
@@ -42,10 +42,9 @@ impl Pattern {
     pub fn regex(source: impl Into<String>) -> Result<Self, DomainError> {
         let source = source.into();
         if source.trim().is_empty() {
-            return Err(DomainError::Field("pattern regex must not be blank".into()));
+            return Err(PatternError::BlankRegex.into());
         }
-        let compiled = Regex::new(&source)
-            .map_err(|error| DomainError::Field(format!("invalid pattern regex: {error}")))?;
+        let compiled = Regex::new(&source).map_err(PatternError::InvalidRegex)?;
         Ok(Self(Kind::Regex(Box::new(compiled))))
     }
 
@@ -150,6 +149,18 @@ mod tests {
     fn a_blank_or_invalid_regex_is_rejected() {
         assert!(Pattern::regex("   ").is_err());
         assert!(Pattern::regex("(unclosed").is_err());
+    }
+
+    #[test]
+    fn an_invalid_regex_error_chains_to_its_source() {
+        use std::error::Error;
+        let error = Pattern::regex("(unclosed").expect_err("invalid regex rejected");
+        // DomainError -> PatternError -> regex::Error
+        let pattern_error = error.source().expect("a typed sub-error");
+        assert!(
+            pattern_error.source().is_some(),
+            "chains to the regex error"
+        );
     }
 
     #[test]
