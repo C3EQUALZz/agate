@@ -112,6 +112,25 @@ pub async fn spawn_with_policy(policy: Arc<dyn PolicyPort>, sse_body: &'static s
 /// the entry point for tests that need a non-default proxy config (e.g. session
 /// memory enabled, pointing at a multi-response stub agent).
 pub async fn spawn_core(policy: Arc<dyn PolicyPort>, proxy: ProxyConfig) -> TestServer {
+    spawn_core_with_outbox(
+        policy,
+        proxy,
+        OutboxSettings {
+            capacity: 1024,
+            on_full: FullPolicy::Block,
+        },
+    )
+    .await
+}
+
+/// Like [`spawn_core`] but with an explicit [`OutboxSettings`] — for lifecycle
+/// tests that exercise the audit write path under backpressure (a tiny capacity
+/// with [`FullPolicy::Shed`], so the outbox sheds rather than blocking the proxy).
+pub async fn spawn_core_with_outbox(
+    policy: Arc<dyn PolicyPort>,
+    proxy: ProxyConfig,
+    outbox: OutboxSettings,
+) -> TestServer {
     let container = Postgres::default()
         .with_tag(POSTGRES_IMAGE_TAG)
         .start()
@@ -145,10 +164,7 @@ pub async fn spawn_core(policy: Arc<dyn PolicyPort>, proxy: ProxyConfig) -> Test
             fail_mode: FailMode::Closed,
             decision_timeout: Duration::from_secs(5),
             checkpoint: None,
-            outbox: OutboxSettings {
-                capacity: 1024,
-                on_full: FullPolicy::Block,
-            },
+            outbox,
         },
         &supervisor,
     );
