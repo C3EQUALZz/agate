@@ -56,6 +56,26 @@ Every shipped control was exercised end-to-end (client → agate → agent → L
 - **Audit** — every inspected event and verdict is appended to the
   transparency log (verified in Postgres).
 
+## Plugin policy engines (CEL & Rego) validated live
+
+The static ruleset above was later joined by two config-selected plugin engines
+(`[policy].backend = "cel"` / `"rego"`). Both were exercised against the same
+live Mistral-backed agent, proving the engine — not just its unit tests —
+enforces end to end:
+
+- **CEL** (`cel` 0.13). *Request leg:* a user message containing `sk-` matched a
+  `redact` rule, so the run was rejected before forwarding. *Response leg:* asked
+  to emit an OpenAI-style key, the model's generated `sk-…` was masked to
+  `[REDACTED-BY-CEL]` in the client stream — the secret never reached the client.
+- **Rego** (OPA, via `regorus`). The same response-leg prompt: the model's
+  generated `sk-…` was masked to `[REDACTED-BY-REGO]` by the
+  `data.agate.policy.decision` rule.
+
+Both runs' events were appended to the transparency log (verified in Postgres),
+so a plugin engine's verdict is enforced on the wire *and* recorded. The two
+engines share the same event projection and decision→verdict lift as the static
+adapter, so the redaction invariants cannot drift between backends.
+
 ## Reproducing the run
 
 The agent and the proxy are configured independently.
