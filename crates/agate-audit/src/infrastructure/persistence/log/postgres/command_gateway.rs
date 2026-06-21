@@ -142,19 +142,21 @@ impl LogCommandGateway for PostgresLogCommandGateway {
         .map_err(storage_error)?;
 
         // Hash the leaf exactly as the aggregate would, then insert just it —
-        // O(1), no load/rewrite of the existing leaves.
+        // O(1), no load/rewrite of the existing leaves. A plain INSERT on
+        // purpose: the (log_id, leaf_index) unique constraint must REJECT a
+        // duplicate index, not swallow it. Under single-writer append-only this
+        // never conflicts; if it ever did (a second writer, a replay) the
+        // constraint surfaces it as a loud storage error rather than reporting a
+        // lost leaf as success. (`save` uses ON CONFLICT DO NOTHING because it
+        // re-inserts the whole leaf set idempotently; an append must not.)
         let leaf = self.factory.merkle_hasher().leaf(record);
-        sqlx::query(
-            "INSERT INTO audit_leaf (log_id, leaf_index, leaf_hash)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (log_id, leaf_index) DO NOTHING",
-        )
-        .bind(id.0)
-        .bind(next)
-        .bind(leaf.bytes.as_slice())
-        .execute(&mut **connection)
-        .await
-        .map_err(storage_error)?;
+        sqlx::query("INSERT INTO audit_leaf (log_id, leaf_index, leaf_hash) VALUES ($1, $2, $3)")
+            .bind(id.0)
+            .bind(next)
+            .bind(leaf.bytes.as_slice())
+            .execute(&mut **connection)
+            .await
+            .map_err(storage_error)?;
 
         Ok(Some(LeafIndex(next as u64)))
     }

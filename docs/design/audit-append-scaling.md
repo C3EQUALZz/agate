@@ -59,8 +59,11 @@ A new `append_record` on the `LogCommandGateway` port does exactly that, in `O(1
 - `SELECT COALESCE(MAX(leaf_index) + 1, 0)` for the next index. The log is
   **append-only and single-writer** (the audit outbox drains serially), so this
   read-then-insert is race-free.
-- Hash the leaf with the same `MerkleHasher` the aggregate uses, then
-  `INSERT … ON CONFLICT DO NOTHING` that one row.
+- Hash the leaf with the same `MerkleHasher` the aggregate uses, then a plain
+  `INSERT` of that one row. Plain on purpose: the `(log_id, leaf_index)` unique
+  constraint must *reject* a duplicate index loudly, not swallow it — under
+  single-writer append-only it never conflicts, and if it ever did (a second
+  writer, a replay) we want a storage error, not a lost leaf reported as success.
 
 `AppendRecordHandler` now calls `append_record` instead of load → `append` → save.
 The aggregate, the Merkle domain, the `audit_leaf` schema, and the read/proof paths
