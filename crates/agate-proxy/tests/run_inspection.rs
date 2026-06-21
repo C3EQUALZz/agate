@@ -97,6 +97,150 @@ fn assembles_a_tool_call_from_its_fragments() {
 }
 
 #[test]
+fn rejects_a_duplicate_run_started() {
+    let mut run = started_run();
+    assert!(matches!(
+        run.inspect(Fragment::Lifecycle(LifecyclePhase::RunStarted)),
+        StructuralOutcome::Reject(_)
+    ));
+}
+
+#[test]
+fn rejects_a_run_end_before_the_run_starts() {
+    assert!(matches!(
+        run().inspect(Fragment::Lifecycle(LifecyclePhase::RunFinished)),
+        StructuralOutcome::Reject(_)
+    ));
+    assert!(matches!(
+        run().inspect(Fragment::Lifecycle(LifecyclePhase::RunError)),
+        StructuralOutcome::Reject(_)
+    ));
+}
+
+#[test]
+fn rejects_a_second_run_end_after_finishing() {
+    let mut run = started_run();
+    assert!(matches!(
+        run.inspect(Fragment::Lifecycle(LifecyclePhase::RunFinished)),
+        StructuralOutcome::Ready(_)
+    ));
+    assert!(matches!(
+        run.inspect(Fragment::Lifecycle(LifecyclePhase::RunFinished)),
+        StructuralOutcome::Reject(_)
+    ));
+}
+
+#[test]
+fn rejects_a_step_outside_an_active_run() {
+    assert!(matches!(
+        run().inspect(Fragment::Lifecycle(LifecyclePhase::StepStarted(
+            "build".to_string()
+        ))),
+        StructuralOutcome::Reject(_)
+    ));
+    assert!(matches!(
+        run().inspect(Fragment::Lifecycle(LifecyclePhase::StepFinished(
+            "build".to_string()
+        ))),
+        StructuralOutcome::Reject(_)
+    ));
+}
+
+#[test]
+fn rejects_a_duplicate_tool_call_start() {
+    let mut run = started_run();
+    assert_eq!(
+        run.inspect(Fragment::ToolCallStarted {
+            id: tool("t1"),
+            name: "search".to_string(),
+        }),
+        StructuralOutcome::Buffering(tool("t1"))
+    );
+    assert!(matches!(
+        run.inspect(Fragment::ToolCallStarted {
+            id: tool("t1"),
+            name: "exfiltrate".to_string(),
+        }),
+        StructuralOutcome::Reject(_)
+    ));
+}
+
+#[test]
+fn rejects_too_many_concurrent_tool_calls() {
+    // Budgets::new(max_tool_args_bytes, max_state_bytes, max_open_tool_calls).
+    let mut run = Run::new(RunId::new(Uuid::nil()), Budgets::new(1024, 1024, 2));
+    run.inspect(Fragment::Lifecycle(LifecyclePhase::RunStarted));
+    for id in ["t1", "t2"] {
+        assert_eq!(
+            run.inspect(Fragment::ToolCallStarted {
+                id: tool(id),
+                name: "x".to_string(),
+            }),
+            StructuralOutcome::Buffering(tool(id))
+        );
+    }
+    assert!(matches!(
+        run.inspect(Fragment::ToolCallStarted {
+            id: tool("t3"),
+            name: "x".to_string(),
+        }),
+        StructuralOutcome::Reject(_)
+    ));
+}
+
+#[test]
+fn rejects_a_tool_call_end_for_an_unknown_id() {
+    let mut run = started_run();
+    assert!(matches!(
+        run.inspect(Fragment::ToolCallEnded { id: tool("ghost") }),
+        StructuralOutcome::Reject(_)
+    ));
+    run.inspect(Fragment::ToolCallStarted {
+        id: tool("t1"),
+        name: "search".to_string(),
+    });
+    assert!(matches!(
+        run.inspect(Fragment::ToolCallEnded { id: tool("t1") }),
+        StructuralOutcome::ResolvedCall { .. }
+    ));
+    assert!(matches!(
+        run.inspect(Fragment::ToolCallEnded { id: tool("t1") }),
+        StructuralOutcome::Reject(_)
+    ));
+}
+
+#[test]
+fn a_tool_result_is_attributed_once_then_unattributed_on_repeat() {
+    let mut run = started_run();
+    run.inspect(Fragment::ToolCallStarted {
+        id: tool("t1"),
+        name: "fetch".to_string(),
+    });
+    run.inspect(Fragment::ToolCallEnded { id: tool("t1") });
+
+    let first = run.inspect(Fragment::ToolResult {
+        id: tool("t1"),
+        content: "ok".to_string(),
+    });
+    let StructuralOutcome::Ready(AgentEvent::ToolResult { name, .. }) = first else {
+        panic!("expected a ready tool result, got {first:?}");
+    };
+    assert_eq!(name, Some("fetch".to_string()));
+
+    let second = run.inspect(Fragment::ToolResult {
+        id: tool("t1"),
+        content: "again".to_string(),
+    });
+    let StructuralOutcome::Ready(AgentEvent::ToolResult { name, .. }) = second else {
+        panic!("expected a ready tool result, got {second:?}");
+    };
+    assert_eq!(
+        name, None,
+        "a replayed result must not re-attribute the name"
+    );
+}
+
+#[test]
 fn rejects_content_before_the_run_starts() {
     let mut run = run();
     let outcome = run.inspect(Fragment::Opaque(OpaqueKind::Custom));
