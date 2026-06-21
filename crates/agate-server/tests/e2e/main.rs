@@ -11,6 +11,9 @@ mod controls;
 mod engines;
 mod fixture;
 mod policy;
+#[cfg(feature = "policy-cel")]
+mod reload;
+mod saturation;
 mod server;
 mod session_memory;
 mod shutdown;
