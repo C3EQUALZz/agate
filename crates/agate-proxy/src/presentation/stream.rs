@@ -97,7 +97,26 @@ pub fn inspect_stream(
                 }
             };
 
-            for event in decoder.push(&chunk) {
+            let events = decoder.push(&chunk);
+
+            // Fail closed if a single not-yet-complete event has buffered past
+            // the frame limit. The response budget below only charges *decoded*
+            // events, so an upstream streaming a never-terminated frame would
+            // grow the decoder's buffer without bound and never trip it; this
+            // catches that before the next chunk is read.
+            if settings.max_frame_bytes != 0 && decoder.pending_len() > settings.max_frame_bytes {
+                warn!(
+                    run = %context.run,
+                    limit = settings.max_frame_bytes,
+                    "terminating run: an SSE frame exceeded the byte limit before terminating",
+                );
+                metrics.record_inspected(InspectionOutcome::Terminate);
+                holds.clear();
+                yield Bytes::from(run_error("response frame exceeded the size limit"));
+                return;
+            }
+
+            for event in events {
                 // Count what the upstream sent and fail closed if the run's
                 // response budget is crossed (DoS guard against unbounded output).
                 seen_events += 1;
@@ -819,6 +838,33 @@ mod tests {
         assert!(
             !out.contains("RUN_FINISHED"),
             "the stream ends before the run completes: {out}"
+        );
+    }
+
+    /// A single SSE frame that streams past `max_frame_bytes` before it
+    /// terminates is cut off with a `RUN_ERROR`. The per-event response budget
+    /// cannot catch this — the event never completes, so it is never charged —
+    /// which is the unbounded-buffer path this limit closes.
+    #[tokio::test]
+    async fn an_oversized_unterminated_frame_is_terminated() {
+        let stream = inspect_stream(
+            // A `data:` line far longer than the 16-byte limit that never sends
+            // its blank-line terminator, so the decoder buffers it without ever
+            // emitting an event.
+            upstream(&["data: this frame is far longer than sixteen bytes and never terminates"]),
+            inspector(Arc::new(AllowAllPolicy)),
+            context(),
+            InspectionSettings {
+                max_frame_bytes: 16,
+                ..InspectionSettings::default()
+            },
+            metrics(),
+        );
+
+        let out = collect(stream).await;
+        assert!(
+            out.contains("RUN_ERROR"),
+            "an oversized unterminated frame terminates: {out}"
         );
     }
 }

@@ -28,6 +28,12 @@ max_concurrent_requests = 256
 # limit. Defaults are generous (catch runaways, not legitimate long runs).
 max_response_events = 100000
 max_response_bytes = 67108864
+# Maximum bytes buffered for a single not-yet-complete SSE event. Charged while a
+# frame is still arriving, so an upstream streaming a frame that never terminates
+# cannot grow memory without bound (the per-run budget above only counts complete
+# events). Crossing it cuts the run off with a RUN_ERROR. Must be > 0; a
+# well-formed AG-UI event is a few KiB, so the 1 MiB default is generous.
+max_frame_bytes = 1048576
 # Per-client-IP request-rate limit on the proxied route. A single source IP over
 # `rate_limit_per_second` (sustained) / `rate_limit_burst` (instantaneous) is
 # shed with 429 Too Many Requests + a Retry-After hint. 0 = disabled (the

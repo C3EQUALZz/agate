@@ -72,6 +72,7 @@ impl AppConfig {
                 max_events: self.proxy.max_response_events,
                 max_bytes: self.proxy.max_response_bytes,
             })
+            .with_max_frame_bytes(self.proxy.max_frame_bytes)
             .with_rate_limit(
                 self.proxy.rate_limit_per_second,
                 self.proxy.rate_limit_burst,

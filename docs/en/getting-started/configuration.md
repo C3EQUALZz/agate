@@ -39,6 +39,7 @@ aborts startup — fail fast on misconfiguration rather than running degraded.
 | `max_body_bytes` | no | `1048576` | Maximum accepted request body size (1 MiB). Oversized requests get `413`. |
 | `max_concurrent_requests` | no | `256` | Maximum concurrently in-flight proxied runs. Each holds an upstream connection for its full stream; requests over the cap are shed with `503` (not queued), so a flood cannot exhaust memory/connections. |
 | `max_response_events` | no | `100000` | Per-run cap on response events streamed to the client. A runaway/hostile agent over this is cut off with a `RUN_ERROR`. `0` = unlimited. |
+| `max_frame_bytes` | no | `1048576` | Maximum bytes buffered for a single not-yet-complete SSE event. Charged while a frame is still arriving (the per-run caps above only count complete events), so an upstream streaming a frame that never terminates cannot grow memory without bound. Crossing it ends the run with a `RUN_ERROR`. Must be > 0 — `0` would restore the unbounded behaviour. A well-formed AG-UI event is a few KiB. |
 | `max_response_bytes` | no | `67108864` | Per-run cap on response bytes streamed to the client (64 MiB). `0` = unlimited. |
 | `rate_limit_per_second` | no | `0` | Sustained per-client-IP request rate. A source IP over budget is shed with `429 Too Many Requests` + a `Retry-After` hint. **`0` = disabled (the default).** The IP is the **connection peer**, so enable this only where Agate sees the real client. **Behind a reverse proxy (nginx) or load balancer, every request shares the proxy's IP** — the limit would then throttle *all* clients as one and start rejecting legitimate traffic, so leave it `0` there and rate-limit at the proxy instead. |
 | `rate_limit_burst` | no | `0` | Burst depth for the per-IP limit — the largest instantaneous burst before the sustained rate applies. `0` falls back to `rate_limit_per_second`. |
@@ -357,6 +358,7 @@ max_body_bytes = 1048576
 max_concurrent_requests = 256
 max_response_events = 100000
 max_response_bytes = 67108864
+max_frame_bytes = 1048576        # max bytes for one not-yet-complete SSE event
 rate_limit_per_second = 0        # per-client-IP request cap; 0 = disabled
 rate_limit_burst = 0             # burst depth; 0 falls back to the rate
 # api_key = "change-me"          # single key; prefer AGATE__PROXY__API_KEY

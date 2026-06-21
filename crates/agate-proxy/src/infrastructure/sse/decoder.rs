@@ -25,6 +25,18 @@ impl SseDecoder {
         Self::default()
     }
 
+    /// Bytes currently buffered for an event that has not yet completed: the
+    /// un-newlined tail (`buffer`) plus the raw of the in-progress event
+    /// (`raw`). Both are emptied when an event's terminating blank line arrives,
+    /// so this stays near zero for well-formed streams and grows only while an
+    /// event is mid-flight. The caller caps it: a never-terminated frame would
+    /// otherwise accumulate without bound, because the per-event response budget
+    /// is only charged once a *complete* event is decoded.
+    #[must_use]
+    pub fn pending_len(&self) -> usize {
+        self.buffer.len() + self.raw.len()
+    }
+
     /// Feed a chunk; return the events that became complete.
     pub fn push(&mut self, chunk: &[u8]) -> Vec<SseEvent> {
         self.buffer.extend_from_slice(chunk);
@@ -159,6 +171,22 @@ mod tests {
         let events = decoder.push(b"data: real\n\n");
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].data, "real");
+    }
+
+    #[test]
+    fn pending_len_grows_on_an_unterminated_frame_and_resets_when_complete() {
+        let mut decoder = SseDecoder::new();
+        assert_eq!(decoder.pending_len(), 0);
+
+        // Bytes with no newline accumulate: this is the unbounded-growth path
+        // the per-event budget cannot see, so the caller bounds pending_len.
+        decoder.push(b"data: an unterminated frame with no newline");
+        assert!(decoder.pending_len() >= 40);
+
+        // Completing the event drains both buffers back to zero.
+        let events = decoder.push(b"\n\n");
+        assert_eq!(events.len(), 1);
+        assert_eq!(decoder.pending_len(), 0);
     }
 
     #[test]
