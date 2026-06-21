@@ -26,6 +26,9 @@ max_concurrent_requests = 256
 # Per-run response budget: cut a runaway agent off with a RUN_ERROR once it
 # streams more than this many response events or bytes to the client. 0 = no
 # limit. Defaults are generous (catch runaways, not legitimate long runs).
+# These are streamed counters, not buffers: 0 disables the client-flood
+# (availability) guard, not a memory bound — per-run memory stays bounded by
+# max_frame_bytes (below) and the tool-call budgets regardless.
 max_response_events = 100000
 max_response_bytes = 67108864
 # Maximum bytes buffered for a single not-yet-complete SSE event. Charged while a

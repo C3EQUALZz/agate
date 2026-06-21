@@ -25,10 +25,16 @@ pub struct ProxySection {
     /// Maximum concurrently in-flight proxied runs; excess is shed with `503`.
     pub max_concurrent_requests: usize,
     /// Per-run ceiling on response events streamed to the client (`0` =
-    /// unlimited). A runaway agent over this is cut off with a `RUN_ERROR`.
+    /// unlimited). A runaway agent over this is cut off with a `RUN_ERROR`. This
+    /// is a running counter, not a buffer: `0` removes the client-flood
+    /// (availability) guard, not a memory bound — per-run memory stays bounded by
+    /// [`max_frame_bytes`](Self::max_frame_bytes) and the tool-call budgets.
     pub max_response_events: usize,
     /// Per-run ceiling on response bytes streamed to the client (`0` =
-    /// unlimited).
+    /// unlimited). Like [`max_response_events`](Self::max_response_events) this is
+    /// a streamed counter, not a buffer the proxy fills: `0` disables the
+    /// runaway-output guard (an availability trade-off), it does not let the proxy
+    /// grow memory — that is bounded by [`max_frame_bytes`](Self::max_frame_bytes).
     pub max_response_bytes: usize,
     /// Maximum bytes buffered for a single not-yet-complete SSE event. Unlike the
     /// per-run ceilings above, this is charged *while* a frame is still being
