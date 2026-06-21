@@ -7,7 +7,7 @@ use crate::application::common::ports::LogCommandGateway;
 use crate::application::errors::AuditError;
 use crate::domain::common::entities::Entity;
 use crate::domain::common::values::{Timestamp, Timestamps};
-use crate::domain::merkle::{LogId, TransparencyLog, TransparencyLogFactory};
+use crate::domain::merkle::{LeafIndex, LogId, TransparencyLog, TransparencyLogFactory};
 use crate::infrastructure::persistence::postgres::{SharedTransaction, storage_error};
 
 /// Write-side gateway backed by PostgreSQL (append-only). Runs every statement
@@ -108,5 +108,54 @@ impl LogCommandGateway for PostgresLogCommandGateway {
         }
 
         Ok(())
+    }
+
+    #[instrument(name = "db.log.append", skip_all, fields(log = %id.0))]
+    async fn append_record(
+        &self,
+        id: LogId,
+        record: &[u8],
+    ) -> Result<Option<LeafIndex>, AuditError> {
+        let mut slot = self.transaction.lock().await;
+        let connection = slot.as_mut().ok_or_else(|| {
+            AuditError::Storage("append without an active transaction".to_string())
+        })?;
+
+        // The log must exist; absent → `None` (the handler maps it to LogNotFound).
+        let exists = sqlx::query_scalar::<_, i32>("SELECT 1 FROM audit_log WHERE id = $1")
+            .bind(id.0)
+            .fetch_optional(&mut **connection)
+            .await
+            .map_err(storage_error)?;
+        if exists.is_none() {
+            return Ok(None);
+        }
+
+        // Next index = current size. Append-only + single-writer (the audit
+        // outbox), so this read-then-insert is race-free.
+        let next: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(leaf_index) + 1, 0) FROM audit_leaf WHERE log_id = $1",
+        )
+        .bind(id.0)
+        .fetch_one(&mut **connection)
+        .await
+        .map_err(storage_error)?;
+
+        // Hash the leaf exactly as the aggregate would, then insert just it —
+        // O(1), no load/rewrite of the existing leaves.
+        let leaf = self.factory.merkle_hasher().leaf(record);
+        sqlx::query(
+            "INSERT INTO audit_leaf (log_id, leaf_index, leaf_hash)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (log_id, leaf_index) DO NOTHING",
+        )
+        .bind(id.0)
+        .bind(next)
+        .bind(leaf.bytes.as_slice())
+        .execute(&mut **connection)
+        .await
+        .map_err(storage_error)?;
+
+        Ok(Some(LeafIndex(next as u64)))
     }
 }

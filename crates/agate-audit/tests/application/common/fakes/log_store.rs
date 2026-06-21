@@ -71,6 +71,20 @@ impl LogCommandGateway for InMemoryLogStore {
             .insert(*log.id(), log.leaf_hashes().to_vec());
         Ok(())
     }
+
+    async fn append_record(
+        &self,
+        id: LogId,
+        record: &[u8],
+    ) -> Result<Option<LeafIndex>, AuditError> {
+        let mut guard = self.leaves.lock().unwrap();
+        let Some(leaves) = guard.get_mut(&id) else {
+            return Ok(None);
+        };
+        let index = LeafIndex(leaves.len() as u64);
+        leaves.push(self.hasher.leaf(record));
+        Ok(Some(index))
+    }
 }
 
 #[async_trait]
