@@ -10,7 +10,8 @@ use agate_policy::domain::decision::{
 
 use crate::fixture::{self, spawn};
 
-/// Drive `sse` behind `ruleset`, returning the streamed client body.
+/// Drive `sse` behind `ruleset`, returning the booted server and the streamed
+/// client body.
 async fn drive(ruleset: PolicyRuleset, sse: &'static str) -> (fixture::TestServer, String) {
     let app = spawn(ruleset, sse).await;
     let body = fixture::client()
@@ -23,6 +24,38 @@ async fn drive(ruleset: PolicyRuleset, sse: &'static str) -> (fixture::TestServe
         .await
         .expect("read streamed body");
     (app, body)
+}
+
+/// Assert the offending event was *denied*, not merely masked: the run's
+/// lifecycle is forwarded, neither `marker` (the forbidden content) nor
+/// `frame_type` (the AG-UI event type, so the whole frame was dropped — not
+/// forwarded with masked content) reaches the client, and the denial is recorded
+/// at leaf `index`.
+async fn assert_frame_denied(
+    app: &fixture::TestServer,
+    body: &str,
+    marker: &str,
+    frame_type: &str,
+    index: u64,
+) {
+    assert!(
+        body.contains("RUN_STARTED") && body.contains("RUN_FINISHED"),
+        "lifecycle forwarded: {body}"
+    );
+    assert!(
+        !body.contains(marker),
+        "denied content `{marker}` leaked: {body}"
+    );
+    assert!(
+        !body.contains(frame_type),
+        "denied `{frame_type}` frame leaked: {body}"
+    );
+    let container = fixture::audit_container(app.pool.clone());
+    let registry = fixture::audit_registry();
+    assert!(
+        fixture::poll_inclusion(&container, &registry, app.log, LeafIndex(index)).await,
+        "the denial was recorded (start + deny + finish)"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -45,21 +78,7 @@ async fn argument_rule_denies_a_tool_call_through_the_proxy() {
         "data: {\"type\":\"RUN_FINISHED\"}\n\n",
     );
     let (app, body) = drive(ruleset, sse).await;
-
-    assert!(
-        body.contains("RUN_STARTED") && body.contains("RUN_FINISHED"),
-        "lifecycle forwarded: {body}"
-    );
-    assert!(
-        !body.contains("TOOL_CALL"),
-        "the denied tool-call frames leaked: {body}"
-    );
-    let container = fixture::audit_container(app.pool.clone());
-    let registry = fixture::audit_registry();
-    assert!(
-        fixture::poll_inclusion(&container, &registry, app.log, LeafIndex(2)).await,
-        "the denied tool call was recorded (start + deny + finish)"
-    );
+    assert_frame_denied(&app, &body, "danger", "TOOL_CALL", 2).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -75,21 +94,7 @@ async fn result_rule_denies_a_tool_result_through_the_proxy() {
         "data: {\"type\":\"RUN_FINISHED\"}\n\n",
     );
     let (app, body) = drive(ruleset, sse).await;
-
-    assert!(
-        body.contains("RUN_STARTED") && body.contains("RUN_FINISHED"),
-        "lifecycle forwarded: {body}"
-    );
-    assert!(
-        !body.contains("TOPSECRET"),
-        "the denied tool result leaked: {body}"
-    );
-    let container = fixture::audit_container(app.pool.clone());
-    let registry = fixture::audit_registry();
-    assert!(
-        fixture::poll_inclusion(&container, &registry, app.log, LeafIndex(2)).await,
-        "the denied tool result was recorded"
-    );
+    assert_frame_denied(&app, &body, "TOPSECRET", "TOOL_CALL_RESULT", 2).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -107,19 +112,5 @@ async fn a_secret_in_a_state_snapshot_is_denied_through_the_proxy() {
         "data: {\"type\":\"RUN_FINISHED\"}\n\n",
     );
     let (app, body) = drive(ruleset, sse).await;
-
-    assert!(
-        body.contains("RUN_STARTED") && body.contains("RUN_FINISHED"),
-        "lifecycle forwarded: {body}"
-    );
-    assert!(
-        !body.contains("sk-LEAK"),
-        "the secret-bearing state snapshot leaked: {body}"
-    );
-    let container = fixture::audit_container(app.pool.clone());
-    let registry = fixture::audit_registry();
-    assert!(
-        fixture::poll_inclusion(&container, &registry, app.log, LeafIndex(2)).await,
-        "the denied state snapshot was recorded"
-    );
+    assert_frame_denied(&app, &body, "sk-LEAK", "STATE_SNAPSHOT", 2).await;
 }
