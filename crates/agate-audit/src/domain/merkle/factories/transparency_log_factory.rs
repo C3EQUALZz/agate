@@ -21,6 +21,14 @@ impl TransparencyLogFactory {
         Self { hasher }
     }
 
+    /// The Merkle hasher this factory injects — so a write-side gateway can hash
+    /// a single appended leaf the same way the aggregate would, without
+    /// reconstituting the whole log.
+    #[must_use]
+    pub fn merkle_hasher(&self) -> MerkleHasher {
+        MerkleHasher::new(self.hasher.clone())
+    }
+
     pub fn create(&self, id: LogId, now: Timestamp) -> TransparencyLog {
         TransparencyLog::new(
             id,

@@ -1,7 +1,13 @@
 # Design: the audit append is O(n²) — bottleneck & fix
 
-> Status: **finding (accepted), fix proposed**. Found during a load/bottleneck
-> investigation of the audit write path — the system-wide throughput ceiling.
+> Status: **fixed.** Found during a load/bottleneck investigation of the audit
+> write path (the system-wide throughput ceiling); fixed by making the append a
+> single-leaf `INSERT`. The measurement below is now a perf regression guard
+> (`append_scaling.rs`, no longer ignored).
+>
+> **Result:** append latency went from ~10× growth at 500 leaves to **flat** —
+> first-50 vs last-50 average `6.9ms → 68.6ms` (before) became `1.7ms → 0.9ms`
+> (after, at 300 leaves; ~0.5×). Append is now O(1) in the log's size.
 
 ## The bottleneck
 
@@ -39,43 +45,51 @@ and the save touch *every* leaf:
 
 So append #k costs `O(k)` on both legs → `O(n²)` for `n` appends.
 
-## The fix (incremental / frontier Merkle)
+## The fix (direct single-leaf append)
 
-An append-only (RFC 6962-style) Merkle log never needs all leaves in memory to
-append: it needs only the **frontier** — the `O(log n)` right-edge subtree hashes
-— plus the tree size. The leaves already live durably in `audit_leaf`; the
-aggregate should stop hoarding them.
+The investigation surfaced the decisive fact: **`append` never computes the root.**
+The aggregate's `append()` only assigns an index and pushes one leaf hash; the root
+(and proofs) are recomputed on demand by the checkpoint/query paths. So the hot
+write path needs neither all the leaves nor a frontier — it needs only to assign
+the next index and persist one new leaf.
 
-- **Write path** — `load` reconstitutes from the **frontier + size** (`O(log n)`),
-  not all leaves; `append` folds one leaf into the frontier; `save` inserts only
-  the **new** leaf (and persists the updated frontier/head). Append becomes
-  `O(log n)`, flat in `n`.
-- **Read path** — inclusion/consistency proofs read the specific leaves/nodes they
-  need from `audit_leaf` on demand (the query gateway already owns the read side),
-  rather than relying on a fully-materialised in-memory tree.
+A new `append_record` on the `LogCommandGateway` port does exactly that, in `O(1)`:
 
-This separates the cheap, hot write path from the occasional proof reads, and is
-the change that turns the measurement above flat (the harness becomes a perf
-regression guard: assert `last ≈ first`).
+- `SELECT 1 FROM audit_log` to confirm the log exists (else `None` → `LogNotFound`).
+- `SELECT COALESCE(MAX(leaf_index) + 1, 0)` for the next index. The log is
+  **append-only and single-writer** (the audit outbox drains serially), so this
+  read-then-insert is race-free.
+- Hash the leaf with the same `MerkleHasher` the aggregate uses, then a plain
+  `INSERT` of that one row. Plain on purpose: the `(log_id, leaf_index)` unique
+  constraint must *reject* a duplicate index loudly, not swallow it — under
+  single-writer append-only it never conflicts, and if it ever did (a second
+  writer, a replay) we want a storage error, not a lost leaf reported as success.
 
-### Scope
+`AppendRecordHandler` now calls `append_record` instead of load → `append` → save.
+The aggregate, the Merkle domain, the `audit_leaf` schema, and the read/proof paths
+are all unchanged — proofs and checkpoints still recompute the root from the stored
+leaves, which are byte-identical to before. Both `O(n)` legs (load-all, re-insert-all)
+are gone.
 
-A focused but real refactor of the `TransparencyLog` aggregate (frontier state
-instead of `Vec<leaf>`), the Merkle domain (incremental root from a frontier), and
-the command gateway (`load` frontier, `save` one leaf). The on-DB schema
-(`audit_leaf`) is unchanged; proofs move to reading leaves on demand. Behind the
-existing `LogCommandGateway` / `MerkleProofs` ports, so the proxy and the audit
-use cases are untouched.
+This is simpler and safer than the frontier refactor first sketched here: no aggregate
+state change, no incremental-root code, nothing for proofs to depend on. The frontier
+would have been necessary only if append had to produce a root cheaply — it doesn't.
 
-## Interim mitigations (smaller, partial)
+### Verification
 
-If the full refactor is deferred, two independent partial wins:
+`append_scaling.rs` (no longer `#[ignore]`) is now a regression guard: it appends
+300 records and asserts the last-50 average latency stays within `4×` of the
+first-50. Measured after the fix: `1.7ms → 0.9ms` (≈`0.5×`), versus the pre-fix
+`6.9ms → 68.6ms` (`10×`). The integration `dispatcher` test appends via this path
+then verifies an inclusion proof, confirming the leaf hashes/indices match what the
+aggregate produced.
 
-1. **Save only the new leaf** — the command gateway knows the append added one
-   leaf; inserting just it (not re-inserting all) removes the `save`-side `O(n²)`.
-   Halves the problem on its own.
-2. **Batch the insert** — a single multi-row `INSERT` instead of a per-leaf loop
-   removes the round-trip cost but not the `O(n)` work.
+## Alternatives considered (rejected)
 
-Neither removes the `load`-all-leaves `O(n²)`, so the frontier refactor is the
-real fix; these only buy headroom.
+- **Frontier / incremental Merkle** — carry the `O(log n)` right-edge in the
+  aggregate so `load`/`save` avoid all leaves. Real work (aggregate state change,
+  incremental-root code, proof reads on demand) for no gain over direct append,
+  since append never needs a root. Rejected.
+- **Save only the new leaf / batch the insert** — partial wins that remove the
+  `save`-side cost but not the `load`-all-leaves leg. Subsumed by the direct
+  append, which removes both legs.

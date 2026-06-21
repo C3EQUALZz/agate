@@ -22,13 +22,14 @@ impl AppendRecordHandler {
 #[async_trait]
 impl RequestHandler<AppendRecord> for AppendRecordHandler {
     async fn handle(&self, request: AppendRecord) -> Result<LeafIndex, AuditError> {
-        let mut log = self
+        // Append one leaf in place (O(1)) rather than load-all → append → save-all
+        // (O(n) per call → O(n²) over the log's life). The root and proofs are
+        // computed on demand from the stored leaves by the checkpoint/query paths.
+        let index = self
             .gateway
-            .load(request.log)
+            .append_record(request.log, &request.record)
             .await?
             .ok_or(AuditError::LogNotFound(request.log))?;
-        let index = log.append(&request.record);
-        self.gateway.save(&log).await?;
         debug!(log = %request.log.0, index = index.0, "appended record to transparency log");
         Ok(index)
     }
