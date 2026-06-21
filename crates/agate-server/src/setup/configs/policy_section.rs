@@ -1,6 +1,8 @@
 use agate_policy::domain::decision::{ArgumentRule, JsonPath, Pattern, ResultRule, ToolName};
 use serde::{Deserialize, Serialize};
 
+use super::error::ConfigError;
+
 /// `[policy]` — content/authorization rules.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -40,9 +42,11 @@ pub struct PolicySection {
 impl PolicySection {
     /// Fail fast on a zeroed decision deadline or, when session memory is on, a
     /// zeroed TTL.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConfigError> {
         if self.decision_timeout_ms == 0 {
-            return Err("policy.decision_timeout_ms must be greater than 0".into());
+            return Err(ConfigError::MustBePositive {
+                key: "policy.decision_timeout_ms",
+            });
         }
         if self.backend == PolicyBackendKind::Cel {
             // Reject `backend = "cel"` in a build without the engine here, at
@@ -50,11 +54,10 @@ impl PolicySection {
             // the engine is constructed.
             #[cfg(not(feature = "policy-cel"))]
             {
-                return Err(
-                    "policy.backend = \"cel\" requires building agate-server with the \
-                     `policy-cel` feature"
-                        .into(),
-                );
+                return Err(ConfigError::FeatureMissing {
+                    backend: "cel",
+                    feature: "policy-cel",
+                });
             }
             #[cfg(feature = "policy-cel")]
             if self
@@ -63,21 +66,25 @@ impl PolicySection {
                 .as_deref()
                 .is_none_or(|path| path.trim().is_empty())
             {
-                return Err("policy.cel.policy_path is required when backend = \"cel\"".into());
+                return Err(ConfigError::Required {
+                    key: "policy.cel.policy_path",
+                    hint: "when backend = \"cel\"",
+                });
             }
             #[cfg(feature = "policy-cel")]
             if self.cel.max_rules == 0 {
-                return Err("policy.cel.max_rules must be greater than 0".into());
+                return Err(ConfigError::MustBePositive {
+                    key: "policy.cel.max_rules",
+                });
             }
         }
         if self.backend == PolicyBackendKind::Rego {
             #[cfg(not(feature = "policy-rego"))]
             {
-                return Err(
-                    "policy.backend = \"rego\" requires building agate-server with the \
-                     `policy-rego` feature"
-                        .into(),
-                );
+                return Err(ConfigError::FeatureMissing {
+                    backend: "rego",
+                    feature: "policy-rego",
+                });
             }
             #[cfg(feature = "policy-rego")]
             if self
@@ -86,13 +93,16 @@ impl PolicySection {
                 .as_deref()
                 .is_none_or(|path| path.trim().is_empty())
             {
-                return Err("policy.rego.policy_path is required when backend = \"rego\"".into());
+                return Err(ConfigError::Required {
+                    key: "policy.rego.policy_path",
+                    hint: "when backend = \"rego\"",
+                });
             }
         }
         if self.session_memory.enabled && self.session_memory.ttl_secs == 0 {
-            return Err(
-                "policy.session_memory.ttl_secs must be greater than 0 when enabled".into(),
-            );
+            return Err(ConfigError::MustBePositive {
+                key: "policy.session_memory.ttl_secs",
+            });
         }
         if self.session_memory.enabled
             && self.session_memory.backend == SessionMemoryBackendKind::Redis
@@ -102,9 +112,10 @@ impl PolicySection {
                 .as_deref()
                 .is_none_or(|url| url.trim().is_empty())
         {
-            return Err(
-                "policy.session_memory.redis_url is required when backend = \"redis\"".into(),
-            );
+            return Err(ConfigError::Required {
+                key: "policy.session_memory.redis_url",
+                hint: "when backend = \"redis\"",
+            });
         }
         Ok(())
     }

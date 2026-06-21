@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::error::ConfigError;
+
 /// `[audit]` — the transparency-log store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -48,34 +50,41 @@ impl AuditSection {
     /// the configured backend: `database_url` and the pool knobs are Postgres
     /// requirements, not generic audit ones — a future backend validates its
     /// own variant here.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConfigError> {
         // A zero-capacity outbox would reject every record (or, unbounded, defeat
         // the backpressure that protects memory) — require a real bound.
         if self.outbox_capacity == 0 {
-            return Err("audit.outbox_capacity must be greater than 0".into());
+            return Err(ConfigError::MustBePositive {
+                key: "audit.outbox_capacity",
+            });
         }
         match self.backend {
             AuditBackend::Postgres => self.validate_postgres(),
         }
     }
 
-    fn validate_postgres(&self) -> Result<(), String> {
+    fn validate_postgres(&self) -> Result<(), ConfigError> {
         if self.database_url.trim().is_empty() {
-            return Err(
-                "audit.database_url is required (set [audit].database_url or \
-                 AGATE__AUDIT__DATABASE_URL)"
-                    .into(),
-            );
+            return Err(ConfigError::Required {
+                key: "audit.database_url",
+                hint: "(set [audit].database_url or AGATE__AUDIT__DATABASE_URL)",
+            });
         }
         if self.max_connections == 0 {
-            return Err("audit.max_connections must be greater than 0".into());
+            return Err(ConfigError::MustBePositive {
+                key: "audit.max_connections",
+            });
         }
         if self.acquire_timeout_secs == 0 {
-            return Err("audit.acquire_timeout_secs must be greater than 0".into());
+            return Err(ConfigError::MustBePositive {
+                key: "audit.acquire_timeout_secs",
+            });
         }
         // A zero backoff would busy-loop the connect retries; require a real pause.
         if self.connect_backoff_secs == 0 {
-            return Err("audit.connect_backoff_secs must be greater than 0".into());
+            return Err(ConfigError::MustBePositive {
+                key: "audit.connect_backoff_secs",
+            });
         }
         Ok(())
     }
