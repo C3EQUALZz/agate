@@ -79,6 +79,19 @@ pub async fn spawn(ruleset: PolicyRuleset, sse_body: &'static str) -> TestServer
 /// decision engine — so the CEL and Rego plugin backends are exercised through
 /// the live proxy → audit path, not just the static ruleset.
 pub async fn spawn_with_policy(policy: Arc<dyn PolicyPort>, sse_body: &'static str) -> TestServer {
+    let agent_endpoint = stub_agent(sse_body).await;
+    spawn_core(
+        policy,
+        ProxyConfig::new(agent_endpoint, "127.0.0.1:0".to_string()),
+    )
+    .await
+}
+
+/// Boot the database and the server wired to `policy` behind a fully-built
+/// `proxy` config — the shared core under [`spawn`] / [`spawn_with_policy`], and
+/// the entry point for tests that need a non-default proxy config (e.g. session
+/// memory enabled, pointing at a multi-response stub agent).
+pub async fn spawn_core(policy: Arc<dyn PolicyPort>, proxy: ProxyConfig) -> TestServer {
     let container = Postgres::default()
         .with_tag(POSTGRES_IMAGE_TAG)
         .start()
@@ -94,8 +107,6 @@ pub async fn spawn_with_policy(policy: Arc<dyn PolicyPort>, sse_body: &'static s
         .await
         .unwrap();
 
-    let agent_endpoint = stub_agent(sse_body).await;
-    let proxy = ProxyConfig::new(agent_endpoint, "127.0.0.1:0".to_string());
     // The outbox task is detached: it lives as long as the served app (and the
     // audit sink inside it) keeps the channel open.
     let storage = Storage::postgres(pool.clone());
@@ -141,6 +152,34 @@ async fn stub_agent(body: &'static str) -> String {
     let app = Router::new().route(
         "/run",
         post(move || async move { ([(CONTENT_TYPE, "text/event-stream")], body) }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    format!("http://{addr}/run")
+}
+
+/// Boot a stub AG-UI agent that answers each successive `POST /run` with the next
+/// body in `bodies`, clamping to the last once exhausted — for multi-run tests
+/// where the agent's response must differ across runs (e.g. session-memory
+/// replay: a denied tool in run 1, the same tool with clean arguments in run 2).
+pub async fn stub_agent_sequence(bodies: Vec<String>) -> String {
+    let bodies = Arc::new(bodies);
+    let next = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let app = Router::new().route(
+        "/run",
+        post(move || {
+            let bodies = Arc::clone(&bodies);
+            let next = Arc::clone(&next);
+            async move {
+                let index = next
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    .min(bodies.len() - 1);
+                ([(CONTENT_TYPE, "text/event-stream")], bodies[index].clone())
+            }
+        }),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
