@@ -166,7 +166,8 @@ fn build_cel_policy(config: &AppConfig, supervisor: &Supervisor) -> Arc<dyn Poli
         .as_deref()
         .expect("validate() requires policy.cel.policy_path when backend = cel");
     let adapter = Arc::new(
-        CelPolicyAdapter::load(path).unwrap_or_else(|error| panic!("invalid CEL policy: {error}")),
+        CelPolicyAdapter::load(path, config.policy.cel.max_rules)
+            .unwrap_or_else(|error| panic!("invalid CEL policy: {error}")),
     );
     let reloadable: Arc<dyn ReloadablePolicy> = adapter.clone();
     wire_policy_reload(reloadable, path, config.policy.cel.watch, supervisor);

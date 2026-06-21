@@ -31,8 +31,8 @@ const TOOL_CALL_SSE: &str = concat!(
 fn loaded(source: &str) -> (tempfile::NamedTempFile, Arc<CelPolicyAdapter>) {
     let file = tempfile::NamedTempFile::new().expect("temp file");
     std::fs::write(file.path(), source).expect("write policy");
-    let adapter =
-        CelPolicyAdapter::load(file.path().to_str().expect("utf-8 path")).expect("CEL compiles");
+    let adapter = CelPolicyAdapter::load(file.path().to_str().expect("utf-8 path"), 1000)
+        .expect("CEL compiles");
     (file, Arc::new(adapter))
 }
 
