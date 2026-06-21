@@ -161,3 +161,31 @@ impl LogCommandGateway for PostgresLogCommandGateway {
         Ok(Some(LeafIndex(next as u64)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use agate_crypto::{CryptoRegistry, HashAlgo};
+    use uuid::Uuid;
+
+    use super::PostgresLogCommandGateway;
+    use crate::application::common::ports::LogCommandGateway;
+    use crate::application::errors::AuditError;
+    use crate::domain::merkle::{LogId, TransparencyLogFactory};
+    use crate::infrastructure::persistence::postgres::TxSlot;
+
+    fn factory() -> TransparencyLogFactory {
+        TransparencyLogFactory::new(CryptoRegistry::hasher(HashAlgo::Sha256).expect("sha-256"))
+    }
+
+    // The persistence/happy path is covered by the integration suite (a real
+    // transaction). Here, with no active transaction in the slot, appending
+    // surfaces a storage error rather than panicking.
+    #[tokio::test]
+    async fn appending_without_an_active_transaction_errors() {
+        let gateway = PostgresLogCommandGateway::new(Arc::new(TxSlot::new(None)), factory());
+        let result = gateway.append_record(LogId(Uuid::new_v4()), b"x").await;
+        assert!(matches!(result, Err(AuditError::Storage(_))));
+    }
+}
