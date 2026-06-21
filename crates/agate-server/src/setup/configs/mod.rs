@@ -6,6 +6,7 @@
 
 pub mod app_config;
 pub mod audit_section;
+pub mod error;
 pub mod loader;
 pub mod observability;
 pub mod policy_section;
@@ -13,6 +14,7 @@ pub mod proxy_section;
 pub mod tls;
 
 pub use app_config::AppConfig;
+pub use error::ConfigError;
 pub use loader::load;
 pub use observability::{
     LogFormat, LoggingConfig, MetricsConfig, MetricsExporter, ObservabilityConfig, TracingConfig,

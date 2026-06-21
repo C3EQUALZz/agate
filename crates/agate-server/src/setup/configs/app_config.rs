@@ -11,6 +11,7 @@ use agate_proxy::setup::configs::{ProxyConfig, SessionMemoryBackend, SessionMemo
 use serde::{Deserialize, Serialize};
 
 use super::audit_section::{AuditBackend, AuditSection, OnFull};
+use super::error::ConfigError;
 use super::observability::ObservabilityConfig;
 use super::policy_section::{
     ArgumentRuleConfig, MalformedMode, PolicyFailMode, PolicySection, ResultRuleConfig,
@@ -44,7 +45,7 @@ pub struct AppConfig {
 impl AppConfig {
     /// Fail fast on missing required values (no sensible default exists for
     /// them). Each section owns its invariants; this only composes them.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConfigError> {
         self.proxy.validate()?;
         self.audit.validate()?;
         self.policy.validate()?;
@@ -245,7 +246,7 @@ mod tests {
     use super::super::policy_section::{ArgumentRuleConfig, ToolsSection};
     use super::FullPolicy;
     use super::{
-        AppConfig, FailMode, PolicySection, ProxySection, SessionMemoryBackend,
+        AppConfig, ConfigError, FailMode, PolicySection, ProxySection, SessionMemoryBackend,
         SessionMemoryBackendKind, ToolMode,
     };
 
@@ -621,10 +622,13 @@ mod tests {
         let section = AuditSection::default();
         assert_eq!(section.backend, AuditBackend::Postgres);
         assert!(
-            section
-                .validate()
-                .err()
-                .is_some_and(|message| { message.contains("audit.database_url is required") }),
+            matches!(
+                section.validate(),
+                Err(ConfigError::Required {
+                    key: "audit.database_url",
+                    ..
+                })
+            ),
             "the Postgres arm owns the database_url requirement"
         );
     }

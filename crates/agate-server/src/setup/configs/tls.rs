@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::error::ConfigError;
+
 /// `[tls]` — optional TLS termination at the server's listener.
 ///
 /// Off by default: Agate then serves plain HTTP, which is sensible only behind a
@@ -18,13 +20,12 @@ pub struct TlsConfig {
 
 impl TlsConfig {
     /// Fail fast on enabling TLS without the certificate material.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConfigError> {
         if self.enabled && (self.cert.trim().is_empty() || self.key.trim().is_empty()) {
-            return Err(
-                "tls.cert and tls.key are required when tls.enabled (paths to the PEM \
-                 certificate chain and private key)"
-                    .into(),
-            );
+            return Err(ConfigError::Required {
+                key: "tls.cert and tls.key",
+                hint: "when tls.enabled (paths to the PEM certificate chain and private key)",
+            });
         }
         Ok(())
     }

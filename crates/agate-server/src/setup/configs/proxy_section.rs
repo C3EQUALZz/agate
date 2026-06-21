@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::error::ConfigError;
+
 /// `[proxy]` — the reverse-proxy data plane.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -60,38 +62,50 @@ pub struct ProxySection {
 
 impl ProxySection {
     /// Fail fast on a missing endpoint or zeroed ingress knobs.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConfigError> {
         if self.agent_endpoint.trim().is_empty() {
-            return Err(
-                "proxy.agent_endpoint is required (set [proxy].agent_endpoint or \
-                 AGATE__PROXY__AGENT_ENDPOINT)"
-                    .into(),
-            );
+            return Err(ConfigError::Required {
+                key: "proxy.agent_endpoint",
+                hint: "(set [proxy].agent_endpoint or AGATE__PROXY__AGENT_ENDPOINT)",
+            });
         }
         // Zero is a footgun, not a sensible "disable": a 0-byte body limit
         // rejects every request, and a 0s timeout fails the connection at once.
         if self.max_body_bytes == 0 {
-            return Err("proxy.max_body_bytes must be greater than 0".into());
+            return Err(ConfigError::MustBePositive {
+                key: "proxy.max_body_bytes",
+            });
         }
-        if self.connect_timeout_secs == 0 || self.read_timeout_secs == 0 {
-            return Err(
-                "proxy.connect_timeout_secs and proxy.read_timeout_secs must be greater than 0"
-                    .into(),
-            );
+        if self.connect_timeout_secs == 0 {
+            return Err(ConfigError::MustBePositive {
+                key: "proxy.connect_timeout_secs",
+            });
+        }
+        if self.read_timeout_secs == 0 {
+            return Err(ConfigError::MustBePositive {
+                key: "proxy.read_timeout_secs",
+            });
         }
         if self.max_concurrent_requests == 0 {
-            return Err("proxy.max_concurrent_requests must be greater than 0".into());
+            return Err(ConfigError::MustBePositive {
+                key: "proxy.max_concurrent_requests",
+            });
         }
         // `0` here is not "unlimited" but the original unbounded-buffer bug: a
         // never-terminated frame would accumulate without a ceiling.
         if self.max_frame_bytes == 0 {
-            return Err("proxy.max_frame_bytes must be greater than 0".into());
+            return Err(ConfigError::MustBePositive {
+                key: "proxy.max_frame_bytes",
+            });
         }
         // A burst without a rate silently disables the limit (the middleware
         // short-circuits on a zero rate), which would leave DoS protection off
         // by surprise — fail fast instead.
         if self.rate_limit_per_second == 0 && self.rate_limit_burst != 0 {
-            return Err("proxy.rate_limit_burst requires proxy.rate_limit_per_second > 0".into());
+            return Err(ConfigError::Requires {
+                key: "proxy.rate_limit_burst",
+                requires: "proxy.rate_limit_per_second > 0",
+            });
         }
         Ok(())
     }
@@ -124,7 +138,7 @@ impl Default for ProxySection {
 
 #[cfg(test)]
 mod tests {
-    use super::ProxySection;
+    use super::{ConfigError, ProxySection};
 
     fn valid() -> ProxySection {
         ProxySection {
@@ -143,7 +157,16 @@ mod tests {
         let error = section
             .validate()
             .expect_err("a burst with no rate is invalid");
-        assert!(error.contains("rate_limit_burst"), "{error}");
+        assert!(
+            matches!(
+                error,
+                ConfigError::Requires {
+                    key: "proxy.rate_limit_burst",
+                    ..
+                }
+            ),
+            "{error}"
+        );
     }
 
     #[test]
