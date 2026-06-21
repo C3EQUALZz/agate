@@ -66,6 +66,10 @@ impl PolicySection {
             {
                 return Err("policy.cel.policy_path is required when backend = \"cel\"".into());
             }
+            #[cfg(feature = "policy-cel")]
+            if self.cel.max_rules == 0 {
+                return Err("policy.cel.max_rules must be greater than 0".into());
+            }
         }
         if self.backend == PolicyBackendKind::Rego {
             #[cfg(not(feature = "policy-rego"))]
@@ -142,7 +146,7 @@ pub enum PolicyBackendKind {
 /// `[policy.cel]` — the CEL plugin engine. When `backend = "cel"`, the operator's
 /// CEL rules at `policy_path` fully own the verdict (the static ruleset above is
 /// not consulted).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CelSection {
     /// Path to the CEL policy file (a TOML list of `[[rule]]` entries). Required
@@ -155,6 +159,23 @@ pub struct CelSection {
     /// opt-in. A reload triggered by a watch is the same fail-safe reload as
     /// `SIGHUP`: a bad or truncated file keeps the running policy.
     pub watch: bool,
+    /// Upper bound on the number of `[[rule]]` entries a policy may contain.
+    /// Evaluation is synchronous and runs inline on a worker per event (see
+    /// ADR-0001), so its cost is linear in the rule count; this caps that cost so
+    /// no operator-authored policy can stall a worker. A policy exceeding it is
+    /// rejected at load and at reload (the running policy is kept). Must be > 0.
+    /// Generous by default — legitimate policies have tens to hundreds of rules.
+    pub max_rules: usize,
+}
+
+impl Default for CelSection {
+    fn default() -> Self {
+        Self {
+            policy_path: None,
+            watch: false,
+            max_rules: 1000,
+        }
+    }
 }
 
 /// `[policy.rego]` — the Rego (OPA) plugin engine. When `backend = "rego"`, the

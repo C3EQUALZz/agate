@@ -5,9 +5,17 @@
 //! boolean expression and an `effect` (`deny` / `redact` / `allow`). Rules are
 //! evaluated in order; the first whose `when` is `true` wins. No match → allow.
 //!
-//! CEL is non-Turing-complete (no loops or recursion), so evaluation always
-//! terminates — the per-decision timeout in `FailModePolicy` then reliably
-//! bounds it, unlike a general interpreter that could spin a worker forever.
+//! Evaluation is **synchronous** and runs inline on the calling worker — there
+//! is no `.await` in [`decide`](PolicyPort::decide), so the `FailModePolicy`
+//! `timeout` decorator does **not** interrupt a CEL evaluation mid-flight (a
+//! future that never yields cannot be preempted); that timeout only bounds
+//! policies that actually await, e.g. an engine consulting an external service.
+//! Termination is instead guaranteed structurally: CEL is non-Turing-complete
+//! (no loops or recursion) and the rule count is capped (`policy.cel.max_rules`),
+//! so a single decision's cost is bounded and a worker cannot be stalled. The
+//! work is left inline rather than offloaded to `spawn_blocking` because a
+//! per-event thread hand-off would regress the microsecond-scale hot path that
+//! runs on every streamed event — see ADR-0001.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -85,16 +93,21 @@ pub struct CelPolicyAdapter {
     /// The source file, kept so the policy can be reloaded in place. `None` when
     /// the engine was built from an in-memory source (tests); reloading errors.
     path: Option<PathBuf>,
+    /// Maximum number of rules a policy may contain. A load or reload of a policy
+    /// with more is rejected (see [`compile_source`](Self::compile_source)).
+    max_rules: usize,
 }
 
 impl CelPolicyAdapter {
-    /// Read and compile the policy at `path`. Every rule's CEL is compiled now,
-    /// so a parse error aborts startup with a message naming the offending rule.
-    pub fn load(path: &str) -> Result<Self, String> {
-        let rules = Self::compile_file(Path::new(path))?;
+    /// Read and compile the policy at `path`, rejecting more than `max_rules`
+    /// entries. Every rule's CEL is compiled now, so a parse error aborts startup
+    /// with a message naming the offending rule.
+    pub fn load(path: &str, max_rules: usize) -> Result<Self, String> {
+        let rules = Self::compile_file(Path::new(path), max_rules)?;
         Ok(Self {
             rules: Arc::new(ArcSwap::from_pointee(rules)),
             path: Some(PathBuf::from(path)),
+            max_rules,
         })
     }
 
@@ -109,7 +122,7 @@ impl CelPolicyAdapter {
             .path
             .as_deref()
             .ok_or("CEL policy has no source file to reload")?;
-        let rules = Self::compile_file(path)?;
+        let rules = Self::compile_file(path, self.max_rules)?;
         // Refuse a reload that would leave zero rules (no rules = allow-all). At
         // startup an empty policy is a deliberate, explicit choice; on reload it
         // is almost always a truncated/half-written file (e.g. a non-atomic
@@ -124,28 +137,40 @@ impl CelPolicyAdapter {
     }
 
     /// Read `path` and compile every rule, prefixing errors with the file name.
-    fn compile_file(path: &Path) -> Result<Vec<CompiledRule>, String> {
+    fn compile_file(path: &Path, max_rules: usize) -> Result<Vec<CompiledRule>, String> {
         let source = std::fs::read_to_string(path).map_err(|error| {
             format!("cannot read CEL policy file '{}': {error}", path.display())
         })?;
-        Self::compile_source(&source)
+        Self::compile_source(&source, max_rules)
             .map_err(|error| format!("in CEL policy file '{}': {error}", path.display()))
     }
 
     /// Compile a policy from its in-memory TOML source (a list of `[[rule]]`).
     /// Test-only: production always loads from a file (so it can be reloaded).
     #[cfg(test)]
-    fn from_source(source: &str) -> Result<Self, String> {
+    fn from_source(source: &str, max_rules: usize) -> Result<Self, String> {
         Ok(Self {
-            rules: Arc::new(ArcSwap::from_pointee(Self::compile_source(source)?)),
+            rules: Arc::new(ArcSwap::from_pointee(Self::compile_source(
+                source, max_rules,
+            )?)),
             path: None,
+            max_rules,
         })
     }
 
-    /// Parse the TOML policy and compile each rule's CEL programs.
-    fn compile_source(source: &str) -> Result<Vec<CompiledRule>, String> {
+    /// Parse the TOML policy and compile each rule's CEL programs. A policy with
+    /// more than `max_rules` entries is rejected before compiling: evaluation is
+    /// synchronous and linear in the rule count (see ADR-0001), so the cap is what
+    /// keeps a single decision's cost bounded, not the `FailModePolicy` timeout.
+    fn compile_source(source: &str, max_rules: usize) -> Result<Vec<CompiledRule>, String> {
         let file: PolicyFile =
             toml::from_str(source).map_err(|error| format!("cannot parse CEL policy: {error}"))?;
+        if file.rule.len() > max_rules {
+            return Err(format!(
+                "CEL policy has {} rules, exceeding the limit of {max_rules} (policy.cel.max_rules)",
+                file.rule.len()
+            ));
+        }
         file.rule
             .into_iter()
             .enumerate()
@@ -304,8 +329,11 @@ mod tests {
 
     use super::CelPolicyAdapter;
 
+    /// A generous rule cap for tests that do not exercise the limit itself.
+    const TEST_MAX_RULES: usize = 1000;
+
     fn engine(source: &str) -> CelPolicyAdapter {
-        CelPolicyAdapter::from_source(source).expect("policy compiles")
+        CelPolicyAdapter::from_source(source, TEST_MAX_RULES).expect("policy compiles")
     }
 
     fn context() -> InspectionContext {
@@ -569,6 +597,7 @@ mod tests {
             when = "1 +"
             effect = "deny"
         "#,
+            TEST_MAX_RULES,
         ) else {
             panic!("an incomplete CEL expression must not compile");
         };
@@ -584,6 +613,7 @@ mod tests {
             effect = "redact"
             replacement = "1 +"
         "#,
+            TEST_MAX_RULES,
         ) else {
             panic!("an incomplete replacement expression must not compile");
         };
@@ -592,7 +622,8 @@ mod tests {
 
     #[test]
     fn rejects_malformed_policy_toml() {
-        let Err(error) = CelPolicyAdapter::from_source("this is = = not toml") else {
+        let Err(error) = CelPolicyAdapter::from_source("this is = = not toml", TEST_MAX_RULES)
+        else {
             panic!("malformed TOML must not parse");
         };
         assert!(error.contains("cannot parse"), "got: {error}");
@@ -601,11 +632,55 @@ mod tests {
     /// Write `source` to a fresh temp file and load an engine from it; the file
     /// is returned so the caller can rewrite it and keeps it alive for the test.
     fn loaded(source: &str) -> (tempfile::NamedTempFile, CelPolicyAdapter) {
+        loaded_capped(source, TEST_MAX_RULES)
+    }
+
+    /// Like [`loaded`], but with an explicit rule cap so a test can exercise it.
+    fn loaded_capped(
+        source: &str,
+        max_rules: usize,
+    ) -> (tempfile::NamedTempFile, CelPolicyAdapter) {
         let file = tempfile::NamedTempFile::new().expect("temp file");
         std::fs::write(file.path(), source).expect("write policy");
-        let engine =
-            CelPolicyAdapter::load(file.path().to_str().expect("utf-8 path")).expect("compiles");
+        let engine = CelPolicyAdapter::load(file.path().to_str().expect("utf-8 path"), max_rules)
+            .expect("compiles");
         (file, engine)
+    }
+
+    /// A policy source with `n` identical allow rules.
+    fn policy_with_rules(n: usize) -> String {
+        "[[rule]]\nwhen = \"true\"\neffect = \"allow\"\n".repeat(n)
+    }
+
+    #[test]
+    fn rejects_a_policy_exceeding_max_rules() {
+        let Err(error) = CelPolicyAdapter::from_source(&policy_with_rules(3), 2) else {
+            panic!("a policy with more than max_rules must be rejected");
+        };
+        assert!(error.contains("exceeding the limit of 2"), "got: {error}");
+    }
+
+    #[test]
+    fn accepts_a_policy_at_the_rule_limit() {
+        CelPolicyAdapter::from_source(&policy_with_rules(2), 2)
+            .expect("a policy exactly at the limit compiles");
+    }
+
+    #[tokio::test]
+    async fn a_reload_exceeding_max_rules_is_refused() {
+        // Start within the cap, then grow the file past it: the reload must fail
+        // and the known-good (smaller) policy must stay active (fail-safe).
+        let (file, engine) = loaded_capped(&policy_with_rules(1), 2);
+        std::fs::write(file.path(), policy_with_rules(3)).expect("grow policy");
+        let Err(error) = engine.reload() else {
+            panic!("a reload over the rule cap must fail");
+        };
+        assert!(error.contains("exceeding the limit of 2"), "got: {error}");
+        // The original one-rule policy still decides (allow-all here).
+        assert_eq!(
+            engine.decide(&context(), &tool("rm", "{}")).await,
+            Verdict::Allow
+        );
     }
 
     #[tokio::test]

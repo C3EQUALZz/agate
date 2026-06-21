@@ -56,7 +56,8 @@ async fn assert_denies_and_redacts(policy: Arc<dyn PolicyPort>) {
 async fn cel_backend_denies_and_redacts_through_the_proxy() {
     let file = write_policy(CEL_POLICY);
     let policy = Arc::new(
-        CelPolicyAdapter::load(file.path().to_str().expect("utf-8 path")).expect("CEL compiles"),
+        CelPolicyAdapter::load(file.path().to_str().expect("utf-8 path"), 1000)
+            .expect("CEL compiles"),
     );
     assert_denies_and_redacts(policy).await;
 }

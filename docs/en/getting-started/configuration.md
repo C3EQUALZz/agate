@@ -102,6 +102,7 @@ nothing is redacted**.
 | `[policy].backend` | `ruleset` \| `cel` \| `rego` | Which engine decides verdicts. `ruleset` (default) is the built-in static policy documented above. `cel` and `rego` hand every decision to an operator-authored policy (from `[policy.cel]` / `[policy.rego]`) — the static rules above are then **not** consulted. Selecting `cel` / `rego` requires a build with the `policy-cel` / `policy-rego` Cargo feature. |
 | `[policy.cel].policy_path` | string | Path to the CEL policy file (a TOML list of `[[rule]]` entries; see below). **Required** when `backend = "cel"`. Every rule is compiled at startup, so a parse error **aborts the process**. |
 | `[policy.cel].watch` | bool | Auto-reload the policy file when it changes on disk, on top of the always-on `SIGHUP` reload. Default `false` (opt-in — file-watching relies on the platform's inotify/FSEvents and may not fire on some network filesystems). A watch-triggered reload is the same fail-safe reload as `SIGHUP`. |
+| `[policy.cel].max_rules` | integer (> 0) | Maximum number of `[[rule]]` entries a CEL policy may contain. Default `1000`. Evaluation is synchronous and linear in the rule count, so this caps a single decision's cost; a policy with more rules is rejected at load and at reload (the running policy is kept). Generous by default — legitimate policies have tens to hundreds of rules. |
 | `[policy.rego].policy_path` | string | Path to the Rego (OPA) policy file (see below). **Required** when `backend = "rego"`. Compiled at startup, so a parse error **aborts the process**. |
 | `[policy.rego].watch` | bool | Auto-reload the Rego policy on file change, on top of `SIGHUP`. Default `false`; same fail-safe reload semantics as the CEL `watch`. |
 
@@ -115,10 +116,12 @@ The static ruleset above covers the common cases declaratively. For policies tha
 need expressions — comparisons, boolean logic, addressing nested fields — Agate
 ships an alternative engine that evaluates [CEL][cel] (Common Expression
 Language) rules. CEL is **non-Turing-complete** (no loops or recursion), so every
-expression terminates; the `decision_timeout_ms` guard above still bounds a
-decision as a backstop. It is a separate `PolicyPort` backend
-selected with `[policy].backend = "cel"`, available only in a build with the
-`policy-cel` Cargo feature (`cargo build -p agate-server --features policy-cel`).
+expression terminates. Evaluation is **synchronous** and runs inline per event,
+so the `decision_timeout_ms` guard does **not** interrupt a CEL decision
+mid-flight (it only bounds backends that wait on something external); a single
+decision's cost is bounded instead by `max_rules`. It is a separate `PolicyPort`
+backend selected with `[policy].backend = "cel"`, available only in a build with
+the `policy-cel` Cargo feature (`cargo build -p agate-server --features policy-cel`).
 
 The policy file is a TOML list of `[[rule]]` tables, evaluated **in order**; the
 **first** rule whose `when` is `true` wins. If **no** rule matches, the event is

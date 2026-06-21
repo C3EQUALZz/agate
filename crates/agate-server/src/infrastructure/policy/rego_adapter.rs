@@ -16,7 +16,14 @@
 //! `effect` is `allow` / `deny` / `redact`. An **undefined** decision (the policy
 //! matched nothing) allows the event — the operator's rules enumerate what is
 //! blocked. An evaluation error or a malformed decision **fails closed** (deny).
-//! Rego is non-Turing-complete, so evaluation always terminates.
+//!
+//! Like the CEL backend, evaluation is **synchronous** and runs inline on the
+//! worker — there is no `.await` in [`decide`](PolicyPort::decide), so the
+//! `FailModePolicy` `timeout` decorator does **not** interrupt a Rego evaluation
+//! mid-flight; that timeout only bounds policies that actually await. Termination
+//! is guaranteed because Rego is non-Turing-complete (see ADR-0001). Unlike CEL
+//! there is no rule-count cap: a Rego policy is a single `decision` rule, so its
+//! cost is bounded by the operator's policy file rather than an entry count.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
