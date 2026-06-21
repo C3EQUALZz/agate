@@ -11,3 +11,11 @@ public identifiers (they appear in the dashboard URL), not secrets — but their
 high-entropy, mixed-case form trips the generic-api-key rule.
 """
 paths = ['''sonar-project\.properties''']
+
+[[allowlists]]
+description = """
+Red-team design doc. Contains deliberately fake, illustrative "secrets" (e.g.
+sk-abcdef0123456789) used to document a streaming redaction-bypass attack — not
+real credentials, but they trip the generic-api-key rule.
+"""
+paths = ['''docs/design/red-team-e2e\.md''']
