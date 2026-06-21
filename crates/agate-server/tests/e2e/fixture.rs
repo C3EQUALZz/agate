@@ -66,6 +66,26 @@ pub struct TestServer {
     pub pool: PgPool,
     pub base_url: String,
     pub log: LogId,
+    /// The background-task supervisor, so a test can drive graceful shutdown and
+    /// await the outbox drain (see [`shutdown_and_drain`](TestServer::shutdown_and_drain)).
+    supervisor: Supervisor,
+    /// Signals the serve task to stop; dropping it (or sending) ends serving, so
+    /// the app — and the audit sink inside it — drops and closes the outbox channel.
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl TestServer {
+    /// Stop serving and await the supervised drain, exactly as `main` does on
+    /// SIGTERM: end the serve task (dropping the app closes the outbox channel),
+    /// then `Supervisor::wait` blocks until the outbox has drained every queued
+    /// record to the log. After this returns, a record enqueued before shutdown
+    /// is guaranteed appended — never lost.
+    pub async fn shutdown_and_drain(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        self.supervisor.wait().await;
+    }
 }
 
 /// Boot the stub agent (answering with `sse_body`), the database, and the
@@ -135,8 +155,17 @@ pub async fn spawn_core(policy: Arc<dyn PolicyPort>, proxy: ProxyConfig) -> Test
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    // Serve with a graceful-shutdown hook so a test can stop serving on demand:
+    // when the signal fires (or its sender drops), `serve` returns, the app drops,
+    // and the outbox channel closes — the same drain trigger as production.
+    let (shutdown, rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = rx.await;
+            })
+            .await
+            .unwrap();
     });
 
     TestServer {
@@ -144,6 +173,8 @@ pub async fn spawn_core(policy: Arc<dyn PolicyPort>, proxy: ProxyConfig) -> Test
         pool,
         base_url: format!("http://{addr}"),
         log,
+        supervisor,
+        shutdown: Some(shutdown),
     }
 }
 

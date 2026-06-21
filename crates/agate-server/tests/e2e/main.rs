@@ -12,4 +12,5 @@ mod fixture;
 mod policy;
 mod server;
 mod session_memory;
+mod shutdown;
 mod stress;
