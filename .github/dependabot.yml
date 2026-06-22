@@ -13,6 +13,23 @@ updates:
     groups:
       cargo-minor-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # The AEAD / GOST cipher stack is pinned to the aead 0.4 (cipher 0.3)
+      # generation: `mgm` (MGM mode for the GOST Kuznyechik/Magma ciphers) has no
+      # stable release on a newer aead, so the whole set must move together or
+      # not at all. Block major bumps until `mgm` ships a stable aead 0.6+.
+      - dependency-name: "aead"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "aes-gcm"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "chacha20poly1305"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "kuznyechik"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "magma"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "mgm"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
