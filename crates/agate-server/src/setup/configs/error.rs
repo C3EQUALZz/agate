@@ -42,3 +42,51 @@ impl fmt::Display for ConfigError {
 }
 
 impl std::error::Error for ConfigError {}
+
+#[cfg(test)]
+mod tests {
+    use super::ConfigError;
+
+    #[test]
+    fn displays_each_variant() {
+        assert_eq!(
+            ConfigError::Required {
+                key: "audit.database_url",
+                hint: ""
+            }
+            .to_string(),
+            "audit.database_url is required"
+        );
+        assert_eq!(
+            ConfigError::Required {
+                key: "policy.cel.policy_path",
+                hint: "when backend = \"cel\""
+            }
+            .to_string(),
+            "policy.cel.policy_path is required when backend = \"cel\""
+        );
+        assert_eq!(
+            ConfigError::MustBePositive {
+                key: "proxy.max_frame_bytes"
+            }
+            .to_string(),
+            "proxy.max_frame_bytes must be greater than 0"
+        );
+        assert_eq!(
+            ConfigError::Requires {
+                key: "proxy.rate_limit_burst",
+                requires: "proxy.rate_limit_per_second > 0"
+            }
+            .to_string(),
+            "proxy.rate_limit_burst requires proxy.rate_limit_per_second > 0"
+        );
+        assert!(
+            ConfigError::FeatureMissing {
+                backend: "cel",
+                feature: "policy-cel"
+            }
+            .to_string()
+            .contains("`policy-cel` feature")
+        );
+    }
+}

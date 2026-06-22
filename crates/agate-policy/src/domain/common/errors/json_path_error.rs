@@ -27,3 +27,30 @@ impl fmt::Display for JsonPathError {
 }
 
 impl std::error::Error for JsonPathError {}
+
+#[cfg(test)]
+mod tests {
+    use super::JsonPathError;
+
+    #[test]
+    fn displays_each_variant() {
+        assert_eq!(
+            JsonPathError::Blank.to_string(),
+            "rule path must not be blank"
+        );
+        assert_eq!(
+            JsonPathError::EmptySegment {
+                path: "a..b".to_string()
+            }
+            .to_string(),
+            "rule path 'a..b' has an empty segment"
+        );
+        assert!(
+            JsonPathError::ArrayIndexing {
+                path: "items[0]".to_string()
+            }
+            .to_string()
+            .contains("array indexing")
+        );
+    }
+}

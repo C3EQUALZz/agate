@@ -16,3 +16,16 @@ impl fmt::Display for ToolNameError {
 }
 
 impl std::error::Error for ToolNameError {}
+
+#[cfg(test)]
+mod tests {
+    use super::ToolNameError;
+
+    #[test]
+    fn displays_the_blank_variant() {
+        assert_eq!(
+            ToolNameError::Blank.to_string(),
+            "tool name must not be blank"
+        );
+    }
+}

@@ -61,3 +61,45 @@ impl From<ToolMatcherError> for DomainError {
         DomainError::ToolMatcher(error)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use crate::domain::common::errors::{
+        DomainError, JsonPathError, PatternError, ToolMatcherError, ToolNameError,
+    };
+
+    #[test]
+    fn from_wraps_and_display_delegates_for_every_variant() {
+        assert_eq!(
+            DomainError::from(PatternError::Blank).to_string(),
+            "pattern must not be blank"
+        );
+        assert_eq!(
+            DomainError::from(ToolNameError::Blank).to_string(),
+            "tool name must not be blank"
+        );
+        assert_eq!(
+            DomainError::from(JsonPathError::Blank).to_string(),
+            "rule path must not be blank"
+        );
+        assert_eq!(
+            DomainError::from(ToolMatcherError::BlankExact).to_string(),
+            "tool name must not be blank"
+        );
+    }
+
+    #[test]
+    fn every_variant_exposes_its_inner_error_as_source() {
+        let errors = [
+            DomainError::from(PatternError::Blank),
+            DomainError::from(ToolNameError::Blank),
+            DomainError::from(JsonPathError::Blank),
+            DomainError::from(ToolMatcherError::BlankExact),
+        ];
+        for error in errors {
+            assert!(error.source().is_some(), "{error}");
+        }
+    }
+}
