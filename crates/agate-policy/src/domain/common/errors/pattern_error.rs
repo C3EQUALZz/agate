@@ -29,3 +29,36 @@ impl std::error::Error for PatternError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use super::PatternError;
+
+    fn regex_error() -> regex::Error {
+        let invalid = String::from("(");
+        regex::Regex::new(&invalid).expect_err("invalid regex")
+    }
+
+    #[test]
+    fn displays_each_variant() {
+        assert_eq!(PatternError::Blank.to_string(), "pattern must not be blank");
+        assert_eq!(
+            PatternError::BlankRegex.to_string(),
+            "pattern regex must not be blank"
+        );
+        assert!(
+            PatternError::InvalidRegex(regex_error())
+                .to_string()
+                .starts_with("invalid pattern regex:")
+        );
+    }
+
+    #[test]
+    fn only_an_invalid_regex_has_a_source() {
+        assert!(PatternError::Blank.source().is_none());
+        assert!(PatternError::BlankRegex.source().is_none());
+        assert!(PatternError::InvalidRegex(regex_error()).source().is_some());
+    }
+}
