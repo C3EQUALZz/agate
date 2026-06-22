@@ -79,8 +79,8 @@ impl RedisSessionMemory {
             .get_or_try_init(|| {
                 let config = ConnectionManagerConfig::new()
                     .set_number_of_retries(CONNECT_RETRIES)
-                    .set_connection_timeout(CONNECT_TIMEOUT)
-                    .set_response_timeout(RESPONSE_TIMEOUT);
+                    .set_connection_timeout(Some(CONNECT_TIMEOUT))
+                    .set_response_timeout(Some(RESPONSE_TIMEOUT));
                 ConnectionManager::new_with_config(self.client.clone(), config)
             })
             .await

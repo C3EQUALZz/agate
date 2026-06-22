@@ -24,6 +24,9 @@ allow = [
     "Zlib",
     # Mozilla CA root store data shipped by webpki-roots (via rustls).
     "CDLA-Permissive-2.0",
+    # Boost Software License — permissive, OSI-approved, no binary attribution.
+    # Pulled (BSL-1.0-only) by xxhash-rust via redis 1.x.
+    "BSL-1.0",
 ]
 
 [sources]
