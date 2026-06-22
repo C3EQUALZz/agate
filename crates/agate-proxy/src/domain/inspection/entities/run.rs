@@ -28,6 +28,11 @@ struct ToolCallBuffer {
 /// no domain-event recording — that assembles wire [`Fragment`]s into complete
 /// [`AgentEvent`]s and enforces the structural invariants the pure domain owns:
 /// lifecycle ordering, tool-call assembly, and resource budgets.
+///
+/// Constructed directly via [`new`](Self::new), not through a `Factory`: being
+/// transient and never reconstituted from storage, it has no persisted identity
+/// to guard, so the factory/event-collection machinery the audit-context
+/// aggregates use does not apply here.
 pub struct Run {
     id: RunId,
     phase: Phase,
